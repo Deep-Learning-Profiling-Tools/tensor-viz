@@ -56,6 +56,11 @@ export type ViewerSnapshot = {
     activeTensorId: string | null;
 };
 
+export type InspectorTensorOption = {
+    id: string;
+    name: string;
+};
+
 export type HiddenToken = {
     token: string;
     axes: number[];

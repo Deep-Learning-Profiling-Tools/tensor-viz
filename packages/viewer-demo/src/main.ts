@@ -57,6 +57,11 @@ const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
 
+function logUi(event: string, details?: unknown): void {
+    if (details === undefined) console.log('[tensor-viz-ui]', event);
+    else console.log('[tensor-viz-ui]', event, details);
+}
+
 function formatRangeValue(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toPrecision(6);
 }
@@ -90,12 +95,18 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           <div><span class="meta-label">Hover Tensor</span><span class="meta-value">${hover.tensorName}</span></div>
           <div><span class="meta-label">Full Coord</span><span class="meta-value">[${hover.fullCoord.join(', ')}]</span></div>
           <div><span class="meta-label">Value</span><span class="meta-value">${hover.value}</span></div>
-          <div><span class="meta-label">Color Source</span><span class="meta-value">${hover.colorSource}</span></div>
         `
         : '<div><span class="meta-label">Hover</span><span class="meta-value">No cell hovered.</span></div>';
+    const tensorOptions = model.tensors.map((tensor) => `
+      <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.id} (${tensor.name})</option>
+    `).join('');
     tensorViewWidget.innerHTML = `
       <h2>Tensor View</h2>
       <div class="widget-body">
+        <div class="field">
+          <label for="tensor-select">Tensor</label>
+          <select id="tensor-select">${tensorOptions}</select>
+        </div>
         <div class="field">
           <label for="view-input">Visible Dimensions</label>
           <input id="view-input" type="text" value="${model.viewInput}" placeholder="empty resets to default" />
@@ -112,16 +123,20 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     inspectorWidget.innerHTML = `
       <h2>Inspector</h2>
       <div class="widget-body meta-grid">
-        <div><span class="meta-label">Tensor</span><span class="meta-value">${model.handle.name}</span></div>
+        ${inspectorDetail}
         <div><span class="meta-label">DType</span><span class="meta-value">${model.handle.dtype}</span></div>
         <div><span class="meta-label">Shape</span><span class="meta-value">[${model.handle.shape.join(', ')}]</span></div>
         <div><span class="meta-label">Rank</span><span class="meta-value">${model.handle.rank}</span></div>
-        ${inspectorDetail}
       </div>
     `;
 
     const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
+    const select = tensorViewWidget.querySelector<HTMLSelectElement>('#tensor-select');
     const hiddenHost = tensorViewWidget.querySelector<HTMLElement>('#hidden-token-controls');
+    select?.addEventListener('change', () => {
+        logUi('tensor-select', select.value);
+        viewer.setActiveTensor(select.value);
+    });
     if (input) {
         input.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter') return;
@@ -129,6 +144,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         });
         input.addEventListener('change', () => {
             try {
+                logUi('tensor-view:change', { tensorId: model.handle!.id, value: input.value });
                 viewer.setTensorView(model.handle!.id, input.value);
                 viewErrors.delete(model.handle!.id);
             } catch (error) {
@@ -149,6 +165,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const slider = row.querySelector<HTMLInputElement>(`#hidden-${token.token}`);
         const number = row.querySelector<HTMLInputElement>(`#hidden-${token.token}-number`);
         const applyValue = (nextValue: number): void => {
+            logUi('hidden-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setHiddenTokenValue(model.handle!.id, token.token, nextValue);
         };
         slider?.addEventListener('pointerdown', () => {
@@ -181,14 +198,20 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
         colorbarWidget.innerHTML = '';
         return;
     }
+    const sections = model.colorRanges.map((range) => `
+      <div class="colorbar-section">
+        <div class="colorbar-title">${range.id} (${range.name})</div>
+        <div class="colorbar"></div>
+        <div class="colorbar-labels">
+          <span>${formatRangeValue(range.min)}</span>
+          <span>${formatRangeValue(range.max)}</span>
+        </div>
+      </div>
+    `).join('');
     colorbarWidget.innerHTML = `
       <h2>Colorbar</h2>
       <div class="widget-body">
-        <div class="colorbar"></div>
-        <div class="colorbar-labels">
-          <span>${formatRangeValue(model.colorRange.min)}</span>
-          <span>${formatRangeValue(model.colorRange.max)}</span>
-        </div>
+        ${sections}
       </div>
     `;
 }
@@ -231,6 +254,7 @@ async function openLocalFile(file: File): Promise<void> {
 }
 
 async function runAction(action: string): Promise<void> {
+    logUi('action', action);
     switch (action) {
         case 'open':
             fileInput.click();
@@ -252,10 +276,11 @@ async function runAction(action: string): Promise<void> {
             render(viewer.getSnapshot());
             return;
         case 'view': {
-            const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
-            input?.focus();
-            input?.select();
-            return;
+        const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
+        input?.focus();
+        input?.select();
+        logUi('tensor-view:focus');
+        return;
         }
         case 'dims':
             viewer.toggleDimensionLines();
@@ -268,6 +293,7 @@ async function runAction(action: string): Promise<void> {
 
 document.querySelectorAll<HTMLButtonElement>('.menu-list button').forEach((button) => {
     button.addEventListener('click', async () => {
+        logUi('menu:click', button.dataset.action ?? '');
         await runAction(button.dataset.action ?? '');
         button.blur();
     });
@@ -276,6 +302,7 @@ document.querySelectorAll<HTMLButtonElement>('.menu-list button').forEach((butto
 fileInput.addEventListener('change', async () => {
     const [file] = Array.from(fileInput.files ?? []);
     if (!file) return;
+    logUi('file:input', file.name);
     await openLocalFile(file);
     fileInput.value = '';
 });

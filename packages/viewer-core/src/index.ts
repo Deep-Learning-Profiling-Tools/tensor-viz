@@ -16,6 +16,7 @@ export type {
     CustomColor,
     DType,
     HoverInfo,
+    InspectorTensorOption,
     HueSaturation,
     NumericArray,
     RGBA,

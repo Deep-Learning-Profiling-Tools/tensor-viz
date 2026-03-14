@@ -16,7 +16,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
     font: inherit;
     border-radius: 0;
 }
@@ -145,6 +146,7 @@ input {
 }
 
 .field input[type="text"],
+.field select,
 .slider-row input[type="number"] {
     width: 100%;
     padding: 0.6rem 0.7rem;
@@ -198,6 +200,17 @@ input {
     height: 24px;
     border: 1px solid rgba(100, 116, 139, 0.24);
     background: linear-gradient(90deg, #000, #fff);
+}
+
+.colorbar-section {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.colorbar-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #475569;
 }
 
 .colorbar-labels {

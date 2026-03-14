@@ -99,12 +99,27 @@ function baseGridExtent2D(shapeInput: number[], cellExtent: Extent2, level: numb
     };
 }
 
-function recursiveExtent2D(shapeInput: number[], cellExtent: Extent2, level: number, verticalFor1D: boolean): Extent2 {
+function axisWorldKey2D(rank: number, axis: number): 0 | 1 {
+    return ((rank - 1 - axis) % 2) as 0 | 1;
+}
+
+function recursiveExtent2D(
+    shapeInput: number[],
+    cellExtent: Extent2,
+    level: number,
+    verticalFor1D: boolean,
+    originalRank: number,
+    axisOffset: number,
+): Extent2 {
     const shape = normalizeDisplayShape(shapeInput);
-    if (shape.length <= 2) return baseGridExtent2D(shape, cellExtent, level, verticalFor1D);
+    if (shape.length <= 2) {
+        const orient1D = shape.length === 1 ? axisWorldKey2D(originalRank, axisOffset) === 1 : verticalFor1D;
+        return baseGridExtent2D(shape, cellExtent, level, orient1D);
+    }
     const split = shape.length - 2;
-    const innerExtent = recursiveExtent2D(shape.slice(split), cellExtent, level, false);
-    return recursiveExtent2D(shape.slice(0, split), innerExtent, level + 1, true);
+    const innerExtent = recursiveExtent2D(shape.slice(split), cellExtent, level, false, originalRank, axisOffset + split);
+    const outerVertical = axisWorldKey2D(originalRank, axisOffset + split - 1) === 1;
+    return recursiveExtent2D(shape.slice(0, split), innerExtent, level + 1, outerVertical, originalRank, axisOffset);
 }
 
 function baseGridPosition2D(
@@ -140,15 +155,21 @@ function recursivePosition2D(
     cellExtent: Extent2,
     level: number,
     verticalFor1D: boolean,
+    originalRank: number,
+    axisOffset: number,
 ): { x: number; y: number } {
     const shape = normalizeDisplayShape(shapeInput);
-    if (shape.length <= 2) return baseGridPosition2D(coord, shape, cellExtent, level, verticalFor1D);
+    if (shape.length <= 2) {
+        const orient1D = shape.length === 1 ? axisWorldKey2D(originalRank, axisOffset) === 1 : verticalFor1D;
+        return baseGridPosition2D(coord, shape, cellExtent, level, orient1D);
+    }
     const split = shape.length - 2;
     const innerShape = shape.slice(split);
     const outerShape = shape.slice(0, split);
-    const innerExtent = recursiveExtent2D(innerShape, cellExtent, level, false);
-    const outerPosition = recursivePosition2D(coord.slice(0, split), outerShape, innerExtent, level + 1, true);
-    const innerPosition = recursivePosition2D(coord.slice(split), innerShape, cellExtent, level, false);
+    const innerExtent = recursiveExtent2D(innerShape, cellExtent, level, false, originalRank, axisOffset + split);
+    const outerVertical = axisWorldKey2D(originalRank, axisOffset + split - 1) === 1;
+    const outerPosition = recursivePosition2D(coord.slice(0, split), outerShape, innerExtent, level + 1, outerVertical, originalRank, axisOffset);
+    const innerPosition = recursivePosition2D(coord.slice(split), innerShape, cellExtent, level, false, originalRank, axisOffset + split);
     return {
         x: outerPosition.x + innerPosition.x,
         y: outerPosition.y + innerPosition.y,
@@ -176,9 +197,10 @@ export function displayExtent(shape: number[]): Vector3 {
 }
 
 export function displayPositionForCoord2D(coord: number[], shape: number[]): { x: number; y: number } {
-    return recursivePosition2D(coord, shape, { x: CELL_SIZE, y: CELL_SIZE }, 0, false);
+    return recursivePosition2D(coord, shape, { x: CELL_SIZE, y: CELL_SIZE }, 0, false, normalizeDisplayShape(shape).length, 0);
 }
 
 export function displayExtent2D(shape: number[]): { x: number; y: number } {
-    return recursiveExtent2D(shape, { x: CELL_SIZE, y: CELL_SIZE }, 0, false);
+    const normalized = normalizeDisplayShape(shape);
+    return recursiveExtent2D(normalized, { x: CELL_SIZE, y: CELL_SIZE }, 0, false, normalized.length, 0);
 }
