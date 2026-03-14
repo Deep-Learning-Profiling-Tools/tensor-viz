@@ -1,14 +1,8 @@
 import JSZip from 'jszip';
 import { unravelIndex } from './layout.js';
+import { createTypedArray } from './npy.js';
 import { product } from './view.js';
-import type { BundleManifest, ColorInstruction, CustomColor, DType, NumericArray, TensorRecord, ViewerSnapshot } from './types.js';
-
-const DTYPE_TO_ARRAY = {
-    float64: Float64Array,
-    float32: Float32Array,
-    int32: Int32Array,
-    uint8: Uint8Array,
-} satisfies Record<DType, new (buffer: ArrayBuffer) => NumericArray>;
+import type { BundleManifest, ColorInstruction, CustomColor, NumericArray, TensorRecord, ViewerSnapshot } from './types.js';
 
 function byteView(data: NumericArray): Uint8Array {
     return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
@@ -42,11 +36,6 @@ function sparseColorInstructions(tensor: TensorRecord): ColorInstruction[] | und
         coords: group.coords,
         color: group.color,
     }));
-}
-
-export function createTypedArray(dtype: DType, buffer: ArrayBuffer): NumericArray {
-    const ctor = DTYPE_TO_ARRAY[dtype];
-    return new ctor(buffer);
 }
 
 export async function saveBundle(snapshot: ViewerSnapshot, tensors: TensorRecord[]): Promise<Blob> {

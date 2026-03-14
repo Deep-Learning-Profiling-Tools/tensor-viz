@@ -23,13 +23,13 @@ app.innerHTML = `
         <button data-action="2d" type="button">Display as 2D <span>Ctrl+2</span></button>
         <button data-action="3d" type="button">Display as 3D <span>Ctrl+3</span></button>
         <button data-action="heatmap" type="button">Toggle Heatmap <span>Ctrl+H</span></button>
+        <button data-action="dims" type="button">Toggle Dimension Lines <span>Ctrl+D</span></button>
       </div>
     </div>
     <div class="menu">
       <button class="menu-trigger" type="button">Widgets</button>
       <div class="menu-list">
         <button data-action="tensor-view" type="button">Toggle Tensor View <span>Ctrl+V</span></button>
-        <button data-action="dims" type="button">Toggle Dimension Lines <span>Ctrl+D</span></button>
         <button data-action="inspector" type="button">Toggle Inspector <span></span></button>
       </div>
     </div>
@@ -42,7 +42,7 @@ app.innerHTML = `
     <section class="widget" id="inspector-widget"></section>
     <section class="widget" id="colorbar-widget"></section>
   </aside>
-  <input class="hidden" id="file-input" type="file" accept=".viz" />
+  <input class="hidden" id="file-input" type="file" accept=".npy" />
 `;
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport');
@@ -84,19 +84,10 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     if (!model.handle) {
         tensorViewWidget.innerHTML = '<h2>Tensor View</h2><div class="widget-body">No tensor loaded.</div>';
-        inspectorWidget.innerHTML = '<h2>Inspector</h2><div class="widget-body">No tensor loaded.</div>';
         return;
     }
 
     const error = viewErrors.get(model.handle.id);
-    const hover = viewer.getHover();
-    const inspectorDetail = hover
-        ? `
-          <div><span class="meta-label">Hover Tensor</span><span class="meta-value">${hover.tensorName}</span></div>
-          <div><span class="meta-label">Full Coord</span><span class="meta-value">[${hover.fullCoord.join(', ')}]</span></div>
-          <div><span class="meta-label">Value</span><span class="meta-value">${hover.value}</span></div>
-        `
-        : '<div><span class="meta-label">Hover</span><span class="meta-value">No cell hovered.</span></div>';
     const tensorOptions = model.tensors.map((tensor) => `
       <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.id} (${tensor.name})</option>
     `).join('');
@@ -117,16 +108,6 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           <div class="mono-block">${model.preview}</div>
         </div>
         <div class="slider-list" id="hidden-token-controls"></div>
-      </div>
-    `;
-
-    inspectorWidget.innerHTML = `
-      <h2>Inspector</h2>
-      <div class="widget-body meta-grid">
-        ${inspectorDetail}
-        <div><span class="meta-label">DType</span><span class="meta-value">${model.handle.dtype}</span></div>
-        <div><span class="meta-label">Shape</span><span class="meta-value">[${model.handle.shape.join(', ')}]</span></div>
-        <div><span class="meta-label">Rank</span><span class="meta-value">${model.handle.rank}</span></div>
       </div>
     `;
 
@@ -192,6 +173,31 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     }));
 }
 
+function renderInspectorWidget(): void {
+    const model = viewer.getInspectorModel();
+    if (!model.handle) {
+        inspectorWidget.innerHTML = '<h2>Inspector</h2><div class="widget-body">No tensor loaded.</div>';
+        return;
+    }
+    const hover = viewer.getHover();
+    const hoverMarkup = hover
+        ? `
+          <div><span class="meta-label">Hover Tensor</span><span class="meta-value">${hover.tensorName}</span></div>
+          <div><span class="meta-label">Full Coord</span><span class="meta-value">[${hover.fullCoord.join(', ')}]</span></div>
+          <div><span class="meta-label">Value</span><span class="meta-value">${hover.value}</span></div>
+        `
+        : '<div><span class="meta-label">Hover</span><span class="meta-value">No cell hovered.</span></div>';
+    inspectorWidget.innerHTML = `
+      <h2>Inspector</h2>
+      <div class="widget-body meta-grid">
+        ${hoverMarkup}
+        <div><span class="meta-label">DType</span><span class="meta-value">${model.handle.dtype}</span></div>
+        <div><span class="meta-label">Shape</span><span class="meta-value">[${model.handle.shape.join(', ')}]</span></div>
+        <div><span class="meta-label">Rank</span><span class="meta-value">${model.handle.rank}</span></div>
+      </div>
+    `;
+}
+
 function renderColorbarWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     if (!snapshot.heatmap || !model.colorRange) {
@@ -219,15 +225,20 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
 function render(snapshot: ViewerSnapshot): void {
     updateSidebar(snapshot);
     renderTensorViewWidget(snapshot);
+    renderInspectorWidget();
     renderColorbarWidget(snapshot);
 }
 
-async function saveBundleToDisk(): Promise<void> {
+function sanitizeFilename(name: string): string {
+    return name.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'tensor';
+}
+
+async function saveTensorToDisk(): Promise<void> {
     const blob = await viewer.saveFile();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = 'tensor.viz';
+    anchor.download = `${sanitizeFilename(viewer.getInspectorModel().handle?.name ?? 'tensor')}.npy`;
     anchor.click();
     URL.revokeObjectURL(url);
 }
@@ -260,7 +271,7 @@ async function runAction(action: string): Promise<void> {
             fileInput.click();
             return;
         case 'save':
-            await saveBundleToDisk();
+            await saveTensorToDisk();
             return;
         case '2d':
             viewer.setDisplayMode('2d');
@@ -337,6 +348,7 @@ window.addEventListener('keydown', async (event) => {
 });
 
 viewer.subscribe(render);
+viewer.subscribeHover(() => renderInspectorWidget());
 
 tryLoadSession().then((loaded) => {
     if (!loaded) seedDemoTensor();

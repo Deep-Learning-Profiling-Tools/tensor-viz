@@ -2,7 +2,7 @@ import numpy as np
 import tensor_viz
 from tensor_viz.bundle import create_session_bundle
 
-DEMO = 1
+DEMO = 3
 
 if DEMO == 0: # basic
     x = np.random.randn(2,3)
@@ -62,4 +62,6 @@ if DEMO == 2: # multi-tensor view
     )
 
     tensor_viz.viz(BASE, session_bundle=bundle)
-
+if DEMO == 3: # big boy
+    x = np.random.randn(64,64)
+    tensor_viz.viz(x)

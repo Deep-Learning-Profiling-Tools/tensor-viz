@@ -30,7 +30,8 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import helvetikerBoldFont from 'three/examples/fonts/helvetiker_bold.typeface.json';
-import { loadBundle, saveBundle } from './bundle.js';
+import { loadBundle } from './bundle.js';
+import { isNpyFile, loadNpy, saveNpy } from './npy.js';
 import {
     displayExtent,
     displayExtent2D,
@@ -83,27 +84,26 @@ type CanvasEntry = {
     hover: HoverInfo;
 };
 
-type CanvasSimpleGrid = {
-    width: number;
-    height: number;
-    startX: number;
-    startY: number;
-    stepX: number;
-    stepY: number;
-    tensorId: string;
-};
-
 type CanvasCache = {
     canvas: HTMLCanvasElement;
     entries: CanvasEntry[] | null;
-    simpleGrid: CanvasSimpleGrid | null;
     extent: { x: number; y: number };
+    padding: number;
+    cellPixels: number;
 };
 
 const CANVAS_WORLD_SCALE = 4;
-const SVG_CELL_LIMIT = 4_096;
 const LOG_PREFIX = '[tensor-viz]';
 const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
+const LOG_ENABLED = (() => {
+    try {
+        return typeof window !== 'undefined'
+            && ((window as { __TENSOR_VIZ_DEBUG__?: boolean }).__TENSOR_VIZ_DEBUG__ === true
+                || window.localStorage.getItem('tensor-viz-debug') === '1');
+    } catch {
+        return false;
+    }
+})();
 
 function createLine(points: Vector3[], color: string): Line {
     const geometry = new BufferGeometry().setFromPoints(points);
@@ -113,6 +113,7 @@ function createLine(points: Vector3[], color: string): Line {
 }
 
 function logEvent(event: string, details?: unknown): void {
+    if (!LOG_ENABLED) return;
     if (details === undefined) console.log(LOG_PREFIX, event);
     else console.log(LOG_PREFIX, event, details);
 }
@@ -272,7 +273,9 @@ export class TensorViewer {
     private readonly tensors = new Map<string, TensorRecord>();
     private readonly tensorMeshes = new Map<string, Group>();
     private readonly listeners = new Set<(snapshot: ViewerSnapshot) => void>();
+    private readonly hoverListeners = new Set<(hover: HoverInfo | null) => void>();
     private readonly canvasCache = new Map<string, CanvasCache>();
+    private readonly pickMeshes: InstancedMesh[] = [];
     private readonly state: ViewerState = {
         displayMode: '2d',
         heatmap: true,
@@ -313,6 +316,7 @@ export class TensorViewer {
         this.flatOverlay.style.width = '100%';
         this.flatOverlay.style.height = '100%';
         this.flatOverlay.style.pointerEvents = 'none';
+        this.flatOverlay.style.display = 'none';
         this.perspectiveCamera = new PerspectiveCamera(45, 1, 0.1, 2000);
         this.orthographicCamera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 2000);
         this.camera = this.perspectiveCamera;
@@ -389,6 +393,35 @@ export class TensorViewer {
 
     private canvasScale(): number {
         return this.flatCanvas.width / Math.max(1, this.flatCanvas.clientWidth || this.flatCanvas.width || 1);
+    }
+
+    private idealCacheCellPixels(tensor: TensorRecord): number {
+        const extent = displayExtent2D(tensor.view.outlineShape);
+        const maxExtent = Math.max(1, extent.x, extent.y);
+        const pixelBudget = 2048 * this.canvasScale();
+        return Math.max(1, Math.min(32, Math.floor(pixelBudget / maxExtent)));
+    }
+
+    private cachePlacement(tensor: TensorRecord, cache: CanvasCache): { x: number; y: number; scale: number } {
+        const topLeft = this.projectCanvasPoint(
+            tensor.offset[0] - cache.extent.x / 2,
+            tensor.offset[1] + cache.extent.y / 2,
+        );
+        const scale = (CANVAS_WORLD_SCALE * this.canvasZoom) / cache.cellPixels;
+        return {
+            x: topLeft.x - (cache.padding * scale),
+            y: topLeft.y - (cache.padding * scale),
+            scale,
+        };
+    }
+
+    private ensureCanvasCache(tensor: TensorRecord): CanvasCache {
+        const cellPixels = this.idealCacheCellPixels(tensor);
+        const cache = this.canvasCache.get(tensor.id);
+        if (cache && cache.cellPixels === cellPixels) return cache;
+        const nextCache = this.buildCanvasCache(tensor, cellPixels);
+        this.canvasCache.set(tensor.id, nextCache);
+        return nextCache;
     }
 
     private sameHover(left: HoverInfo | null, right: HoverInfo | null): boolean {
@@ -525,29 +558,20 @@ export class TensorViewer {
         this.canvasZoom = nextZoom;
         logEvent('2d:zoom', { zoom: this.canvasZoom });
         this.requestRender();
-        this.emit();
     };
 
     private canvasPointerToHover(clientX: number, clientY: number): HoverInfo | null {
         const rect = this.flatCanvas.getBoundingClientRect();
         const scaleX = this.flatCanvas.width / rect.width;
         const scaleY = this.flatCanvas.height / rect.height;
-        const x = (clientX - rect.left) * scaleX - this.flatCanvas.width / 2 - this.canvasPan.x;
-        const y = (clientY - rect.top) * scaleY - this.flatCanvas.height / 2 - this.canvasPan.y;
-        const localX = x / this.canvasZoom;
-        const localY = y / this.canvasZoom;
+        const pointerX = (clientX - rect.left) * scaleX;
+        const pointerY = (clientY - rect.top) * scaleY;
 
         for (const tensor of Array.from(this.tensors.values()).reverse()) {
-            let cache = this.canvasCache.get(tensor.id);
-            if (!cache) {
-                cache = this.buildCanvasCache(tensor);
-                this.canvasCache.set(tensor.id, cache);
-            }
-            if (!cache) continue;
-            const offsetX = tensor.offset[0] * CANVAS_WORLD_SCALE;
-            const offsetY = -tensor.offset[1] * CANVAS_WORLD_SCALE;
-            const cacheX = localX - offsetX + cache.canvas.width / 2;
-            const cacheY = localY - offsetY + cache.canvas.height / 2;
+            const cache = this.ensureCanvasCache(tensor);
+            const placement = this.cachePlacement(tensor, cache);
+            const cacheX = (pointerX - placement.x) / placement.scale;
+            const cacheY = (pointerY - placement.y) / placement.scale;
 
             if (!cache.entries) continue;
             for (const entry of cache.entries) {
@@ -573,23 +597,11 @@ export class TensorViewer {
         const currentHover = this.state.hover;
         const nextHover = this.canvasPointerToHover(event.clientX, event.clientY);
         const hover = currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover) ? currentHover : nextHover;
-        this.state.hover = hover;
-        if (hover) this.state.lastHover = hover;
-        const hoverKey = hover ? `${hover.tensorId}:${hover.fullCoord.join(',')}:${hover.value}` : null;
-        if (hoverKey !== this.lastHoverLogKey) {
-            this.lastHoverLogKey = hoverKey;
-            logEvent('2d:hover', hover ?? 'none');
-        }
-        this.requestRender();
-        this.emit();
+        this.updateHover(hover, '2d');
     };
 
     private readonly onCanvasPointerLeave = (): void => {
-        this.state.hover = null;
-        this.lastHoverLogKey = null;
-        logEvent('2d:hover', 'leave');
-        this.requestRender();
-        this.emit();
+        this.updateHover(null, '2d');
     };
 
     private readonly onCanvasClick = (event: PointerEvent): void => {
@@ -607,19 +619,14 @@ export class TensorViewer {
         this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
         this.raycaster.setFromCamera(this.pointer, this.camera);
-        const meshes = Array.from(this.tensorMeshes.values()).map((group) => group.children[0]).filter(Boolean);
-        const hits = this.raycaster.intersectObjects(meshes, false);
+        const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
         const hit = hits[0];
         const currentHover = this.state.hover;
         if (!hit || hit.instanceId === undefined) {
             if (currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
-                this.requestRender();
                 return;
             }
-            this.state.hover = null;
-            this.hoverOutline.visible = false;
-            this.emit();
-            this.requestRender();
+            this.updateHover(null, '3d');
             return;
         }
 
@@ -643,33 +650,17 @@ export class TensorViewer {
             colorSource,
         };
         if (currentHover && !this.sameHover(currentHover, hover) && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
-            this.requestRender();
             return;
-        }
-        this.state.hover = hover;
-        this.state.lastHover = hover;
-        const hoverKey = `${hover.tensorId}:${hover.fullCoord.join(',')}:${hover.value}`;
-        if (hoverKey !== this.lastHoverLogKey) {
-            this.lastHoverLogKey = hoverKey;
-            logEvent('3d:hover', hover);
         }
         const instanceMatrix = new Matrix4();
         const position = new Vector3();
         mesh.getMatrixAt(hit.instanceId, instanceMatrix);
         position.setFromMatrixPosition(instanceMatrix);
-        this.hoverOutline.position.copy(position);
-        this.hoverOutline.visible = true;
-        this.emit();
-        this.requestRender();
+        this.updateHover(hover, '3d', position);
     };
 
     private readonly onPointerLeave = (): void => {
-        this.state.hover = null;
-        this.hoverOutline.visible = false;
-        this.lastHoverLogKey = null;
-        logEvent('3d:hover', 'leave');
-        this.emit();
-        this.requestRender();
+        this.updateHover(null, '3d');
     };
 
     private readonly onClick = (): void => {
@@ -748,10 +739,13 @@ export class TensorViewer {
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
         this.tensorMeshes.clear();
         this.canvasCache.clear();
+        this.pickMeshes.length = 0;
         this.tensors.forEach((tensor) => {
             const group = this.buildTensorGroup(tensor);
             this.tensorMeshes.set(tensor.id, group);
             this.scene.add(group);
+            const mesh = group.children[0];
+            if (mesh instanceof InstancedMesh) this.pickMeshes.push(mesh);
         });
         if (shouldFitCamera) this.fitCamera();
         else this.requestRender();
@@ -860,7 +854,7 @@ export class TensorViewer {
         );
         mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
         const matrix = new Matrix4();
-        const { min, max } = computeMinMax(tensor.data);
+        const { min, max } = tensor.valueRange;
 
         for (let index = 0; index < count; index += 1) {
             const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
@@ -887,22 +881,22 @@ export class TensorViewer {
         return group;
     }
 
-    private buildCanvasCache(tensor: TensorRecord): CanvasCache {
+    private buildCanvasCache(tensor: TensorRecord, cellPixels: number): CanvasCache {
         const renderShape = tensor.view.displayShape.length === 0 ? [1] : tensor.view.displayShape;
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
         const extent = displayExtent2D(outlineShape);
         const canvas = document.createElement('canvas');
-        const padding = CANVAS_WORLD_SCALE * 4;
-        canvas.width = Math.max(8, Math.ceil(extent.x * CANVAS_WORLD_SCALE) + padding * 2);
-        canvas.height = Math.max(8, Math.ceil(extent.y * CANVAS_WORLD_SCALE) + padding * 2);
+        const padding = Math.max(8, cellPixels * 4);
+        canvas.width = Math.max(8, Math.ceil(extent.x * cellPixels) + padding * 2);
+        canvas.height = Math.max(8, Math.ceil(extent.y * cellPixels) + padding * 2);
         const context = canvas.getContext('2d');
         if (!context) throw new Error('Unable to create offscreen canvas context.');
         context.imageSmoothingEnabled = false;
         context.clearRect(0, 0, canvas.width, canvas.height);
 
-        const { min, max } = computeMinMax(tensor.data);
+        const { min, max } = tensor.valueRange;
         const count = product(renderShape);
-        const cellSize = Math.max(1, Math.round(CANVAS_WORLD_SCALE));
+        const cellSize = cellPixels;
         const entries: CanvasEntry[] = [];
         const shouldTrackEntries = count <= 200_000;
 
@@ -913,9 +907,9 @@ export class TensorViewer {
             const fullLinear = this.linearIndex(fullCoord, tensor.shape);
             const value = numericValue(tensor.data, fullLinear);
             const position = displayPositionForCoord2D(outlineCoord, outlineShape);
-            const x = Math.round((position.x + extent.x / 2 - 0.5) * CANVAS_WORLD_SCALE) + padding;
-            const y = Math.round((extent.y / 2 - position.y - 0.5) * CANVAS_WORLD_SCALE) + padding;
-            context.fillStyle = `#${this.cellColor(tensor, fullCoord, value, min, max).getHexString()}`;
+            const x = Math.round((position.x + extent.x / 2 - 0.5) * cellPixels) + padding;
+            const y = Math.round((extent.y / 2 - position.y - 0.5) * cellPixels) + padding;
+            context.fillStyle = this.cellFillStyle(tensor, fullCoord, value, min, max);
             context.fillRect(x, y, cellSize, cellSize);
             if (shouldTrackEntries) {
                 const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
@@ -941,50 +935,17 @@ export class TensorViewer {
         return {
             canvas,
             entries: shouldTrackEntries ? entries : null,
-            simpleGrid: null,
             extent,
+            padding,
+            cellPixels,
         };
     }
 
     private render2DOverlay(): void {
-        this.flatOverlay.replaceChildren();
-        const add = (tag: string, attrs: Record<string, string>): SVGElement => {
-            const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
-            Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, value));
-            this.flatOverlay.appendChild(element);
-            return element;
-        };
+        const context = this.flatContext;
+        const pixelRatio = this.canvasScale();
 
         this.tensors.forEach((tensor) => {
-            const renderShape = tensor.view.displayShape.length === 0 ? [1] : tensor.view.displayShape;
-            const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
-            const count = product(renderShape);
-            const { min, max } = computeMinMax(tensor.data);
-            if (count <= SVG_CELL_LIMIT) {
-                for (let index = 0; index < count; index += 1) {
-                    const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
-                    const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-                    const outlineCoord = mapDisplayCoordToOutlineCoord(displayCoord, tensor.view);
-                    const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
-                    const position = displayPositionForCoord2D(outlineCoord, outlineShape);
-                    const topLeft = this.projectCanvasPoint(
-                        tensor.offset[0] + position.x - 0.5,
-                        tensor.offset[1] + position.y + 0.5,
-                    );
-                    const bottomRight = this.projectCanvasPoint(
-                        tensor.offset[0] + position.x + 0.5,
-                        tensor.offset[1] + position.y - 0.5,
-                    );
-                    add('rect', {
-                        x: String(Math.min(topLeft.x, bottomRight.x)),
-                        y: String(Math.min(topLeft.y, bottomRight.y)),
-                        width: String(Math.abs(bottomRight.x - topLeft.x)),
-                        height: String(Math.abs(bottomRight.y - topLeft.y)),
-                        fill: `#${this.cellColor(tensor, fullCoord, value, min, max).getHexString()}`,
-                    });
-                }
-            }
-
             const extent = displayExtent2D(tensor.view.outlineShape);
             const left = tensor.offset[0] - extent.x / 2;
             const right = tensor.offset[0] + extent.x / 2;
@@ -996,33 +957,28 @@ export class TensorViewer {
             const rectY = Math.min(topLeft.y, bottomRight.y);
             const rectWidth = Math.abs(bottomRight.x - topLeft.x);
             const rectHeight = Math.abs(bottomRight.y - topLeft.y);
-            add('rect', {
-                x: String(rectX),
-                y: String(rectY),
-                width: String(rectWidth),
-                height: String(rectHeight),
-                fill: 'none',
-                stroke: '#334155',
-                'stroke-width': String(Math.max(1, 1.5 * this.canvasScale())),
-            });
-            const rank = tensor.view.outlineShape.length;
+
+            context.strokeStyle = '#334155';
+            context.lineWidth = Math.max(1, 1.5 * pixelRatio);
+            context.strokeRect(rectX, rectY, rectWidth, rectHeight);
+
             if (this.state.hover?.tensorId === tensor.id) {
                 const hoverCoord = mapDisplayCoordToOutlineCoord(this.state.hover.displayCoord, tensor.view);
                 const hoverPosition = displayPositionForCoord2D(hoverCoord, tensor.view.outlineShape);
                 const hoverTopLeft = this.projectCanvasPoint(tensor.offset[0] + hoverPosition.x - 0.5, tensor.offset[1] + hoverPosition.y + 0.5);
                 const hoverBottomRight = this.projectCanvasPoint(tensor.offset[0] + hoverPosition.x + 0.5, tensor.offset[1] + hoverPosition.y - 0.5);
-                add('rect', {
-                    x: String(Math.min(hoverTopLeft.x, hoverBottomRight.x)),
-                    y: String(Math.min(hoverTopLeft.y, hoverBottomRight.y)),
-                    width: String(Math.abs(hoverBottomRight.x - hoverTopLeft.x)),
-                    height: String(Math.abs(hoverBottomRight.y - hoverTopLeft.y)),
-                    fill: 'none',
-                    stroke: '#f59e0b',
-                    'stroke-width': String(Math.max(2, 2 * this.canvasScale())),
-                });
+                context.strokeStyle = '#f59e0b';
+                context.lineWidth = Math.max(2, 2 * pixelRatio);
+                context.strokeRect(
+                    Math.min(hoverTopLeft.x, hoverBottomRight.x),
+                    Math.min(hoverTopLeft.y, hoverBottomRight.y),
+                    Math.abs(hoverBottomRight.x - hoverTopLeft.x),
+                    Math.abs(hoverBottomRight.y - hoverTopLeft.y),
+                );
             }
             if (!this.state.showDimensionLines) return;
 
+            const rank = tensor.view.outlineShape.length;
             const labels = tensor.view.tokens.map((token) => token.label.toUpperCase());
             const families = new Map<number, number[]>();
             for (let axis = 0; axis < rank; axis += 1) {
@@ -1032,9 +988,9 @@ export class TensorViewer {
                 families.set(key, family);
             }
             const zoomScale = Math.max(1, Math.sqrt(this.canvasZoom));
-            const fontSize = 16 * this.canvasScale() * zoomScale;
-            const guide = 28 * this.canvasScale();
-            const entries = tensor.view.outlineShape.map((size, axis) => {
+            const fontSize = 21 * pixelRatio * zoomScale;
+            const guide = 28 * pixelRatio;
+            tensor.view.outlineShape.forEach((size, axis) => {
                 const familyKey = axisWorldKey2D(rank, axis);
                 const family = families.get(familyKey) ?? [axis];
                 const familyPos = Math.max(0, family.indexOf(axis));
@@ -1050,62 +1006,37 @@ export class TensorViewer {
                 const axisDir = { x: delta.x / length, y: delta.y / length };
                 const extentStart = { x: startPos.x - axisDir.x * 0.5, y: startPos.y - axisDir.y * 0.5 };
                 const extentEnd = { x: endPos.x + axisDir.x * 0.5, y: endPos.y + axisDir.y * 0.5 };
-                return {
-                    axis,
-                    familyKey,
-                    color: axisFamilyColor(familyKey as 0 | 1 | 2, familyPos, family.length),
-                    label: `${labels[axis] ?? 'X'}: ${size}`,
-                    start: this.projectCanvasPoint(tensor.offset[0] + extentStart.x, tensor.offset[1] + extentStart.y),
-                    end: this.projectCanvasPoint(tensor.offset[0] + extentEnd.x, tensor.offset[1] + extentEnd.y),
-                };
-            });
-            ([0, 1] as const).forEach((familyKey) => {
-                const familyEntries = entries.filter((entry) => entry.familyKey === familyKey);
-                familyEntries.forEach((entry, index) => {
-                    const reverseIndex = familyEntries.length - 1 - index;
-                    const dir = familyKey === 0 ? { x: 0, y: 1 } : { x: -1, y: 0 };
-                    const offsetScale = guide + reverseIndex * (guide * 0.9);
-                    const startGuide = { x: entry.start.x + dir.x * offsetScale, y: entry.start.y + dir.y * offsetScale };
-                    const endGuide = { x: entry.end.x + dir.x * offsetScale, y: entry.end.y + dir.y * offsetScale };
-                    add('line', {
-                        x1: String(entry.start.x),
-                        y1: String(entry.start.y),
-                        x2: String(startGuide.x),
-                        y2: String(startGuide.y),
-                        stroke: entry.color,
-                        'stroke-width': String(Math.max(2, 2 * this.canvasScale())),
-                    });
-                    add('line', {
-                        x1: String(entry.end.x),
-                        y1: String(entry.end.y),
-                        x2: String(endGuide.x),
-                        y2: String(endGuide.y),
-                        stroke: entry.color,
-                        'stroke-width': String(Math.max(2, 2 * this.canvasScale())),
-                    });
-                    add('line', {
-                        x1: String(startGuide.x),
-                        y1: String(startGuide.y),
-                        x2: String(endGuide.x),
-                        y2: String(endGuide.y),
-                        stroke: entry.color,
-                        'stroke-width': String(Math.max(2, 2 * this.canvasScale())),
-                    });
-                    const text = add('text', {
-                        x: String((startGuide.x + endGuide.x) / 2 + dir.x * 8 * this.canvasScale()),
-                        y: String((startGuide.y + endGuide.y) / 2 + dir.y * (fontSize + 5 * this.canvasScale())),
-                        fill: entry.color,
-                        'font-size': String(fontSize * 1.3),
-                        'font-weight': '700',
-                        'font-family': '"IBM Plex Mono", monospace',
-                        'text-anchor': familyKey === 0 ? 'middle' : 'end',
-                        'dominant-baseline': 'middle',
-                        stroke: '#ffffff',
-                        'stroke-width': String(1.15 * this.canvasScale() * zoomScale),
-                        'paint-order': 'stroke',
-                    });
-                    text.textContent = entry.label;
-                });
+                const startPoint = this.projectCanvasPoint(tensor.offset[0] + extentStart.x, tensor.offset[1] + extentStart.y);
+                const endPoint = this.projectCanvasPoint(tensor.offset[0] + extentEnd.x, tensor.offset[1] + extentEnd.y);
+                const color = axisFamilyColor(familyKey as 0 | 1 | 2, familyPos, family.length);
+                const dir = familyKey === 0 ? { x: 0, y: 1 } : { x: -1, y: 0 };
+                const reverseIndex = family.length - 1 - familyPos;
+                const offsetScale = guide + reverseIndex * (guide * 0.9);
+                const startGuide = { x: startPoint.x + dir.x * offsetScale, y: startPoint.y + dir.y * offsetScale };
+                const endGuide = { x: endPoint.x + dir.x * offsetScale, y: endPoint.y + dir.y * offsetScale };
+
+                context.strokeStyle = color;
+                context.lineWidth = Math.max(2, 2 * pixelRatio);
+                context.beginPath();
+                context.moveTo(startPoint.x, startPoint.y);
+                context.lineTo(startGuide.x, startGuide.y);
+                context.moveTo(endPoint.x, endPoint.y);
+                context.lineTo(endGuide.x, endGuide.y);
+                context.moveTo(startGuide.x, startGuide.y);
+                context.lineTo(endGuide.x, endGuide.y);
+                context.stroke();
+
+                const textX = (startGuide.x + endGuide.x) / 2 + dir.x * 8 * pixelRatio;
+                const textY = (startGuide.y + endGuide.y) / 2 + dir.y * (fontSize + 5 * pixelRatio);
+                context.font = `700 ${fontSize * 1.3}px "IBM Plex Mono", monospace`;
+                context.textAlign = familyKey === 0 ? 'center' : 'right';
+                context.textBaseline = 'middle';
+                context.lineJoin = 'round';
+                context.strokeStyle = '#ffffff';
+                context.lineWidth = Math.max(1, 1.15 * pixelRatio * zoomScale);
+                context.strokeText(`${labels[axis] ?? 'X'}: ${size}`, textX, textY);
+                context.fillStyle = color;
+                context.fillText(`${labels[axis] ?? 'X'}: ${size}`, textX, textY);
             });
         });
     }
@@ -1115,24 +1046,17 @@ export class TensorViewer {
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
         this.flatContext.fillStyle = '#e5e7eb';
         this.flatContext.fillRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
-        this.flatContext.save();
-        this.flatContext.translate(this.flatCanvas.width / 2 + this.canvasPan.x, this.flatCanvas.height / 2 + this.canvasPan.y);
-        this.flatContext.scale(this.canvasZoom, this.canvasZoom);
         this.tensors.forEach((tensor) => {
-            const renderShape = tensor.view.displayShape.length === 0 ? [1] : tensor.view.displayShape;
-            if (product(renderShape) <= SVG_CELL_LIMIT) return;
-            let cache = this.canvasCache.get(tensor.id);
-            if (!cache) {
-                cache = this.buildCanvasCache(tensor);
-                this.canvasCache.set(tensor.id, cache);
-            }
+            const cache = this.ensureCanvasCache(tensor);
+            const placement = this.cachePlacement(tensor, cache);
             this.flatContext.drawImage(
                 cache.canvas,
-                Math.round(tensor.offset[0] * CANVAS_WORLD_SCALE - cache.canvas.width / 2),
-                Math.round(-tensor.offset[1] * CANVAS_WORLD_SCALE - cache.canvas.height / 2),
+                placement.x,
+                placement.y,
+                cache.canvas.width * placement.scale,
+                cache.canvas.height * placement.scale,
             );
         });
-        this.flatContext.restore();
         this.render2DOverlay();
     }
 
@@ -1142,6 +1066,18 @@ export class TensorViewer {
             index = (index * shape[axis]) + value;
         });
         return index;
+    }
+
+    private cellFillStyle(tensor: TensorRecord, fullCoord: number[], value: number, min: number, max: number): string {
+        const customColor = tensor.customColors.get(coordKey(fullCoord));
+        if (customColor?.kind === 'rgba') {
+            const [red, green, blue] = customColor.value;
+            return `rgb(${red} ${green} ${blue})`;
+        }
+        if (customColor?.kind === 'hs') return `#${colorFromHueSaturation(customColor.value, this.state.heatmap ? (max === min ? 1 : Math.max(0, Math.min(1, (value - min) / (max - min)))) : 1).getHexString()}`;
+        if (!this.state.heatmap) return '#90a4ae';
+        const gray = heatmapGray(value, min, max);
+        return `rgb(${gray} ${gray} ${gray})`;
     }
 
     private cellColor(tensor: TensorRecord, fullCoord: number[], value: number, min: number, max: number): Color {
@@ -1227,6 +1163,36 @@ export class TensorViewer {
         this.listeners.forEach((listener) => listener(snapshot));
     }
 
+    private emitHover(): void {
+        const hover = this.getHover();
+        this.hoverListeners.forEach((listener) => listener(hover));
+    }
+
+    private clearHover(): void {
+        this.state.hover = null;
+        this.state.lastHover = null;
+        this.hoverOutline.visible = false;
+        this.lastHoverLogKey = null;
+        this.emitHover();
+    }
+
+    private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): void {
+        if (this.sameHover(this.state.hover, hover)) return;
+        this.state.hover = hover;
+        if (hover) this.state.lastHover = hover;
+        const hoverKey = hover ? `${hover.tensorId}:${hover.fullCoord.join(',')}:${hover.value}` : null;
+        if (hoverKey !== this.lastHoverLogKey) {
+            this.lastHoverLogKey = hoverKey;
+            logEvent(`${source}:hover`, hover ?? 'none');
+        }
+        if (source === '3d') {
+            this.hoverOutline.visible = !!hover;
+            if (hover && outlinePosition) this.hoverOutline.position.copy(outlinePosition);
+        }
+        this.requestRender();
+        this.emitHover();
+    }
+
     public addTensor(shape: number[], data: NumericArray, name?: string, offset?: Vec3, dtype?: DType): TensorHandle {
         logEvent('tensor:add', { shape, name, offset, dtype });
         return this.insertTensor(shape, data, {
@@ -1261,6 +1227,7 @@ export class TensorViewer {
             shape: normalizedShape,
             dtype: options.dtype ?? dtypeFromArray(data),
             data,
+            valueRange: computeMinMax(data),
             offset: options.offset ?? (this.tensors.size === 0 ? [0, 0, 0] : [this.tensors.size * 6, 0, 0]),
             view: parsed.spec,
             customColors: new Map(),
@@ -1287,6 +1254,7 @@ export class TensorViewer {
         if (this.state.activeTensorId === tensorId) {
             this.state.activeTensorId = this.tensors.keys().next().value ?? null;
         }
+        if (this.state.hover?.tensorId === tensorId || this.state.lastHover?.tensorId === tensorId) this.clearHover();
         this.rebuildAllMeshes();
     }
 
@@ -1294,8 +1262,7 @@ export class TensorViewer {
         logEvent('tensor:clear');
         this.tensors.clear();
         this.state.activeTensorId = null;
-        this.state.hover = null;
-        this.state.lastHover = null;
+        this.clearHover();
         this.rebuildAllMeshes();
     }
 
@@ -1357,6 +1324,12 @@ export class TensorViewer {
         return () => this.listeners.delete(listener);
     }
 
+    public subscribeHover(listener: (hover: HoverInfo | null) => void): () => void {
+        this.hoverListeners.add(listener);
+        listener(this.getHover());
+        return () => this.hoverListeners.delete(listener);
+    }
+
     public setDisplayMode(mode: '2d' | '3d'): void {
         logEvent('display:mode', mode);
         const previousTarget = this.controls.target.clone();
@@ -1367,15 +1340,13 @@ export class TensorViewer {
         this.controls.enableRotate = mode === '3d';
         this.renderer.domElement.style.display = mode === '3d' ? 'block' : 'none';
         this.flatCanvas.style.display = mode === '2d' ? 'block' : 'none';
-        this.flatOverlay.style.display = mode === '2d' ? 'block' : 'none';
+        this.flatOverlay.style.display = 'none';
         this.controls.target.copy(previousTarget);
         if (mode === '3d') {
             this.camera.position.set(previousTarget.x + 20, previousTarget.y + 16, previousTarget.z + 24);
             this.camera.lookAt(previousTarget);
         }
         this.rebuildAllMeshes();
-        this.requestRender();
-        this.emit();
     }
 
     public toggleHeatmap(force?: boolean): boolean {
@@ -1473,6 +1444,15 @@ export class TensorViewer {
 
     public async openFile(file: File): Promise<void> {
         logEvent('file:open', file.name);
+        if (await isNpyFile(file)) {
+            const array = await loadNpy(file);
+            this.clear();
+            this.insertTensor(array.shape, array.data, {
+                name: file.name.replace(/\.npy$/i, '') || 'Tensor',
+                dtype: array.dtype,
+            });
+            return;
+        }
         const { manifest, tensors } = await loadBundle(file);
         this.clear();
         manifest.tensors.forEach((entry) => {
@@ -1493,7 +1473,9 @@ export class TensorViewer {
 
     public async saveFile(): Promise<Blob> {
         logEvent('file:save');
-        return saveBundle(this.getSnapshot(), Array.from(this.tensors.values()));
+        if (!this.state.activeTensorId) throw new Error('No tensor loaded.');
+        const tensor = this.requireTensor(this.state.activeTensorId);
+        return saveNpy(tensor.shape, tensor.data, tensor.dtype);
     }
 
     public getInspectorModel(): {
@@ -1509,7 +1491,7 @@ export class TensorViewer {
         const colorRanges = Array.from(this.tensors.values()).map((tensor) => ({
             id: tensor.id,
             name: tensor.name,
-            ...computeMinMax(tensor.data),
+            ...tensor.valueRange,
         }));
         if (!this.state.activeTensorId) {
             return { handle: null, tensors, colorRanges, viewInput: '', preview: '', hiddenTokens: [], colorRange: null };
@@ -1532,7 +1514,7 @@ export class TensorViewer {
                 size: token.size,
                 value: token.value,
             })),
-            colorRange: computeMinMax(tensor.data),
+            colorRange: tensor.valueRange,
         };
     }
 

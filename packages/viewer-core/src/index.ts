@@ -1,4 +1,5 @@
 export { loadBundle, saveBundle } from './bundle.js';
+export { createTypedArray, isNpyFile, loadNpy, saveNpy } from './npy.js';
 export { displayExtent, displayPositionForCoord, unravelIndex } from './layout.js';
 export {
     buildPreviewExpression,

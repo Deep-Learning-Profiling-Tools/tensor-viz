@@ -122,6 +122,7 @@ export type TensorRecord = {
     shape: number[];
     dtype: DType;
     data: NumericArray;
+    valueRange: { min: number; max: number };
     offset: Vec3;
     view: TensorViewSpec;
     customColors: Map<string, CustomColor>;
