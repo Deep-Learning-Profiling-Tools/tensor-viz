@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tensor-viz"
+version = "0.1.0"
+description = "Standalone tensor viewer with a browser-based frontend."
+readme = "SPEC.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26"
+]
+
+[tool.setuptools]
+package-dir = {"" = "python/src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["python/src"]
+
+[tool.setuptools.package-data]
+"tensor_viz" = ["static/**"]

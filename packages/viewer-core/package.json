@@ -1,0 +1,22 @@
+{
+  "name": "@tensor-viz/viewer-core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "three": "^0.181.1",
+    "troika-three-text": "^0.52.4"
+  },
+  "devDependencies": {
+    "@types/three": "^0.181.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "tensor-viz-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/viewer-core",
+    "packages/viewer-demo"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @tensor-viz/viewer-core && npm run build --workspace @tensor-viz/viewer-demo && node tools/sync-demo-assets.mjs",
+    "dev": "npm run dev --workspace @tensor-viz/viewer-demo",
+    "test": "npm run test --workspace @tensor-viz/viewer-core"
+  }
+}

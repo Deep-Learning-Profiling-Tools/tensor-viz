@@ -1,0 +1,10 @@
+SPEC.md
+pyproject.toml
+python/src/tensor_viz/__init__.py
+python/src/tensor_viz/bundle.py
+python/src/tensor_viz/server.py
+python/src/tensor_viz.egg-info/PKG-INFO
+python/src/tensor_viz.egg-info/SOURCES.txt
+python/src/tensor_viz.egg-info/dependency_links.txt
+python/src/tensor_viz.egg-info/requires.txt
+python/src/tensor_viz.egg-info/top_level.txt

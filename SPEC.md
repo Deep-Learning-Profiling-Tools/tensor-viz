@@ -1,0 +1,636 @@
+# Tensor Viewer Specification
+
+## Summary
+
+Build a standalone tensor viewer as a framework-free TypeScript package plus two thin shells:
+
+- `viewer-core`: tensor model, strict tensor-view grammar, layout engine, rendering, state store, persistence, and public TS API
+- `viewer-demo`: browser app with ribbon UI, file open/save, panels, and keyboard shortcuts
+- `tensor_viz` Python package: a lightweight wrapper that launches the browser app locally and loads NumPy tensors into it
+
+This is a clean-room implementation. The existing `triton-viz` frontend is only a behavior reference for layout, hover interaction, tensor-view semantics, and dimension overlays. The standalone app must not depend on Triton op records, Triton APIs, or Triton workspace UI.
+
+## Product Goals
+
+- Make the tensor viewer reusable outside `triton-viz`
+- Keep the package fully hackable from both TypeScript and Python
+- Support multiple tensors in one scene
+- Treat tensor-view syntax as a strict, documented public contract
+- Ship a small demo app that doubles as the Python-backed browser UI
+
+## Non-Goals
+
+- No Triton-specific operation model
+- No backend dependency for tensor fetching
+- No separate Python renderer
+- No notebook-first UI in v1
+- No JSON-array tensor payload format in v1
+
+## Core Features
+
+### Main View
+
+The main view renders tensor elements as cells in a 2D or 3D scene.
+
+Supported interactions:
+
+- pan: right-click + drag
+- zoom: scroll wheel or `Ctrl +/-`
+- rotate: left-click + drag
+
+Scene capabilities:
+
+- view one or more tensors simultaneously
+- first tensor added without an explicit offset is placed at `(0, 0, 0)`
+- hover identifies the nearest visible tensor cell
+- active tensor selection is tracked separately from hover
+- display mode can switch between 2D and 3D without changing tensor-view semantics
+
+### Ribbon Menu
+
+#### File
+
+- Save Tensor: `Ctrl+S`
+- Open Tensor: `Ctrl+O`
+
+#### Display
+
+- Display as 2D: `Ctrl+2`
+- Display as 3D: `Ctrl+3`
+- Toggle Heatmap: `Ctrl+H`
+
+#### Actions
+
+- Change Tensor View: `Ctrl+V`
+- Toggle Dimension Lines: `Ctrl+D`
+- Toggle Inspector Panel
+- Toggle Hover Details Panel
+
+Naming decisions:
+
+- "Lower Left Box" is renamed to `Inspector Panel`
+- "Lower Right Box" is renamed to `Hover Details Panel`
+
+### Panels
+
+#### Inspector Panel
+
+Shows the active tensor's:
+
+- name
+- dtype
+- rank
+- shape
+- offset
+- current tensor-view string
+- current preview expression
+- hidden token sliders
+- validation errors
+
+#### Hover Details Panel
+
+Shows the hovered cell's:
+
+- tensor name
+- display coordinate
+- full coordinate
+- value
+- current effective color source
+
+If nothing is hovered, it should show the active tensor summary instead of going blank.
+
+## Tensor View
+
+Tensor View supports:
+
+- slicing
+- singletons
+- permutation
+- coalescing
+
+The visible-dimension string is a strict public interface. Invalid strings are rejected and surfaced as parse errors in the UI and API.
+
+Special case:
+
+- an empty tensor-view string resets the tensor to its default view
+
+### Visible Dimensions Semantics
+
+- tokens are space-separated: `A B C D`
+- axis labels are uppercase when visible and lowercase when hidden
+- `1` inserts a singleton dimension
+- coalesced groups are written as one token: `BC`, `DA`, `ABC`
+- coalesced groups are atomic for visibility:
+  - valid: `BC` or `bc`
+  - invalid: `Bc`, `bC`
+- every original axis must appear exactly once across tokens, plus any number of `1` tokens
+
+### Meaning of Case
+
+- uppercase token: visible axis/group
+- lowercase token: hidden axis/group sliced to one index
+- hidden tokens remain in the string so full-tensor outline context is preserved
+
+### Outline Shape Semantics
+
+- outline shape is derived from the token sequence while ignoring case
+- examples:
+  - `ADG B C 1 E F 1 H I` and `adg B C 1 E F 1 H I` share the same outline shape
+  - that outline differs from raw `A B C D E F G H I`
+
+### Slider Semantics
+
+- render one index slider per hidden token, not per hidden axis
+- example: `dc AB` renders a single slider labeled `dc`
+
+### Tensor Slice Preview Semantics
+
+- preview slices hidden axes by index
+- visible tokens define output axis order
+- coalesced visible tokens imply reshape dimensions from grouped products
+- inserted `1` tokens appear in reshape output shape
+- an empty input string means "use the default tensor view for this tensor shape"
+
+### Examples
+
+1. base case
+   - `(A, B, C, D)` -> `A B C D`
+2. pure permutation
+   - `(A, B, C, D).permute(3, 2, 1, 0)` -> `D C B A`
+3. permute + coalesce
+   - `(A, B, C, D).permute(3, 2, 1, 0).view(D, CB, A)` -> `D CB A`
+4. hide one dimension
+   - from `A B C`, show only `B C` -> `a B C`
+5. hide multiple dimensions
+   - from `A B C D`, show only `C D` -> `a b C D`
+6. all hidden
+   - from `A B C` -> `a b c`
+7. insert singleton
+   - `(N, C, H, W) -> (N, C, 1, H, W)` -> `N C 1 H W`
+8. insert singleton + permutation
+   - `(N, C, H, W).view(N, C, 1, H, W).permute(2, 0, 1, 3, 4)` -> `1 N C H W`
+9. coalesced visibility is all-or-nothing
+   - `(A, B, C).view(A, BC)` -> `A BC` or `A bc`
+   - invalid: `A bC`, `A Bc`
+10. two coalesced groups
+   - `(A, B, C, D).view(AB, CD)` -> `AB CD`
+   - hide one group -> `ab CD`
+   - hide both -> `ab cd`
+11. permute then coalesce, hidden first group
+   - `(A, B, C, D).permute(2, 0, 3, 1).view(CA, DB)`
+   - with `CA` hidden -> `ca DB`
+12. mixed single + coalesced + single
+   - `(A, B, C, D).view(A, BC, D)` -> `A BC D`
+   - hide middle only -> `A bc D`
+13. coalesced + singleton
+   - `(A, B, C).view(AB, 1, C)` -> `AB 1 C`
+   - hide `AB` and `C` -> `ab 1 c`
+14. degenerate full coalesce
+   - `(A, B, C).view(ABC)` -> `ABC`
+   - hidden -> `abc`
+15. larger regrouping after permutation
+   - `(A, B, C, D, E).permute(4, 1, 3, 0, 2).view(EB, DA, C)` -> `EB DA C`
+   - hide first group only -> `eb DA C`
+16. corrected complex case
+   - `(A, B, C, D, E).permute(4, 2, 0, 3, 1).view(EC, A, DB)`
+   - valid forms include `EC A DB` and `ec A db`
+   - mixed-case grouped tokens are invalid
+
+## Data Model
+
+### Tensor
+
+```ts
+type Tensor = {
+  rank: number;
+  shape: number[];
+  dtype: string;
+  data: Float64Array;
+};
+```
+
+Constraints:
+
+- `shape.length === rank`
+- `data.length === product(shape)`
+- tensors are dense in v1
+
+### Tensor Record
+
+Internal tensor state should explicitly store:
+
+- id
+- name
+- shape
+- dtype
+- raw data
+- scene offset
+- current `TensorViewSpec`
+- current color layers
+- cached render buffers
+
+### Tensor View Spec
+
+The parsed tensor-view object must store explicit metadata, not re-derive it from strings repeatedly:
+
+- canonical visible string
+- token list
+- token kind: axis-group or singleton
+- token visibility
+- token axes
+- token grouped size
+- display-axis mapping
+- outline-axis mapping
+- hidden token descriptors
+- hidden indices
+- display shape
+- outline shape
+
+## Public TypeScript API
+
+The browser API is imperative and subscribe-based.
+
+```ts
+type DType = 'float32' | 'float64' | 'int32' | 'int64' | 'uint8' | string;
+type RGBA = readonly [number, number, number, number];
+type Vec3 = readonly [number, number, number];
+
+interface TensorHandle {
+  id: string;
+  name: string;
+  rank: number;
+  shape: readonly number[];
+  dtype: DType;
+}
+
+interface TensorViewSnapshot {
+  visible: string;
+  hiddenIndices: number[];
+}
+
+interface HoverInfo {
+  tensorId: string;
+  tensorName: string;
+  displayCoord: number[];
+  fullCoord: number[];
+  value: number;
+}
+
+interface ViewerSnapshot {
+  version: 1;
+  displayMode: '2d' | '3d';
+  heatmap: boolean;
+  showDimensionLines: boolean;
+  showInspectorPanel: boolean;
+  showHoverDetailsPanel: boolean;
+  camera: {
+    position: Vec3;
+    target: Vec3;
+    rotation: Vec3;
+    zoom: number;
+  };
+  tensors: Array<{
+    id: string;
+    name: string;
+    offset: Vec3;
+    view: TensorViewSnapshot;
+  }>;
+  activeTensorId: string | null;
+}
+
+interface TensorViewer {
+  addTensor(shape: number[], data: Float64Array, name?: string, offset?: Vec3): TensorHandle;
+  removeTensor(tensorId: string): void;
+  clear(): void;
+
+  getSnapshot(): ViewerSnapshot;
+  restoreSnapshot(snapshot: ViewerSnapshot): void;
+  subscribe(listener: (snapshot: ViewerSnapshot) => void): () => void;
+
+  setDisplayMode(mode: '2d' | '3d'): void;
+  toggleHeatmap(force?: boolean): boolean;
+  toggleDimensionLines(force?: boolean): boolean;
+  toggleInspectorPanel(force?: boolean): boolean;
+  toggleHoverDetailsPanel(force?: boolean): boolean;
+
+  getViewDims(tensorId: string): Vec3;
+  getTensorView(tensorId: string): TensorViewSnapshot;
+  setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot;
+
+  colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
+  colorTensor(tensorId: string, coords: number[][], color: RGBA): void;
+  colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGBA): void;
+  clearTensorColors(tensorId: string): void;
+
+  getState(): Readonly<ViewerSnapshot>;
+  getHover(): HoverInfo | null;
+
+  openFile(file: File): Promise<void>;
+  saveFile(): Blob;
+
+  destroy(): void;
+}
+```
+
+`setTensorView()` behavior:
+
+- invalid non-empty strings are rejected with structured validation errors
+- an empty string resets the tensor view to the default canonical view for that tensor
+
+### Tensor Data Handling
+
+Tensor payloads must be treated as binary data by default.
+
+Rules:
+
+- in-memory TypeScript APIs accept typed arrays directly
+- tensor element data must never be serialized as raw JSON arrays except for tiny debug fixtures and tests
+- persistence and transport use a metadata manifest plus binary tensor payloads
+- `dtype` and endianness must be explicit in metadata so binary payloads can be reconstructed correctly
+- Python-to-browser transfer should stream bytes from the local server, not embed full tensors in page HTML or query params
+
+## Color API Semantics
+
+The API must support custom tensor region coloring through three forms.
+
+### Dense Color Buffer
+
+```ts
+colorTensor(tensorId, colors)
+```
+
+Where:
+
+- tensor shape is arbitrary rank
+- color buffer shape is `tensor.shape + (4,)`
+- color channels are RGBA
+
+### Sparse Coord Coloring
+
+```ts
+colorTensor(tensorId, coords, color)
+```
+
+Where:
+
+- `coords.shape = (num_coords, rank)`
+- each row is a full coordinate in tensor order
+- all listed coordinates receive the same RGBA
+
+### Region Descriptor Coloring
+
+```ts
+colorTensor(tensorId, base, shape, jumps, color)
+```
+
+Where:
+
+- `base`, `shape`, and `jumps` each have length `rank`
+- generated coords are:
+  - `range(base[0], base[0] + shape[0] * jumps[0], jumps[0])`
+  - cross product with the same rule for each axis
+- `jumps` behaves similarly to strides, but defines coordinate stepping instead of memory layout
+
+Implementation rule:
+
+- normalize all three forms into a single internal color-layer representation
+
+Color precedence:
+
+- base color
+- heatmap color
+- custom region color
+- hover color
+- selection color
+
+## State and Events
+
+Keep the internal store authoritative. External apps should read snapshots and subscribe to changes rather than mutating live state directly.
+
+Events to support:
+
+- snapshot changed
+- tensor added
+- tensor removed
+- tensor view changed
+- hover changed
+- selection changed
+- display mode changed
+- file opened
+- file saved
+- error
+
+## Layout and Rendering
+
+### Rendering Backend
+
+Use `three` with instanced meshes from the start.
+
+### Layout Rules
+
+- ranks 1-3 map directly to width/height/depth
+- rank greater than 3 uses recursive outer-group spacing
+- display mesh is driven by display shape
+- reference outline is driven by outline shape
+- hidden dimensions affect slice mapping and outline semantics, not the number of visible display cells
+
+### 2D Mode
+
+2D mode is not a different tensor model. It is an alternate rendering mode over the same display shape.
+
+Rules:
+
+- use an orthographic or equivalent top-down flattened rendering
+- preserve the same tensor-view grammar and slicing behavior
+- preserve hover, selection, and custom coloring
+- do not create a second incompatible layout model
+
+### Dimension Lines and Outlines
+
+- dimension lines render for the current outline shape
+- slice outlines reflect hidden-token indices
+- dimension line visibility is a toggle in state and persistence
+
+## Persistence
+
+Use a versioned bundle format in v1:
+
+- one JSON manifest for viewer state and tensor metadata
+- one binary payload per tensor
+
+Recommended container:
+
+- `.viz` zip bundle
+
+Recommended bundle contents:
+
+- `manifest.json`
+- `tensors/<tensor-id>.bin`
+
+Example manifest:
+
+```json
+{
+  "version": 1,
+  "viewer": {
+    "displayMode": "3d",
+    "heatmap": false,
+    "showDimensionLines": true,
+    "showInspectorPanel": true,
+    "showHoverDetailsPanel": true,
+    "activeTensorId": "tensor-1"
+  },
+  "tensors": [
+    {
+      "id": "tensor-1",
+      "name": "A",
+      "dtype": "float64",
+      "shape": [4, 8, 16],
+      "byteOrder": "little",
+      "dataFile": "tensors/tensor-1.bin",
+      "offset": [0, 0, 0],
+      "view": {
+        "visible": "A BC",
+        "hiddenIndices": [0, 0, 0]
+      }
+    }
+  ]
+}
+```
+
+Persistence requirements:
+
+- include schema version
+- persist tensors, offsets, camera state, toggles, and tensor-view state
+- store tensor bytes outside the JSON manifest
+- keep binary payloads contiguous in C-order by default
+- include enough metadata to reconstruct a typed array without guessing
+- ignore unknown fields when loading
+- reject unsupported schema versions
+
+## Python API
+
+The Python package is a thin wrapper over the same browser viewer.
+
+### Public API
+
+```py
+import tensor_viz
+tensor_viz.viz(tensor: np.ndarray, *, name: str | None = None)
+```
+
+Recommended v1 signature:
+
+```py
+def viz(
+    tensor: np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray],
+    *,
+    name: str | None = None,
+    open_browser: bool = True,
+    host: str = "127.0.0.1",
+    port: int = 0,
+    keep_alive: bool = True,
+) -> ViewerSession:
+    ...
+```
+
+### Python Behavior
+
+- normalize input arrays into the same dense tensor schema used by the TS viewer
+- start a tiny local HTTP server
+- serve the bundled demo assets
+- expose a one-shot session manifest containing tensor metadata
+- serve tensor bytes from dedicated binary endpoints or temp files
+- open the browser automatically by default
+- keep the local server alive by default so a simple script does not exit before the browser loads
+- return a `ViewerSession` object with:
+  - `.url`
+  - `.close()`
+  - `.wait()`
+
+### Python Constraints
+
+- NumPy arrays are the only required input type in v1
+- no separate Python rendering path
+- no notebook-first design in v1
+- large payloads should use server-backed binary transfer instead of URL embedding or JSON array embedding
+
+## Missing Items To Design In Early
+
+These must be part of the implementation, not deferred:
+
+- deterministic naming for unnamed tensors
+- selection rules when multiple tensors overlap
+- large-tensor warning and render limits
+- keyboard and focus behavior for ribbon actions
+- immutable snapshot behavior for subscriptions
+- error model for invalid tensor-view strings and invalid color descriptors
+- explicit save/open versioning policy
+
+## Suggested Internal Modules
+
+- `model/tensor.ts`
+- `model/view_spec.ts`
+- `model/layout.ts`
+- `render/scene.ts`
+- `render/tensor_mesh.ts`
+- `render/overlays.ts`
+- `input/controller.ts`
+- `state/store.ts`
+- `persistence/schema.ts`
+- `api/viewer.ts`
+
+## Testing
+
+### Tensor-View Parser Tests
+
+Convert every tensor-view cheat-sheet example into executable tests.
+
+Cover:
+
+- base permutation cases
+- coalescing
+- hidden groups
+- singleton insertion
+- all-hidden cases
+- invalid mixed-case grouped tokens
+- duplicate axes
+- missing axes
+- preview-expression generation
+- outline-shape equality while ignoring case
+
+### Viewer API Tests
+
+- `addTensor()` rejects shape/data mismatches
+- first tensor default offset is `(0, 0, 0)`
+- `getViewDims()` is correct for rank 1, 2, 3, and greater than 3
+- all color overloads agree when describing the same region
+- save/open round-trips tensors and view state
+- subscriptions emit immutable snapshots
+
+### Interaction Tests
+
+- left-drag rotates
+- right-drag pans
+- wheel zooms
+- shortcuts do not fire while typing into inputs
+- hover updates the hover details panel
+- dimension-line toggle updates both state and scene
+
+### Python Tests
+
+- `tensor_viz.viz(np_array)` launches a valid viewer session
+- sequences and mappings of arrays load multiple tensors correctly
+- unnamed tensors receive deterministic names
+- session shutdown releases resources
+- non-contiguous NumPy arrays are normalized correctly before serialization
+
+## Defaults
+
+- browser-first standalone app
+- framework-free TS core
+- strict tensor-view grammar
+- manifest plus binary payload persistence in v1
+- imperative controller plus subscribe API
+- Python launches a local browser app by default
+- Python support is a wrapper, not a second implementation
