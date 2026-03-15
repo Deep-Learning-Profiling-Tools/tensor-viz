@@ -1,6 +1,8 @@
 import {
+    loadSessionBundle,
     TensorViewer,
     product,
+    type LoadedBundleDocument,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import './styles.css';
@@ -34,28 +36,87 @@ app.innerHTML = `
       </div>
     </div>
   </div>
+  <div class="tab-strip hidden" id="tab-strip"></div>
   <main class="viewport-wrap">
     <div id="viewport"></div>
   </main>
+  <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
   <aside class="sidebar" id="sidebar">
     <section class="widget" id="tensor-view-widget"></section>
     <section class="widget" id="inspector-widget"></section>
     <section class="widget" id="colorbar-widget"></section>
   </aside>
+  <div class="command-palette hidden" id="command-palette">
+    <div class="command-palette-backdrop" id="command-palette-backdrop"></div>
+    <div class="command-palette-dialog">
+      <input id="command-palette-input" type="text" placeholder="Type a command" autocomplete="off" />
+      <div class="command-palette-list" id="command-palette-list"></div>
+    </div>
+  </div>
   <input class="hidden" id="file-input" type="file" accept=".npy" />
 `;
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport');
+const tabStrip = document.querySelector<HTMLDivElement>('#tab-strip');
+const sidebarSplitter = document.querySelector<HTMLDivElement>('#sidebar-splitter');
 const tensorViewWidget = document.querySelector<HTMLElement>('#tensor-view-widget');
 const inspectorWidget = document.querySelector<HTMLElement>('#inspector-widget');
 const colorbarWidget = document.querySelector<HTMLElement>('#colorbar-widget');
+const commandPalette = document.querySelector<HTMLDivElement>('#command-palette');
+const commandPaletteBackdrop = document.querySelector<HTMLDivElement>('#command-palette-backdrop');
+const commandPaletteInput = document.querySelector<HTMLInputElement>('#command-palette-input');
+const commandPaletteList = document.querySelector<HTMLDivElement>('#command-palette-list');
 const fileInput = document.querySelector<HTMLInputElement>('#file-input');
-if (!viewport || !tensorViewWidget || !inspectorWidget || !colorbarWidget || !fileInput) throw new Error('Missing app elements.');
+if (
+    !viewport
+    || !tabStrip
+    || !sidebarSplitter
+    || !tensorViewWidget
+    || !inspectorWidget
+    || !colorbarWidget
+    || !commandPalette
+    || !commandPaletteBackdrop
+    || !commandPaletteInput
+    || !commandPaletteList
+    || !fileInput
+) throw new Error('Missing app elements.');
 
 const viewer = new TensorViewer(viewport);
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
+let inspectorReady = false;
+let sessionTabs: LoadedBundleDocument[] = [];
+let activeTabId: string | null = null;
+let switchingTab = false;
+let resizingSidebar = false;
+let commandPaletteOpen = false;
+let commandPaletteIndex = 0;
+let commandPaletteMode: 'actions' | 'tabs' = 'actions';
+
+const MIN_VIEWPORT_WIDTH = 280;
+const MAX_SIDEBAR_WIDTH = 720;
+
+type InspectorRefs = {
+    hoverTensor: HTMLDivElement;
+    fullCoord: HTMLDivElement;
+    value: HTMLDivElement;
+    hoverTensorValue: HTMLSpanElement;
+    fullCoordValue: HTMLSpanElement;
+    valueField: HTMLSpanElement;
+    dtypeValue: HTMLSpanElement;
+    shapeValue: HTMLSpanElement;
+    rankValue: HTMLSpanElement;
+};
+
+let inspectorRefs: InspectorRefs | null = null;
+
+type CommandAction = {
+    action: string;
+    label: string;
+    shortcut: string;
+    keywords: string;
+};
 
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
@@ -66,10 +127,199 @@ function formatRangeValue(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toPrecision(6);
 }
 
+function commandActions(): CommandAction[] {
+    return [
+        { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
+        { action: 'open', label: 'Open Tensor', shortcut: 'Ctrl+O', keywords: 'file open load tensor npy' },
+        { action: 'save', label: 'Save Tensor', shortcut: 'Ctrl+S', keywords: 'file save export tensor npy' },
+        { action: '2d', label: 'Display as 2D', shortcut: 'Ctrl+2', keywords: 'display 2d orthographic' },
+        { action: '3d', label: 'Display as 3D', shortcut: 'Ctrl+3', keywords: 'display 3d perspective' },
+        { action: 'heatmap', label: 'Toggle Heatmap', shortcut: 'Ctrl+H', keywords: 'display heatmap colors' },
+        { action: 'dims', label: 'Toggle Dimension Lines', shortcut: 'Ctrl+D', keywords: 'display dimensions guides labels' },
+        { action: 'tensor-view', label: 'Toggle Tensor View', shortcut: 'Ctrl+V', keywords: 'widgets tensor view panel' },
+        { action: 'inspector', label: 'Toggle Inspector', shortcut: '', keywords: 'widgets inspector panel' },
+        { action: 'view', label: 'Focus Tensor View Input', shortcut: '', keywords: 'focus tensor view input field' },
+    ];
+}
+
+function tabActions(): CommandAction[] {
+    return sessionTabs.map((tab) => ({
+        action: `tab:${tab.id}`,
+        label: tab.title,
+        shortcut: tab.id === activeTabId ? 'Current' : '',
+        keywords: `tab ${tab.title}`,
+    }));
+}
+
+function paletteActions(): CommandAction[] {
+    return commandPaletteMode === 'tabs' ? tabActions() : commandActions();
+}
+
+function filteredCommandActions(): CommandAction[] {
+    const query = commandPaletteInput.value.trim().toLowerCase();
+    const actions = paletteActions();
+    if (!query) return actions;
+    return actions.filter((entry) => `${entry.label} ${entry.keywords}`.toLowerCase().includes(query));
+}
+
+function renderCommandPalette(): void {
+    if (!commandPaletteOpen) return;
+    const actions = filteredCommandActions();
+    if (actions.length === 0) {
+        commandPaletteIndex = 0;
+        commandPaletteList.innerHTML = '<div class="command-palette-empty">No matching commands.</div>';
+        return;
+    }
+    commandPaletteIndex = Math.max(0, Math.min(commandPaletteIndex, actions.length - 1));
+    commandPaletteList.replaceChildren(...actions.map((entry, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'command-palette-item';
+        if (index === commandPaletteIndex) button.classList.add('active');
+        button.innerHTML = `<span>${entry.label}</span><span>${entry.shortcut}</span>`;
+        button.addEventListener('click', async () => {
+            await runAction(entry.action);
+        });
+        return button;
+    }));
+}
+
+function openCommandPalette(): void {
+    commandPaletteMode = 'actions';
+    commandPaletteOpen = true;
+    commandPaletteIndex = 0;
+    commandPalette.classList.remove('hidden');
+    commandPaletteInput.value = '';
+    commandPaletteInput.placeholder = 'Type a command';
+    renderCommandPalette();
+    commandPaletteInput.focus();
+    commandPaletteInput.select();
+}
+
+function openTabPalette(): void {
+    commandPaletteMode = 'tabs';
+    commandPaletteOpen = true;
+    commandPaletteIndex = 0;
+    commandPalette.classList.remove('hidden');
+    commandPaletteInput.value = '';
+    commandPaletteInput.placeholder = 'Select a tab';
+    renderCommandPalette();
+    commandPaletteInput.focus();
+    commandPaletteInput.select();
+}
+
+function closeCommandPalette(): void {
+    if (!commandPaletteOpen) return;
+    commandPaletteOpen = false;
+    commandPaletteMode = 'actions';
+    commandPalette.classList.add('hidden');
+    commandPaletteInput.value = '';
+    commandPaletteList.replaceChildren();
+}
+
+function setSidebarWidth(width: number): void {
+    const maxWidth = Math.max(0, Math.min(MAX_SIDEBAR_WIDTH, app.clientWidth - MIN_VIEWPORT_WIDTH));
+    const clamped = Math.max(0, Math.min(maxWidth, width));
+    app.style.setProperty('--sidebar-width', `${clamped}px`);
+}
+
+function activeTab(): LoadedBundleDocument | undefined {
+    return sessionTabs.find((tab) => tab.id === activeTabId);
+}
+
+function captureActiveTabSnapshot(): void {
+    const tab = activeTab();
+    if (!tab) return;
+    tab.manifest.viewer = viewer.getSnapshot();
+}
+
+function renderTabStrip(): void {
+    tabStrip.classList.toggle('hidden', sessionTabs.length < 2);
+    if (sessionTabs.length < 2) {
+        tabStrip.replaceChildren();
+        return;
+    }
+    tabStrip.replaceChildren(...sessionTabs.map((tab) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `tab-button${tab.id === activeTabId ? ' active' : ''}`;
+        button.textContent = tab.title;
+        button.addEventListener('click', async () => {
+            if (tab.id === activeTabId) return;
+            await loadTab(tab.id);
+        });
+        return button;
+    }));
+}
+
+async function loadTab(tabId: string): Promise<void> {
+    const tab = sessionTabs.find((entry) => entry.id === tabId);
+    if (!tab) return;
+    if (!switchingTab) captureActiveTabSnapshot();
+    switchingTab = true;
+    activeTabId = tabId;
+    viewer.loadBundleData(tab.manifest, tab.tensors);
+    switchingTab = false;
+    renderTabStrip();
+}
+
 window.addEventListener('pointerup', () => {
+    resizingSidebar = false;
     if (!suspendTensorViewRender) return;
     suspendTensorViewRender = false;
     render(viewer.getSnapshot());
+});
+
+window.addEventListener('pointermove', (event) => {
+    if (!resizingSidebar) return;
+    const bounds = app.getBoundingClientRect();
+    setSidebarWidth(bounds.right - event.clientX);
+});
+
+sidebarSplitter.addEventListener('pointerdown', (event) => {
+    resizingSidebar = true;
+    sidebarSplitter.setPointerCapture(event.pointerId);
+});
+
+sidebarSplitter.addEventListener('dblclick', () => {
+    setSidebarWidth(360);
+});
+
+commandPaletteBackdrop.addEventListener('click', () => {
+    closeCommandPalette();
+});
+
+commandPaletteInput.addEventListener('input', () => {
+    renderCommandPalette();
+});
+
+commandPaletteInput.addEventListener('keydown', async (event) => {
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCommandPalette();
+        return;
+    }
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        const actions = filteredCommandActions();
+        if (actions.length === 0) return;
+        commandPaletteIndex = Math.min(actions.length - 1, commandPaletteIndex + 1);
+        renderCommandPalette();
+        return;
+    }
+    if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        const actions = filteredCommandActions();
+        if (actions.length === 0) return;
+        commandPaletteIndex = Math.max(0, commandPaletteIndex - 1);
+        renderCommandPalette();
+        return;
+    }
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const action = filteredCommandActions()[commandPaletteIndex];
+    if (!action) return;
+    await runAction(action.action);
 });
 
 function updateSidebar(snapshot: ViewerSnapshot): void {
@@ -176,26 +426,47 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
 function renderInspectorWidget(): void {
     const model = viewer.getInspectorModel();
     if (!model.handle) {
+        inspectorReady = false;
+        inspectorRefs = null;
         inspectorWidget.innerHTML = '<h2>Inspector</h2><div class="widget-body">No tensor loaded.</div>';
         return;
     }
+    if (!inspectorReady) {
+        inspectorWidget.innerHTML = `
+          <h2>Inspector</h2>
+          <div class="widget-body meta-grid">
+            <div id="inspector-hover-tensor"><span class="meta-label">Hover Tensor</span><span class="meta-value" id="inspector-hover-tensor-value"></span></div>
+            <div id="inspector-full-coord"><span class="meta-label">Full Coord</span><span class="meta-value" id="inspector-full-coord-value"></span></div>
+            <div id="inspector-value"><span class="meta-label">Value</span><span class="meta-value" id="inspector-value-field"></span></div>
+            <div><span class="meta-label">DType</span><span class="meta-value" id="inspector-dtype"></span></div>
+            <div><span class="meta-label">Shape</span><span class="meta-value" id="inspector-shape"></span></div>
+            <div><span class="meta-label">Rank</span><span class="meta-value" id="inspector-rank"></span></div>
+          </div>
+        `;
+        inspectorRefs = {
+            hoverTensor: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hover-tensor')!,
+            fullCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-full-coord')!,
+            value: inspectorWidget.querySelector<HTMLDivElement>('#inspector-value')!,
+            hoverTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hover-tensor-value')!,
+            fullCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-full-coord-value')!,
+            valueField: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-value-field')!,
+            dtypeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-dtype')!,
+            shapeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-shape')!,
+            rankValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-rank')!,
+        };
+        inspectorReady = true;
+    }
+    if (!inspectorRefs) return;
     const hover = viewer.getHover();
-    const hoverMarkup = hover
-        ? `
-          <div><span class="meta-label">Hover Tensor</span><span class="meta-value">${hover.tensorName}</span></div>
-          <div><span class="meta-label">Full Coord</span><span class="meta-value">[${hover.fullCoord.join(', ')}]</span></div>
-          <div><span class="meta-label">Value</span><span class="meta-value">${hover.value}</span></div>
-        `
-        : '<div><span class="meta-label">Hover</span><span class="meta-value">No cell hovered.</span></div>';
-    inspectorWidget.innerHTML = `
-      <h2>Inspector</h2>
-      <div class="widget-body meta-grid">
-        ${hoverMarkup}
-        <div><span class="meta-label">DType</span><span class="meta-value">${model.handle.dtype}</span></div>
-        <div><span class="meta-label">Shape</span><span class="meta-value">[${model.handle.shape.join(', ')}]</span></div>
-        <div><span class="meta-label">Rank</span><span class="meta-value">${model.handle.rank}</span></div>
-      </div>
-    `;
+    inspectorRefs.hoverTensor.classList.toggle('hidden', !hover);
+    inspectorRefs.fullCoord.classList.toggle('hidden', !hover);
+    inspectorRefs.value.classList.toggle('hidden', !hover);
+    inspectorRefs.hoverTensorValue.textContent = hover?.tensorName ?? '';
+    inspectorRefs.fullCoordValue.textContent = hover ? `[${hover.fullCoord.join(', ')}]` : '';
+    inspectorRefs.valueField.textContent = hover ? String(hover.value) : '';
+    inspectorRefs.dtypeValue.textContent = model.handle.dtype;
+    inspectorRefs.shapeValue.textContent = `[${model.handle.shape.join(', ')}]`;
+    inspectorRefs.rankValue.textContent = String(model.handle.rank);
 }
 
 function renderColorbarWidget(snapshot: ViewerSnapshot): void {
@@ -223,7 +494,9 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
 }
 
 function render(snapshot: ViewerSnapshot): void {
+    if (!switchingTab) captureActiveTabSnapshot();
     updateSidebar(snapshot);
+    renderTabStrip();
     renderTensorViewWidget(snapshot);
     renderInspectorWidget();
     renderColorbarWidget(snapshot);
@@ -246,12 +519,15 @@ async function saveTensorToDisk(): Promise<void> {
 async function tryLoadSession(): Promise<boolean> {
     const response = await fetch('/api/session.viz', { cache: 'no-store' });
     if (!response.ok) return false;
-    const blob = await response.blob();
-    await viewer.openFile(new File([blob], 'session.viz', { type: 'application/zip' }));
+    sessionTabs = await loadSessionBundle(await response.blob());
+    activeTabId = sessionTabs[0]?.id ?? null;
+    if (activeTabId) await loadTab(activeTabId);
     return true;
 }
 
 function seedDemoTensor(): void {
+    sessionTabs = [];
+    activeTabId = null;
     const shape = [4, 4, 4];
     const data = new Float64Array(product(shape));
     for (let index = 0; index < data.length; index += 1) {
@@ -261,12 +537,23 @@ function seedDemoTensor(): void {
 }
 
 async function openLocalFile(file: File): Promise<void> {
+    sessionTabs = [];
+    activeTabId = null;
+    renderTabStrip();
     await viewer.openFile(file);
 }
 
 async function runAction(action: string): Promise<void> {
     logUi('action', action);
+    closeCommandPalette();
+    if (action.startsWith('tab:')) {
+        await loadTab(action.slice(4));
+        return;
+    }
     switch (action) {
+        case 'command-palette':
+            openCommandPalette();
+            return;
         case 'open':
             fileInput.click();
             return;
@@ -321,7 +608,13 @@ fileInput.addEventListener('change', async () => {
 window.addEventListener('keydown', async (event) => {
     const target = event.target as HTMLElement | null;
     const isEditing = target && ['INPUT', 'TEXTAREA'].includes(target.tagName);
-    if (isEditing && !(event.ctrlKey && event.key.toLowerCase() === 's')) return;
+    const isPaletteInput = target === commandPaletteInput;
+    if (isPaletteInput && event.key === 'Escape') {
+        event.preventDefault();
+        closeCommandPalette();
+        return;
+    }
+    if (isEditing && !isPaletteInput && !(event.ctrlKey && event.key.toLowerCase() === 's')) return;
 
     if (event.ctrlKey && event.key.toLowerCase() === 'o') {
         event.preventDefault();
@@ -344,6 +637,16 @@ window.addEventListener('keydown', async (event) => {
     } else if (event.ctrlKey && event.key.toLowerCase() === 'v') {
         event.preventDefault();
         await runAction('tensor-view');
+    } else if (event.ctrlKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        if (commandPaletteOpen && commandPaletteMode === 'tabs') closeCommandPalette();
+        else openTabPalette();
+    } else if (event.key === '?' || (event.shiftKey && event.key === '/')) {
+        event.preventDefault();
+        if (commandPaletteOpen) closeCommandPalette();
+        else openCommandPalette();
+    } else if (event.key === 'Escape') {
+        closeCommandPalette();
     }
 });
 

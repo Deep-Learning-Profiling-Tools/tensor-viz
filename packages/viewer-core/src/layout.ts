@@ -3,7 +3,7 @@ import { Vector3 } from 'three';
 const CELL_SIZE = 1;
 const GAP = 0.15;
 const OUTER_GAP_SCALE_3D = 3;
-const OUTER_GAP_SCALE_2D = 2;
+const OUTER_GAP_SCALE_2D = 3;
 
 type Extent3 = {
     x: number;

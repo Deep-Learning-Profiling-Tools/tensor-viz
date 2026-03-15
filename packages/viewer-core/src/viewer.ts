@@ -49,6 +49,7 @@ import {
     product,
 } from './view.js';
 import type {
+    BundleManifest,
     ColorInstruction,
     CustomColor,
     DType,
@@ -77,22 +78,12 @@ type MeshMeta = {
     renderShape: number[];
 };
 
-type CanvasEntry = {
-    x: number;
-    y: number;
-    size: number;
-    hover: HoverInfo;
-};
-
-type CanvasCache = {
-    canvas: HTMLCanvasElement;
-    entries: CanvasEntry[] | null;
-    extent: { x: number; y: number };
-    padding: number;
-    cellPixels: number;
-};
-
 const CANVAS_WORLD_SCALE = 4;
+const MAX_CANVAS_ZOOM = 96;
+const MIN_CANVAS_FIT_INSET = 16;
+const MAX_CANVAS_FIT_INSET = 48;
+const AUTO_FIT_2D_SCALE = 0.75;
+const AUTO_FIT_3D_DISTANCE_SCALE = 1.25;
 const LOG_PREFIX = '[tensor-viz]';
 const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
 const LOG_ENABLED = (() => {
@@ -118,7 +109,7 @@ function logEvent(event: string, details?: unknown): void {
     else console.log(LOG_PREFIX, event, details);
 }
 
-function initializeCubeVertexColors(geometry: BoxGeometry): void {
+function initializeVertexColors(geometry: BufferGeometry): void {
     const normals = geometry.attributes.normal;
     const colorArray = new Float32Array(geometry.attributes.position.count * 3);
     const lightDir = new Vector3(0.35, 0.6, 0.7).normalize();
@@ -270,11 +261,17 @@ export class TensorViewer {
         new EdgesGeometry(new BoxGeometry(1.1, 1.1, 1.1)),
         new LineBasicMaterial({ color: HOVER_COLOR }),
     );
+    private readonly hoverOutline2D = createLine([
+        new Vector3(-0.55, 0.55, 0.05),
+        new Vector3(0.55, 0.55, 0.05),
+        new Vector3(0.55, -0.55, 0.05),
+        new Vector3(-0.55, -0.55, 0.05),
+        new Vector3(-0.55, 0.55, 0.05),
+    ], `#${HOVER_COLOR.getHexString()}`);
     private readonly tensors = new Map<string, TensorRecord>();
     private readonly tensorMeshes = new Map<string, Group>();
     private readonly listeners = new Set<(snapshot: ViewerSnapshot) => void>();
     private readonly hoverListeners = new Set<(hover: HoverInfo | null) => void>();
-    private readonly canvasCache = new Map<string, CanvasCache>();
     private readonly pickMeshes: InstancedMesh[] = [];
     private readonly state: ViewerState = {
         displayMode: '2d',
@@ -304,7 +301,8 @@ export class TensorViewer {
         this.renderer.toneMapping = NoToneMapping;
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         this.renderer.setSize(container.clientWidth, container.clientHeight);
-        initializeCubeVertexColors(this.cubeGeometry);
+        initializeVertexColors(this.cubeGeometry);
+        initializeVertexColors(this.planeGeometry);
         this.flatCanvas = document.createElement('canvas');
         const context = this.flatCanvas.getContext('2d');
         if (!context) throw new Error('Unable to create 2D canvas context.');
@@ -329,7 +327,9 @@ export class TensorViewer {
         this.container.appendChild(this.flatCanvas);
         this.container.appendChild(this.flatOverlay);
         this.hoverOutline.visible = false;
+        this.hoverOutline2D.visible = false;
         this.scene.add(this.hoverOutline);
+        this.scene.add(this.hoverOutline2D);
         this.bindEvents();
         this.resize();
         this.setDisplayMode('2d');
@@ -381,11 +381,10 @@ export class TensorViewer {
         this.flatOverlay.setAttribute('height', String(this.flatCanvas.height));
         this.perspectiveCamera.aspect = width / height;
         this.perspectiveCamera.updateProjectionMatrix();
-        const span = 20;
-        this.orthographicCamera.left = -(span * width / height) / 2;
-        this.orthographicCamera.right = (span * width / height) / 2;
-        this.orthographicCamera.top = span / 2;
-        this.orthographicCamera.bottom = -span / 2;
+        this.orthographicCamera.left = -(this.flatCanvas.width / CANVAS_WORLD_SCALE) / 2;
+        this.orthographicCamera.right = (this.flatCanvas.width / CANVAS_WORLD_SCALE) / 2;
+        this.orthographicCamera.top = (this.flatCanvas.height / CANVAS_WORLD_SCALE) / 2;
+        this.orthographicCamera.bottom = -(this.flatCanvas.height / CANVAS_WORLD_SCALE) / 2;
         this.orthographicCamera.updateProjectionMatrix();
         logEvent('viewport:resize', { width, height });
         this.requestRender();
@@ -395,33 +394,53 @@ export class TensorViewer {
         return this.flatCanvas.width / Math.max(1, this.flatCanvas.clientWidth || this.flatCanvas.width || 1);
     }
 
-    private idealCacheCellPixels(tensor: TensorRecord): number {
-        const extent = displayExtent2D(tensor.view.outlineShape);
-        const maxExtent = Math.max(1, extent.x, extent.y);
-        const pixelBudget = 2048 * this.canvasScale();
-        return Math.max(1, Math.min(32, Math.floor(pixelBudget / maxExtent)));
-    }
-
-    private cachePlacement(tensor: TensorRecord, cache: CanvasCache): { x: number; y: number; scale: number } {
-        const topLeft = this.projectCanvasPoint(
-            tensor.offset[0] - cache.extent.x / 2,
-            tensor.offset[1] + cache.extent.y / 2,
+    private sync2DCamera(): void {
+        const zoom = Math.max(0.15, this.canvasZoom);
+        this.orthographicCamera.zoom = zoom;
+        this.orthographicCamera.position.set(
+            -this.canvasPan.x / (CANVAS_WORLD_SCALE * zoom),
+            this.canvasPan.y / (CANVAS_WORLD_SCALE * zoom),
+            30,
         );
-        const scale = (CANVAS_WORLD_SCALE * this.canvasZoom) / cache.cellPixels;
-        return {
-            x: topLeft.x - (cache.padding * scale),
-            y: topLeft.y - (cache.padding * scale),
-            scale,
-        };
+        this.orthographicCamera.lookAt(this.orthographicCamera.position.x, this.orthographicCamera.position.y, 0);
+        this.orthographicCamera.updateProjectionMatrix();
     }
 
-    private ensureCanvasCache(tensor: TensorRecord): CanvasCache {
-        const cellPixels = this.idealCacheCellPixels(tensor);
-        const cache = this.canvasCache.get(tensor.id);
-        if (cache && cache.cellPixels === cellPixels) return cache;
-        const nextCache = this.buildCanvasCache(tensor, cellPixels);
-        this.canvasCache.set(tensor.id, nextCache);
-        return nextCache;
+    private scenePointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        this.pointer.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+        this.raycaster.setFromCamera(this.pointer, this.camera);
+        const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
+        const hit = hits[0];
+        if (!hit || hit.instanceId === undefined) return null;
+
+        const mesh = hit.object as InstancedMesh;
+        const meta = mesh.userData.meta as MeshMeta;
+        const displayCoord = meta.renderShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.renderShape);
+        const tensor = this.requireTensor(meta.tensorId);
+        const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
+        const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
+        const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
+            ? 'custom'
+            : this.state.heatmap
+                ? 'heatmap'
+                : 'base';
+        const instanceMatrix = new Matrix4();
+        const position = new Vector3();
+        mesh.getMatrixAt(hit.instanceId, instanceMatrix);
+        position.setFromMatrixPosition(instanceMatrix);
+        return {
+            hover: {
+                tensorId: meta.tensorId,
+                tensorName: this.tensors.get(meta.tensorId)?.name ?? meta.tensorId,
+                displayCoord: displayCoord.slice(),
+                fullCoord: fullCoord.slice(),
+                value,
+                colorSource,
+            },
+            position,
+        };
     }
 
     private sameHover(left: HoverInfo | null, right: HoverInfo | null): boolean {
@@ -430,6 +449,34 @@ export class TensorViewer {
             && left.tensorId === right.tensorId
             && left.fullCoord.length === right.fullCoord.length
             && left.fullCoord.every((value, index) => value === right.fullCoord[index]);
+    }
+
+    private hoverPosition(hover: HoverInfo): Vector3 | null {
+        const tensor = this.tensors.get(hover.tensorId);
+        if (!tensor) return null;
+        const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
+        const outlineCoord = mapDisplayCoordToOutlineCoord(hover.displayCoord, tensor.view);
+        if (this.state.displayMode === '2d') {
+            const position = displayPositionForCoord2D(outlineCoord, outlineShape);
+            return new Vector3(tensor.offset[0] + position.x, tensor.offset[1] + position.y, 0);
+        }
+        return displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
+    }
+
+    private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): boolean {
+        const outline = source === '3d' ? this.hoverOutline : this.hoverOutline2D;
+        const otherOutline = source === '3d' ? this.hoverOutline2D : this.hoverOutline;
+        let changed = outline.visible !== !!hover || otherOutline.visible;
+        outline.visible = !!hover;
+        otherOutline.visible = false;
+        if (!hover) return changed;
+        const position = outlinePosition ?? this.hoverPosition(hover);
+        if (!position) return changed;
+        if (!outline.position.equals(position)) {
+            outline.position.copy(position);
+            changed = true;
+        }
+        return changed;
     }
 
     private hoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo | null): boolean {
@@ -514,17 +561,20 @@ export class TensorViewer {
 
         const width = Math.max(1, (maxX - minX) * CANVAS_WORLD_SCALE);
         const height = Math.max(1, (maxY - minY) * CANVAS_WORLD_SCALE);
-        const inset = 48 * this.canvasScale();
+        const inset = Math.min(
+            MAX_CANVAS_FIT_INSET,
+            Math.max(MIN_CANVAS_FIT_INSET, Math.min(this.flatCanvas.width, this.flatCanvas.height) * 0.035),
+        ) * this.canvasScale();
         this.canvasZoom = Math.max(
             0.15,
             Math.min(
-                24,
+                MAX_CANVAS_ZOOM,
                 Math.min(
                     (this.flatCanvas.width - inset * 2) / width,
                     (this.flatCanvas.height - inset * 2) / height,
                 ),
             ),
-        );
+        ) * AUTO_FIT_2D_SCALE;
         const centerX = (minX + maxX) / 2;
         const centerY = (minY + maxY) / 2;
         this.canvasPan = {
@@ -550,7 +600,7 @@ export class TensorViewer {
         event.preventDefault();
         const rect = this.flatCanvas.getBoundingClientRect();
         const scale = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-        const nextZoom = Math.max(0.15, Math.min(24, this.canvasZoom * scale));
+        const nextZoom = Math.max(0.15, Math.min(MAX_CANVAS_ZOOM, this.canvasZoom * scale));
         const cursorX = (event.clientX - rect.left) * (this.flatCanvas.width / rect.width) - this.flatCanvas.width / 2 - this.canvasPan.x;
         const cursorY = (event.clientY - rect.top) * (this.flatCanvas.height / rect.height) - this.flatCanvas.height / 2 - this.canvasPan.y;
         this.canvasPan.x -= cursorX * ((nextZoom / this.canvasZoom) - 1);
@@ -559,32 +609,6 @@ export class TensorViewer {
         logEvent('2d:zoom', { zoom: this.canvasZoom });
         this.requestRender();
     };
-
-    private canvasPointerToHover(clientX: number, clientY: number): HoverInfo | null {
-        const rect = this.flatCanvas.getBoundingClientRect();
-        const scaleX = this.flatCanvas.width / rect.width;
-        const scaleY = this.flatCanvas.height / rect.height;
-        const pointerX = (clientX - rect.left) * scaleX;
-        const pointerY = (clientY - rect.top) * scaleY;
-
-        for (const tensor of Array.from(this.tensors.values()).reverse()) {
-            const cache = this.ensureCanvasCache(tensor);
-            const placement = this.cachePlacement(tensor, cache);
-            const cacheX = (pointerX - placement.x) / placement.scale;
-            const cacheY = (pointerY - placement.y) / placement.scale;
-
-            if (!cache.entries) continue;
-            for (const entry of cache.entries) {
-                if (
-                    cacheX >= entry.x
-                    && cacheX <= entry.x + entry.size
-                    && cacheY >= entry.y
-                    && cacheY <= entry.y + entry.size
-                ) return entry.hover;
-            }
-        }
-        return null;
-    }
 
     private readonly onCanvasPointerMove = (event: PointerEvent): void => {
         if (this.isCanvasPanning) {
@@ -595,9 +619,12 @@ export class TensorViewer {
             return;
         }
         const currentHover = this.state.hover;
-        const nextHover = this.canvasPointerToHover(event.clientX, event.clientY);
-        const hover = currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover) ? currentHover : nextHover;
-        this.updateHover(hover, '2d');
+        if (currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
+            if (this.syncHoverOutline(currentHover, '2d')) this.requestRender();
+            return;
+        }
+        const hit = this.scenePointerToHover(event.clientX, event.clientY);
+        this.updateHover(hit?.hover ?? null, '2d', hit?.position);
     };
 
     private readonly onCanvasPointerLeave = (): void => {
@@ -605,7 +632,7 @@ export class TensorViewer {
     };
 
     private readonly onCanvasClick = (event: PointerEvent): void => {
-        const hover = this.canvasPointerToHover(event.clientX, event.clientY);
+        const hover = this.scenePointerToHover(event.clientX, event.clientY)?.hover ?? null;
         if (!hover) return;
         this.state.activeTensorId = hover.tensorId;
         this.state.hover = hover;
@@ -615,48 +642,17 @@ export class TensorViewer {
     };
 
     private readonly onPointerMove = (event: PointerEvent): void => {
-        const rect = this.renderer.domElement.getBoundingClientRect();
-        this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        this.pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
-        this.raycaster.setFromCamera(this.pointer, this.camera);
-        const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
-        const hit = hits[0];
         const currentHover = this.state.hover;
-        if (!hit || hit.instanceId === undefined) {
-            if (currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
-                return;
-            }
+        if (currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
+            if (this.syncHoverOutline(currentHover, '3d')) this.requestRender();
+            return;
+        }
+        const hit = this.scenePointerToHover(event.clientX, event.clientY);
+        if (!hit) {
             this.updateHover(null, '3d');
             return;
         }
-
-        const mesh = hit.object as InstancedMesh;
-        const meta = mesh.userData.meta as MeshMeta;
-        const displayCoord = meta.renderShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.renderShape);
-        const tensor = this.requireTensor(meta.tensorId);
-        const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-        const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
-        const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
-            ? 'custom'
-            : this.state.heatmap
-                ? 'heatmap'
-                : 'base';
-        const hover = {
-            tensorId: meta.tensorId,
-            tensorName: this.tensors.get(meta.tensorId)?.name ?? meta.tensorId,
-            displayCoord: displayCoord.slice(),
-            fullCoord: fullCoord.slice(),
-            value,
-            colorSource,
-        };
-        if (currentHover && !this.sameHover(currentHover, hover) && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
-            return;
-        }
-        const instanceMatrix = new Matrix4();
-        const position = new Vector3();
-        mesh.getMatrixAt(hit.instanceId, instanceMatrix);
-        position.setFromMatrixPosition(instanceMatrix);
-        this.updateHover(hover, '3d', position);
+        this.updateHover(hit.hover, '3d', hit.position);
     };
 
     private readonly onPointerLeave = (): void => {
@@ -725,7 +721,7 @@ export class TensorViewer {
         groups.forEach((group) => bounds.expandByObject(group));
         const center = bounds.getCenter(new Vector3());
         const size = bounds.getSize(new Vector3());
-        const radius = Math.max(size.x, size.y, size.z, 8);
+        const radius = Math.max(size.x, size.y, size.z, 8) * AUTO_FIT_3D_DISTANCE_SCALE;
         this.controls.target.copy(center);
         this.perspectiveCamera.position.set(center.x + radius, center.y + radius, center.z + radius * 1.5);
         this.perspectiveCamera.lookAt(center);
@@ -738,7 +734,6 @@ export class TensorViewer {
         const shouldFitCamera = options.fitCamera ?? false;
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
         this.tensorMeshes.clear();
-        this.canvasCache.clear();
         this.pickMeshes.length = 0;
         this.tensors.forEach((tensor) => {
             const group = this.buildTensorGroup(tensor);
@@ -759,6 +754,68 @@ export class TensorViewer {
         );
         outline.position.copy(vectorFromTuple(offset));
         return outline;
+    }
+
+    private buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
+        const halfX = extent.x / 2;
+        const halfY = extent.y / 2;
+        const outline = createLine([
+            new Vector3(-halfX, halfY, 0.02),
+            new Vector3(halfX, halfY, 0.02),
+            new Vector3(halfX, -halfY, 0.02),
+            new Vector3(-halfX, -halfY, 0.02),
+            new Vector3(-halfX, halfY, 0.02),
+        ], '#334155');
+        outline.position.copy(vectorFromTuple(offset));
+        return outline;
+    }
+
+    private buildDimensionGuides2D(shape: number[], offset: Vec3, labels: string[]): Group {
+        const group = new Group();
+        const rank = shape.length;
+        const families = new Map<number, number[]>();
+        for (let axis = 0; axis < rank; axis += 1) {
+            const key = axisWorldKey2D(rank, axis);
+            const family = families.get(key) ?? [];
+            family.push(axis);
+            families.set(key, family);
+        }
+        const guideOffset = 1.15;
+        const linearStep = 0.75;
+        const labelOffset = 0.5;
+        const labelScale = 0.15;
+
+        shape.forEach((size, axis) => {
+            const familyKey = axisWorldKey2D(rank, axis);
+            const family = families.get(familyKey) ?? [axis];
+            const familyPos = Math.max(0, family.indexOf(axis));
+            const start = new Array(rank).fill(0);
+            const end = start.slice();
+            family.forEach((familyAxis) => {
+                if (familyAxis >= axis) end[familyAxis] = Math.max(0, shape[familyAxis] - 1);
+            });
+            const startPos = displayPositionForCoord2D(start, shape);
+            const endPos = displayPositionForCoord2D(end, shape);
+            const delta = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
+            const length = Math.hypot(delta.x, delta.y) || 1;
+            const axisDir = { x: delta.x / length, y: delta.y / length };
+            const extentStart = new Vector3(offset[0] + startPos.x - axisDir.x * 0.5, offset[1] + startPos.y - axisDir.y * 0.5, 0.02);
+            const extentEnd = new Vector3(offset[0] + endPos.x + axisDir.x * 0.5, offset[1] + endPos.y + axisDir.y * 0.5, 0.02);
+            const color = axisFamilyColor(familyKey as 0 | 1 | 2, familyPos, family.length);
+            const dir = familyKey === 0 ? new Vector3(0, 1, 0) : new Vector3(-1, 0, 0);
+            const reverseIndex = family.length - 1 - familyPos;
+            const worldOffset = guideOffset + reverseIndex * linearStep;
+            const startGuide = extentStart.clone().add(dir.clone().multiplyScalar(worldOffset));
+            const endGuide = extentEnd.clone().add(dir.clone().multiplyScalar(worldOffset));
+            group.add(createLine([extentStart, startGuide], color));
+            group.add(createLine([extentEnd, endGuide], color));
+            group.add(createLine([startGuide, endGuide], color));
+            const label = createTextLabel(`${labels[axis] ?? 'X'}: ${size}`, color);
+            label.position.copy(startGuide.clone().add(endGuide).multiplyScalar(0.5).add(dir.clone().multiplyScalar(labelOffset)));
+            label.scale.setScalar(labelScale);
+            group.add(label);
+        });
+        return group;
     }
 
     private buildDimensionGuides(extent: Vector3, shape: number[], offset: Vec3, labels: string[]): Group {
@@ -862,7 +919,12 @@ export class TensorViewer {
             const outlineCoord = mapDisplayCoordToOutlineCoord(displayCoord, tensor.view);
             const fullLinear = this.linearIndex(fullCoord, tensor.shape);
             const value = numericValue(tensor.data, fullLinear);
-            const position = displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
+            const position = this.state.displayMode === '2d'
+                ? (() => {
+                    const flat = displayPositionForCoord2D(outlineCoord, outlineShape);
+                    return new Vector3(tensor.offset[0] + flat.x, tensor.offset[1] + flat.y, 0);
+                })()
+                : displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
             matrix.makeTranslation(position.x, position.y, position.z);
             mesh.setMatrixAt(index, matrix);
             mesh.setColorAt(index, this.cellColor(tensor, fullCoord, value, min, max));
@@ -876,188 +938,21 @@ export class TensorViewer {
         mesh.userData.meta = { tensorId: tensor.id, renderShape } satisfies MeshMeta;
         group.add(mesh);
         const outlineExtent = displayExtent(outlineShape);
-        group.add(this.buildOutline(outlineExtent, tensor.offset));
-        if (this.state.showDimensionLines && this.state.displayMode === '3d') group.add(this.buildDimensionGuides(outlineExtent, outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
+        if (this.state.displayMode === '2d') {
+            group.add(this.buildOutline2D(displayExtent2D(outlineShape), tensor.offset));
+            if (this.state.showDimensionLines) group.add(this.buildDimensionGuides2D(outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
+        } else {
+            group.add(this.buildOutline(outlineExtent, tensor.offset));
+            if (this.state.showDimensionLines) group.add(this.buildDimensionGuides(outlineExtent, outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
+        }
         return group;
     }
 
-    private buildCanvasCache(tensor: TensorRecord, cellPixels: number): CanvasCache {
-        const renderShape = tensor.view.displayShape.length === 0 ? [1] : tensor.view.displayShape;
-        const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
-        const extent = displayExtent2D(outlineShape);
-        const canvas = document.createElement('canvas');
-        const padding = Math.max(8, cellPixels * 4);
-        canvas.width = Math.max(8, Math.ceil(extent.x * cellPixels) + padding * 2);
-        canvas.height = Math.max(8, Math.ceil(extent.y * cellPixels) + padding * 2);
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Unable to create offscreen canvas context.');
-        context.imageSmoothingEnabled = false;
-        context.clearRect(0, 0, canvas.width, canvas.height);
-
-        const { min, max } = tensor.valueRange;
-        const count = product(renderShape);
-        const cellSize = cellPixels;
-        const entries: CanvasEntry[] = [];
-        const shouldTrackEntries = count <= 200_000;
-
-        for (let index = 0; index < count; index += 1) {
-            const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
-            const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-            const outlineCoord = mapDisplayCoordToOutlineCoord(displayCoord, tensor.view);
-            const fullLinear = this.linearIndex(fullCoord, tensor.shape);
-            const value = numericValue(tensor.data, fullLinear);
-            const position = displayPositionForCoord2D(outlineCoord, outlineShape);
-            const x = Math.round((position.x + extent.x / 2 - 0.5) * cellPixels) + padding;
-            const y = Math.round((extent.y / 2 - position.y - 0.5) * cellPixels) + padding;
-            context.fillStyle = this.cellFillStyle(tensor, fullCoord, value, min, max);
-            context.fillRect(x, y, cellSize, cellSize);
-            if (shouldTrackEntries) {
-                const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
-                    ? 'custom'
-                    : this.state.heatmap
-                        ? 'heatmap'
-                        : 'base';
-                entries.push({
-                    x,
-                    y,
-                    size: cellSize,
-                    hover: {
-                        tensorId: tensor.id,
-                        tensorName: tensor.name,
-                        displayCoord: displayCoord.slice(),
-                        fullCoord: fullCoord.slice(),
-                        value,
-                        colorSource,
-                    },
-                });
-            }
-        }
-        return {
-            canvas,
-            entries: shouldTrackEntries ? entries : null,
-            extent,
-            padding,
-            cellPixels,
-        };
-    }
-
-    private render2DOverlay(): void {
-        const context = this.flatContext;
-        const pixelRatio = this.canvasScale();
-
-        this.tensors.forEach((tensor) => {
-            const extent = displayExtent2D(tensor.view.outlineShape);
-            const left = tensor.offset[0] - extent.x / 2;
-            const right = tensor.offset[0] + extent.x / 2;
-            const top = tensor.offset[1] + extent.y / 2;
-            const bottom = tensor.offset[1] - extent.y / 2;
-            const topLeft = this.projectCanvasPoint(left, top);
-            const bottomRight = this.projectCanvasPoint(right, bottom);
-            const rectX = Math.min(topLeft.x, bottomRight.x);
-            const rectY = Math.min(topLeft.y, bottomRight.y);
-            const rectWidth = Math.abs(bottomRight.x - topLeft.x);
-            const rectHeight = Math.abs(bottomRight.y - topLeft.y);
-
-            context.strokeStyle = '#334155';
-            context.lineWidth = Math.max(1, 1.5 * pixelRatio);
-            context.strokeRect(rectX, rectY, rectWidth, rectHeight);
-
-            if (this.state.hover?.tensorId === tensor.id) {
-                const hoverCoord = mapDisplayCoordToOutlineCoord(this.state.hover.displayCoord, tensor.view);
-                const hoverPosition = displayPositionForCoord2D(hoverCoord, tensor.view.outlineShape);
-                const hoverTopLeft = this.projectCanvasPoint(tensor.offset[0] + hoverPosition.x - 0.5, tensor.offset[1] + hoverPosition.y + 0.5);
-                const hoverBottomRight = this.projectCanvasPoint(tensor.offset[0] + hoverPosition.x + 0.5, tensor.offset[1] + hoverPosition.y - 0.5);
-                context.strokeStyle = '#f59e0b';
-                context.lineWidth = Math.max(2, 2 * pixelRatio);
-                context.strokeRect(
-                    Math.min(hoverTopLeft.x, hoverBottomRight.x),
-                    Math.min(hoverTopLeft.y, hoverBottomRight.y),
-                    Math.abs(hoverBottomRight.x - hoverTopLeft.x),
-                    Math.abs(hoverBottomRight.y - hoverTopLeft.y),
-                );
-            }
-            if (!this.state.showDimensionLines) return;
-
-            const rank = tensor.view.outlineShape.length;
-            const labels = tensor.view.tokens.map((token) => token.label.toUpperCase());
-            const families = new Map<number, number[]>();
-            for (let axis = 0; axis < rank; axis += 1) {
-                const key = axisWorldKey2D(rank, axis);
-                const family = families.get(key) ?? [];
-                family.push(axis);
-                families.set(key, family);
-            }
-            const zoomScale = Math.max(1, Math.sqrt(this.canvasZoom));
-            const fontSize = 21 * pixelRatio * zoomScale;
-            const guide = 28 * pixelRatio;
-            tensor.view.outlineShape.forEach((size, axis) => {
-                const familyKey = axisWorldKey2D(rank, axis);
-                const family = families.get(familyKey) ?? [axis];
-                const familyPos = Math.max(0, family.indexOf(axis));
-                const start = new Array(rank).fill(0);
-                const end = start.slice();
-                family.forEach((familyAxis) => {
-                    if (familyAxis >= axis) end[familyAxis] = Math.max(0, tensor.view.outlineShape[familyAxis] - 1);
-                });
-                const startPos = displayPositionForCoord2D(start, tensor.view.outlineShape);
-                const endPos = displayPositionForCoord2D(end, tensor.view.outlineShape);
-                const delta = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
-                const length = Math.hypot(delta.x, delta.y) || 1;
-                const axisDir = { x: delta.x / length, y: delta.y / length };
-                const extentStart = { x: startPos.x - axisDir.x * 0.5, y: startPos.y - axisDir.y * 0.5 };
-                const extentEnd = { x: endPos.x + axisDir.x * 0.5, y: endPos.y + axisDir.y * 0.5 };
-                const startPoint = this.projectCanvasPoint(tensor.offset[0] + extentStart.x, tensor.offset[1] + extentStart.y);
-                const endPoint = this.projectCanvasPoint(tensor.offset[0] + extentEnd.x, tensor.offset[1] + extentEnd.y);
-                const color = axisFamilyColor(familyKey as 0 | 1 | 2, familyPos, family.length);
-                const dir = familyKey === 0 ? { x: 0, y: 1 } : { x: -1, y: 0 };
-                const reverseIndex = family.length - 1 - familyPos;
-                const offsetScale = guide + reverseIndex * (guide * 0.9);
-                const startGuide = { x: startPoint.x + dir.x * offsetScale, y: startPoint.y + dir.y * offsetScale };
-                const endGuide = { x: endPoint.x + dir.x * offsetScale, y: endPoint.y + dir.y * offsetScale };
-
-                context.strokeStyle = color;
-                context.lineWidth = Math.max(2, 2 * pixelRatio);
-                context.beginPath();
-                context.moveTo(startPoint.x, startPoint.y);
-                context.lineTo(startGuide.x, startGuide.y);
-                context.moveTo(endPoint.x, endPoint.y);
-                context.lineTo(endGuide.x, endGuide.y);
-                context.moveTo(startGuide.x, startGuide.y);
-                context.lineTo(endGuide.x, endGuide.y);
-                context.stroke();
-
-                const textX = (startGuide.x + endGuide.x) / 2 + dir.x * 8 * pixelRatio;
-                const textY = (startGuide.y + endGuide.y) / 2 + dir.y * (fontSize + 5 * pixelRatio);
-                context.font = `700 ${fontSize * 1.3}px "IBM Plex Mono", monospace`;
-                context.textAlign = familyKey === 0 ? 'center' : 'right';
-                context.textBaseline = 'middle';
-                context.lineJoin = 'round';
-                context.strokeStyle = '#ffffff';
-                context.lineWidth = Math.max(1, 1.15 * pixelRatio * zoomScale);
-                context.strokeText(`${labels[axis] ?? 'X'}: ${size}`, textX, textY);
-                context.fillStyle = color;
-                context.fillText(`${labels[axis] ?? 'X'}: ${size}`, textX, textY);
-            });
-        });
-    }
-
     private render2D(): void {
+        this.sync2DCamera();
+        this.renderer.render(this.scene, this.camera);
         this.flatContext.setTransform(1, 0, 0, 1, 0, 0);
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
-        this.flatContext.fillStyle = '#e5e7eb';
-        this.flatContext.fillRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
-        this.tensors.forEach((tensor) => {
-            const cache = this.ensureCanvasCache(tensor);
-            const placement = this.cachePlacement(tensor, cache);
-            this.flatContext.drawImage(
-                cache.canvas,
-                placement.x,
-                placement.y,
-                cache.canvas.width * placement.scale,
-                cache.canvas.height * placement.scale,
-            );
-        });
-        this.render2DOverlay();
     }
 
     private linearIndex(coord: number[], shape: number[]): number {
@@ -1066,18 +961,6 @@ export class TensorViewer {
             index = (index * shape[axis]) + value;
         });
         return index;
-    }
-
-    private cellFillStyle(tensor: TensorRecord, fullCoord: number[], value: number, min: number, max: number): string {
-        const customColor = tensor.customColors.get(coordKey(fullCoord));
-        if (customColor?.kind === 'rgba') {
-            const [red, green, blue] = customColor.value;
-            return `rgb(${red} ${green} ${blue})`;
-        }
-        if (customColor?.kind === 'hs') return `#${colorFromHueSaturation(customColor.value, this.state.heatmap ? (max === min ? 1 : Math.max(0, Math.min(1, (value - min) / (max - min)))) : 1).getHexString()}`;
-        if (!this.state.heatmap) return '#90a4ae';
-        const gray = heatmapGray(value, min, max);
-        return `rgb(${gray} ${gray} ${gray})`;
     }
 
     private cellColor(tensor: TensorRecord, fullCoord: number[], value: number, min: number, max: number): Color {
@@ -1176,18 +1059,107 @@ export class TensorViewer {
         this.emitHover();
     }
 
+    private resetLoadedState(): void {
+        Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
+        this.tensorMeshes.clear();
+        this.pickMeshes.length = 0;
+        this.tensors.clear();
+        this.state.activeTensorId = null;
+        this.state.hover = null;
+        this.state.lastHover = null;
+        this.hoverOutline.visible = false;
+        this.lastHoverLogKey = null;
+    }
+
+    private applyDisplayMode(mode: '2d' | '3d'): void {
+        const previousTarget = this.controls.target.clone();
+        this.state.displayMode = mode;
+        this.controls.dispose();
+        this.camera = mode === '2d' ? this.orthographicCamera : this.perspectiveCamera;
+        this.controls = this.createControls(this.camera);
+        this.controls.enableRotate = mode === '3d';
+        this.renderer.domElement.style.display = 'block';
+        this.flatCanvas.style.display = mode === '2d' ? 'block' : 'none';
+        this.flatOverlay.style.display = 'none';
+        this.controls.target.copy(previousTarget);
+        if (mode === '3d') {
+            this.camera.position.set(previousTarget.x + 20, previousTarget.y + 16, previousTarget.z + 24);
+            this.camera.lookAt(previousTarget);
+            return;
+        }
+        this.sync2DCamera();
+    }
+
+    private assignTensorView(tensor: TensorRecord, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
+        const parsed = parseTensorView(tensor.shape, spec, hiddenIndices ?? tensor.view.hiddenIndices);
+        if (!parsed.ok) throw new Error(parsed.errors.join(' '));
+        tensor.view = parsed.spec;
+        return {
+            visible: tensor.view.canonical,
+            hiddenIndices: tensor.view.hiddenIndices.slice(),
+        };
+    }
+
+    private applySnapshot(snapshot: ViewerSnapshot): void {
+        this.state.heatmap = snapshot.heatmap;
+        this.state.showDimensionLines = snapshot.showDimensionLines;
+        this.state.showInspectorPanel = snapshot.showInspectorPanel;
+        this.state.showHoverDetailsPanel = snapshot.showHoverDetailsPanel;
+        this.state.activeTensorId = snapshot.activeTensorId;
+        this.applyDisplayMode(snapshot.displayMode);
+
+        if (snapshot.displayMode === '2d') {
+            this.canvasZoom = snapshot.camera.zoom;
+            this.canvasPan = {
+                x: -snapshot.camera.position[0] * CANVAS_WORLD_SCALE * this.canvasZoom,
+                y: snapshot.camera.position[1] * CANVAS_WORLD_SCALE * this.canvasZoom,
+            };
+            this.sync2DCamera();
+        } else {
+            this.camera.position.copy(vectorFromTuple(snapshot.camera.position));
+            this.controls.target.copy(vectorFromTuple(snapshot.camera.target));
+            this.camera.rotation.set(...snapshot.camera.rotation);
+            if ('zoom' in this.camera) this.camera.zoom = snapshot.camera.zoom;
+            this.camera.updateProjectionMatrix();
+        }
+
+        snapshot.tensors.forEach((entry) => {
+            const tensor = this.tensors.get(entry.id);
+            if (!tensor) return;
+            tensor.offset = entry.offset;
+            this.assignTensorView(tensor, entry.view.visible, entry.view.hiddenIndices);
+        });
+
+        if (!this.state.activeTensorId || !this.tensors.has(this.state.activeTensorId)) {
+            this.state.activeTensorId = snapshot.tensors[0]?.id ?? this.tensors.keys().next().value ?? null;
+        }
+    }
+
+    private shouldAutoFitSnapshot(snapshot: ViewerSnapshot): boolean {
+        return snapshot.camera.zoom === 1
+            && snapshot.camera.position[0] === 0
+            && snapshot.camera.position[1] === 0
+            && snapshot.camera.position[2] === 30
+            && snapshot.camera.target[0] === 0
+            && snapshot.camera.target[1] === 0
+            && snapshot.camera.target[2] === 0
+            && snapshot.camera.rotation[0] === 0
+            && snapshot.camera.rotation[1] === 0
+            && snapshot.camera.rotation[2] === 0;
+    }
+
     private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): void {
-        if (this.sameHover(this.state.hover, hover)) return;
+        const outlineChanged = this.syncHoverOutline(hover, source, outlinePosition);
+        if (this.sameHover(this.state.hover, hover)) {
+            if (outlineChanged) this.requestRender();
+            return;
+        }
         this.state.hover = hover;
         if (hover) this.state.lastHover = hover;
         const hoverKey = hover ? `${hover.tensorId}:${hover.fullCoord.join(',')}:${hover.value}` : null;
         if (hoverKey !== this.lastHoverLogKey) {
             this.lastHoverLogKey = hoverKey;
             logEvent(`${source}:hover`, hover ?? 'none');
-        }
-        if (source === '3d') {
-            this.hoverOutline.visible = !!hover;
-            if (hover && outlinePosition) this.hoverOutline.position.copy(outlinePosition);
         }
         this.requestRender();
         this.emitHover();
@@ -1211,6 +1183,7 @@ export class TensorViewer {
             offset?: Vec3;
             dtype?: DType;
             rebuild?: boolean;
+            emit?: boolean;
         } = {},
     ): TensorHandle {
         const normalizedShape = shape.map((dim) => Math.max(1, Math.floor(dim)));
@@ -1235,7 +1208,7 @@ export class TensorViewer {
         this.tensors.set(id, tensor);
         this.state.activeTensorId ??= id;
         if (options.rebuild === false) {
-            this.emit();
+            if (options.emit !== false) this.emit();
         } else {
             this.rebuildAllMeshes({ fitCamera: true });
         }
@@ -1260,10 +1233,10 @@ export class TensorViewer {
 
     public clear(): void {
         logEvent('tensor:clear');
-        this.tensors.clear();
-        this.state.activeTensorId = null;
-        this.clearHover();
-        this.rebuildAllMeshes();
+        this.resetLoadedState();
+        this.requestRender();
+        this.emitHover();
+        this.emit();
     }
 
     public getSnapshot(): ViewerSnapshot {
@@ -1295,26 +1268,7 @@ export class TensorViewer {
 
     public restoreSnapshot(snapshot: ViewerSnapshot): void {
         logEvent('snapshot:restore', snapshot);
-        this.state.displayMode = snapshot.displayMode;
-        this.state.heatmap = snapshot.heatmap;
-        this.state.showDimensionLines = snapshot.showDimensionLines;
-        this.state.showInspectorPanel = snapshot.showInspectorPanel;
-        this.state.showHoverDetailsPanel = snapshot.showHoverDetailsPanel;
-        this.state.activeTensorId = snapshot.activeTensorId;
-        this.setDisplayMode(snapshot.displayMode);
-        this.camera.position.copy(vectorFromTuple(snapshot.camera.position));
-        this.controls.target.copy(vectorFromTuple(snapshot.camera.target));
-        this.camera.rotation.set(...snapshot.camera.rotation);
-        if ('zoom' in this.camera) this.camera.zoom = snapshot.camera.zoom;
-        this.camera.updateProjectionMatrix();
-
-        snapshot.tensors.forEach((entry) => {
-            const tensor = this.tensors.get(entry.id);
-            if (!tensor) return;
-            tensor.offset = entry.offset;
-            const parsed = parseTensorView(tensor.shape, entry.view.visible, entry.view.hiddenIndices);
-            if (parsed.ok) tensor.view = parsed.spec;
-        });
+        this.applySnapshot(snapshot);
         this.rebuildAllMeshes();
     }
 
@@ -1332,20 +1286,7 @@ export class TensorViewer {
 
     public setDisplayMode(mode: '2d' | '3d'): void {
         logEvent('display:mode', mode);
-        const previousTarget = this.controls.target.clone();
-        this.state.displayMode = mode;
-        this.controls.dispose();
-        this.camera = mode === '2d' ? this.orthographicCamera : this.perspectiveCamera;
-        this.controls = this.createControls(this.camera);
-        this.controls.enableRotate = mode === '3d';
-        this.renderer.domElement.style.display = mode === '3d' ? 'block' : 'none';
-        this.flatCanvas.style.display = mode === '2d' ? 'block' : 'none';
-        this.flatOverlay.style.display = 'none';
-        this.controls.target.copy(previousTarget);
-        if (mode === '3d') {
-            this.camera.position.set(previousTarget.x + 20, previousTarget.y + 16, previousTarget.z + 24);
-            this.camera.lookAt(previousTarget);
-        }
+        this.applyDisplayMode(mode);
         this.rebuildAllMeshes();
     }
 
@@ -1393,15 +1334,10 @@ export class TensorViewer {
 
     public setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
-        const parsed = parseTensorView(tensor.shape, spec, hiddenIndices ?? tensor.view.hiddenIndices);
-        if (!parsed.ok) throw new Error(parsed.errors.join(' '));
-        tensor.view = parsed.spec;
+        const snapshot = this.assignTensorView(tensor, spec, hiddenIndices);
         logEvent('tensor:view', { tensorId, view: tensor.view.canonical, hiddenIndices: tensor.view.hiddenIndices });
         this.rebuildAllMeshes();
-        return {
-            visible: tensor.view.canonical,
-            hiddenIndices: tensor.view.hiddenIndices.slice(),
-        };
+        return snapshot;
     }
 
     public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
@@ -1446,7 +1382,7 @@ export class TensorViewer {
         logEvent('file:open', file.name);
         if (await isNpyFile(file)) {
             const array = await loadNpy(file);
-            this.clear();
+            this.resetLoadedState();
             this.insertTensor(array.shape, array.data, {
                 name: file.name.replace(/\.npy$/i, '') || 'Tensor',
                 dtype: array.dtype,
@@ -1454,21 +1390,27 @@ export class TensorViewer {
             return;
         }
         const { manifest, tensors } = await loadBundle(file);
-        this.clear();
+        this.loadBundleData(manifest, tensors);
+    }
+
+    public loadBundleData(manifest: BundleManifest, tensors: Map<string, NumericArray>): void {
+        const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
+        this.resetLoadedState();
         manifest.tensors.forEach((entry) => {
             const data = tensors.get(entry.id);
             if (!data) throw new Error(`Bundle tensor ${entry.id} is missing bytes.`);
-            const handle = this.insertTensor(entry.shape, data, {
+            this.insertTensor(entry.shape, data, {
                 id: entry.id,
                 name: entry.name,
                 offset: entry.offset,
                 dtype: entry.dtype,
                 rebuild: false,
+                emit: false,
             });
-            this.setTensorView(handle.id, entry.view.visible, entry.view.hiddenIndices);
-            if (entry.colorInstructions?.length) this.applyColorInstructions(handle.id, entry.colorInstructions);
+            if (entry.colorInstructions?.length) this.applyColorInstructions(entry.id, entry.colorInstructions);
         });
-        this.restoreSnapshot(manifest.viewer);
+        this.applySnapshot(manifest.viewer);
+        this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
     }
 
     public async saveFile(): Promise<Blob> {
@@ -1493,10 +1435,13 @@ export class TensorViewer {
             name: tensor.name,
             ...tensor.valueRange,
         }));
-        if (!this.state.activeTensorId) {
+        const activeTensorId = this.state.activeTensorId && this.tensors.has(this.state.activeTensorId)
+            ? this.state.activeTensorId
+            : this.tensors.keys().next().value ?? null;
+        if (!activeTensorId) {
             return { handle: null, tensors, colorRanges, viewInput: '', preview: '', hiddenTokens: [], colorRange: null };
         }
-        const tensor = this.requireTensor(this.state.activeTensorId);
+        const tensor = this.requireTensor(activeTensorId);
         return {
             handle: {
                 id: tensor.id,

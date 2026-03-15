@@ -1,12 +1,13 @@
 import numpy as np
+from tensor_viz import viz
 import tensor_viz
 from tensor_viz.bundle import create_session_bundle
 
-DEMO = 3
+DEMO = 4
 
 if DEMO == 0: # basic
     x = np.random.randn(2,3)
-    tensor_viz.viz(x)
+    viz(x)
 if DEMO == 1: # linear layout
     x = (
         np.arange(2048)
@@ -15,7 +16,7 @@ if DEMO == 1: # linear layout
         #.reshape(128, 16)
           .reshape(16, 8, 16)
     )
-    tensor_viz.viz(x)
+    viz(x)
 if DEMO == 2: # multi-tensor view
     SHAPE = (3, 4)
     BASE = np.arange(np.prod(SHAPE), dtype=np.float32).reshape(SHAPE)
@@ -61,7 +62,26 @@ if DEMO == 2: # multi-tensor view
         },
     )
 
-    tensor_viz.viz(BASE, session_bundle=bundle)
+    viz(BASE, session_bundle=bundle)
 if DEMO == 3: # big boy
-    x = np.random.randn(64,64)
-    tensor_viz.viz(x)
+    x = np.random.randn(4096,4096)
+    viz(x)
+if DEMO == 4: # tabs
+    t1 = tensor_viz.Tab("t1")
+    x = np.random.randn(2,2)
+    t1.viz(x)
+
+    t2 = tensor_viz.Tab("t2")
+    x = np.random.randn(2,2,2,2,2,2,2,2,2)
+    t2.viz(x)
+    viz([t1, t2])
+if DEMO == 5: # plt
+    import time
+    from PIL import Image
+        
+    #import matplotlib.pyplot as plt
+    #plt.imshow(np.array(Image.open('/home/trtx/Projects/deer1024.jpg')))
+    #plt.show()
+
+
+    viz(np.array(Image.open('/home/trtx/Projects/deer1024.jpg')))

@@ -13,7 +13,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from .bundle import create_session_bundle
+from .bundle import Tab, create_session_bundle
 
 
 def _static_root() -> Path:
@@ -47,7 +47,7 @@ class ViewerSession:
 
 
 def viz(
-    tensor: np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray],
+    tensor: np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray] | Tab | Sequence[Tab],
     *,
     name: str | None = None,
     session_bundle: bytes | None = None,

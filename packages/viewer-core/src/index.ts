@@ -1,4 +1,4 @@
-export { loadBundle, saveBundle } from './bundle.js';
+export { loadBundle, loadSessionBundle, saveBundle } from './bundle.js';
 export { createTypedArray, isNpyFile, loadNpy, saveNpy } from './npy.js';
 export { displayExtent, displayPositionForCoord, unravelIndex } from './layout.js';
 export {
@@ -19,8 +19,10 @@ export type {
     HoverInfo,
     InspectorTensorOption,
     HueSaturation,
+    LoadedBundleDocument,
     NumericArray,
     RGBA,
+    SessionBundleManifest,
     TensorHandle,
     TensorViewSnapshot,
     TensorViewSpec,

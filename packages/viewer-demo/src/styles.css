@@ -23,9 +23,10 @@ select {
 }
 
 #app {
+    --sidebar-width: 360px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 8px minmax(0, var(--sidebar-width));
+    grid-template-rows: auto auto minmax(0, 1fr);
     min-height: 100vh;
 }
 
@@ -91,7 +92,34 @@ select {
     font-size: 0.82rem;
 }
 
+.tab-strip {
+    grid-column: 1 / 2;
+    display: flex;
+    gap: 1px;
+    padding: 0 0.5rem;
+    background: #cbd5e1;
+}
+
+.tab-button {
+    border: 0;
+    padding: 0.45rem 0.8rem;
+    background: #e2e8f0;
+    color: #334155;
+    cursor: pointer;
+}
+
+.tab-button.active {
+    background: #fff;
+    color: #0f172a;
+}
+
+.tab-button:hover {
+    background: #f8fafc;
+}
+
 .viewport-wrap {
+    grid-column: 1 / 2;
+    grid-row: 3;
     min-width: 0;
     min-height: 0;
 }
@@ -101,11 +129,25 @@ select {
     height: 100%;
 }
 
+.sidebar-splitter {
+    grid-column: 2 / 3;
+    grid-row: 2 / 4;
+    background: rgba(15, 23, 42, 0.08);
+    cursor: col-resize;
+}
+
+.sidebar-splitter:hover {
+    background: rgba(59, 130, 246, 0.28);
+}
+
 .sidebar {
+    grid-column: 3 / 4;
+    grid-row: 3 / 4;
     display: grid;
     align-content: start;
     gap: 1px;
     background: rgba(15, 23, 42, 0.08);
+    min-width: 0;
 }
 
 .widget {
@@ -224,4 +266,71 @@ select {
 
 .hidden {
     display: none;
+}
+
+.command-palette {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: start center;
+    padding-top: 12vh;
+}
+
+.command-palette.hidden {
+    display: none;
+}
+
+.command-palette-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.18);
+}
+
+.command-palette-dialog {
+    position: relative;
+    width: min(640px, calc(100vw - 2rem));
+    background: #fff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+}
+
+.command-palette-dialog input {
+    width: 100%;
+    padding: 0.95rem 1rem;
+    border: 0;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.16);
+    font-size: 1rem;
+    background: #fff;
+}
+
+.command-palette-list {
+    display: grid;
+    max-height: min(420px, 60vh);
+    overflow: auto;
+}
+
+.command-palette-item,
+.command-palette-empty {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.8rem 1rem;
+    border: 0;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.1);
+    background: #fff;
+    text-align: left;
+}
+
+.command-palette-item {
+    cursor: pointer;
+}
+
+.command-palette-item.active,
+.command-palette-item:hover {
+    background: #f8fafc;
+}
+
+.command-palette-item span:last-child,
+.command-palette-empty {
+    color: #64748b;
+    font-size: 0.85rem;
 }

@@ -116,6 +116,23 @@ export type BundleManifest = {
     }>;
 };
 
+export type SessionBundleManifest = {
+    version: 1;
+    tabs: Array<{
+        id: string;
+        title: string;
+        viewer: ViewerSnapshot;
+        tensors: BundleManifest['tensors'];
+    }>;
+};
+
+export type LoadedBundleDocument = {
+    id: string;
+    title: string;
+    manifest: BundleManifest;
+    tensors: Map<string, NumericArray>;
+};
+
 export type TensorRecord = {
     id: string;
     name: string;

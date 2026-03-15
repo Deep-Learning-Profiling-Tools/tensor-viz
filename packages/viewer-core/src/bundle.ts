@@ -2,7 +2,16 @@ import JSZip from 'jszip';
 import { unravelIndex } from './layout.js';
 import { createTypedArray } from './npy.js';
 import { product } from './view.js';
-import type { BundleManifest, ColorInstruction, CustomColor, NumericArray, TensorRecord, ViewerSnapshot } from './types.js';
+import type {
+    BundleManifest,
+    ColorInstruction,
+    CustomColor,
+    LoadedBundleDocument,
+    NumericArray,
+    SessionBundleManifest,
+    TensorRecord,
+    ViewerSnapshot,
+} from './types.js';
 
 function byteView(data: NumericArray): Uint8Array {
     return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
@@ -81,4 +90,47 @@ export async function loadBundle(file: Blob): Promise<{ manifest: BundleManifest
         tensors.set(tensor.id, createTypedArray(tensor.dtype, buffer));
     }
     return { manifest, tensors };
+}
+
+export async function loadSessionBundle(file: Blob): Promise<LoadedBundleDocument[]> {
+    const zip = await JSZip.loadAsync(file);
+    const manifestEntry = zip.file('manifest.json');
+    if (!manifestEntry) throw new Error('Bundle is missing manifest.json.');
+    const rawManifest = JSON.parse(await manifestEntry.async('string')) as BundleManifest | SessionBundleManifest;
+
+    async function loadDocument(
+        id: string,
+        title: string,
+        manifest: BundleManifest,
+    ): Promise<LoadedBundleDocument> {
+        const tensors = new Map<string, NumericArray>();
+        for (const tensor of manifest.tensors) {
+            const entry = zip.file(tensor.dataFile);
+            if (!entry) throw new Error(`Bundle is missing ${tensor.dataFile}.`);
+            const buffer = await entry.async('arraybuffer');
+            tensors.set(tensor.id, createTypedArray(tensor.dtype, buffer));
+        }
+        return { id, title, manifest, tensors };
+    }
+
+    if ('tabs' in rawManifest && Array.isArray(rawManifest.tabs)) {
+        if (rawManifest.version !== 1) throw new Error(`Unsupported bundle version ${rawManifest.version}.`);
+        return Promise.all(rawManifest.tabs.map((tab) => loadDocument(
+            tab.id,
+            tab.title,
+            {
+                version: 1,
+                viewer: tab.viewer,
+                tensors: tab.tensors,
+            },
+        )));
+    }
+
+    const { manifest, tensors } = await loadBundle(file);
+    return [{
+        id: 'tab-1',
+        title: manifest.tensors[0]?.name ?? 'Tensor',
+        manifest,
+        tensors,
+    }];
 }
