@@ -34,8 +34,10 @@ import helvetikerBoldFont from 'three/examples/fonts/helvetiker_bold.typeface.js
 import { loadBundle } from './bundle.js';
 import { isNpyFile, loadNpy, saveNpy } from './npy.js';
 import {
+    DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
     displayExtent,
     displayExtent2D,
+    displayHitForPoint2D,
     displayPositionForCoord,
     displayPositionForCoord2D,
     unravelIndex,
@@ -46,6 +48,7 @@ import {
     expandGroupedIndex,
     mapDisplayCoordToFullCoord,
     mapDisplayCoordToOutlineCoord,
+    mapOutlineCoordToDisplayCoord,
     parseTensorView,
     product,
 } from './view.js';
@@ -89,14 +92,6 @@ type PickMesh = {
         minY: number;
         maxY: number;
     };
-    grid2D: {
-        rowCount: number;
-        columnCount: number;
-        startX: number;
-        startY: number;
-        stepX: number;
-        stepY: number;
-    } | null;
 };
 
 const CANVAS_WORLD_SCALE = 4;
@@ -181,10 +176,8 @@ function axisWorldKey2D(rank: number, axis: number): 0 | 1 {
     return ((rank - 1 - axis) % 2) as 0 | 1;
 }
 
-function heatmapGray(value: number, min: number, max: number): number {
-    const range = max - min || 1;
-    const t = Math.max(0, Math.min(1, (value - min) / range));
-    return Math.round(t * 255);
+function signedLog1p(value: number): number {
+    return Math.sign(value) * Math.log1p(Math.abs(value));
 }
 
 function computeMinMax(data: NumericArray): { min: number; max: number } {
@@ -297,6 +290,9 @@ export class TensorViewer {
     private readonly state: ViewerState = {
         displayMode: '2d',
         heatmap: true,
+        dimensionBlockGapMultiple: DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
+        displayGaps: true,
+        logScale: false,
         showDimensionLines: true,
         showInspectorPanel: true,
         showHoverDetailsPanel: true,
@@ -415,6 +411,18 @@ export class TensorViewer {
         return this.flatCanvas.width / Math.max(1, this.flatCanvas.clientWidth || this.flatCanvas.width || 1);
     }
 
+    private layoutGapMultiple(): number {
+        return this.state.displayGaps ? this.state.dimensionBlockGapMultiple : 0;
+    }
+
+    private heatmapNormalizedValue(value: number, min: number, max: number): number {
+        const scaledValue = this.state.logScale ? signedLog1p(value) : value;
+        const scaledMin = this.state.logScale ? signedLog1p(min) : min;
+        const scaledMax = this.state.logScale ? signedLog1p(max) : max;
+        const range = scaledMax - scaledMin || 1;
+        return Math.max(0, Math.min(1, (scaledValue - scaledMin) / range));
+    }
+
     private sync2DCamera(): void {
         const zoom = Math.max(0.15, this.canvasZoom);
         this.orthographicCamera.zoom = zoom;
@@ -434,28 +442,6 @@ export class TensorViewer {
         return {
             x: ((clientX - rect.left) * scaleX - this.flatCanvas.width / 2 - this.canvasPan.x) / (CANVAS_WORLD_SCALE * this.canvasZoom),
             y: -(((clientY - rect.top) * scaleY - this.flatCanvas.height / 2 - this.canvasPan.y) / (CANVAS_WORLD_SCALE * this.canvasZoom)),
-        };
-    }
-
-    private defaultGrid2D(tensor: TensorRecord, renderShape: number[]): PickMesh['grid2D'] {
-        const isIdentityView = tensor.shape.length <= 2
-            && tensor.view.hiddenTokens.length === 0
-            && tensor.view.tokens.length === tensor.shape.length
-            && tensor.view.tokens.every((token, index) => token.kind === 'axis_group'
-                && token.visible
-                && token.axes.length === 1
-                && token.axes[0] === index);
-        if (!isIdentityView) return null;
-        const extent = displayExtent2D(renderShape);
-        const rowCount = renderShape.length > 1 ? renderShape[0] : 1;
-        const columnCount = renderShape.length > 1 ? renderShape[1] : (renderShape[0] ?? 1);
-        return {
-            rowCount,
-            columnCount,
-            startX: tensor.offset[0] - extent.x / 2 + 0.5,
-            startY: tensor.offset[1] + extent.y / 2 - 0.5,
-            stepX: columnCount > 1 ? (extent.x - 1) / (columnCount - 1) : 0,
-            stepY: rowCount > 1 ? (extent.y - 1) / (rowCount - 1) : 0,
         };
     }
 
@@ -483,23 +469,14 @@ export class TensorViewer {
         const point = this.canvasPointerToWorld(clientX, clientY);
         const entries = this.pickEntries(clientX, clientY);
         for (const entry of entries) {
-            const grid = entry.grid2D;
-            if (!grid) continue;
-            const column = grid.stepX === 0 ? 0 : Math.round((point.x - grid.startX) / grid.stepX);
-            const row = grid.stepY === 0 ? 0 : Math.round((grid.startY - point.y) / grid.stepY);
-            if (column < 0 || column >= grid.columnCount || row < 0 || row >= grid.rowCount) continue;
-            const centerX = grid.startX + column * grid.stepX;
-            const centerY = grid.startY - row * grid.stepY;
-            if (Math.abs(point.x - centerX) > 0.5 || Math.abs(point.y - centerY) > 0.5) continue;
-
             const tensor = this.requireTensor(entry.tensorId);
-            const displayCoord = tensor.shape.length === 0
-                ? []
-                : tensor.shape.length === 1
-                    ? [column]
-                    : [row, column];
-            const value = numericValue(tensor.data, tensor.shape.length === 0 ? 0 : row * grid.columnCount + column);
-            const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(displayCoord))
+            const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
+            const hit = displayHitForPoint2D(point.x - tensor.offset[0], point.y - tensor.offset[1], outlineShape, this.layoutGapMultiple());
+            if (!hit) continue;
+            const displayCoord = mapOutlineCoordToDisplayCoord(hit.coord, tensor.view);
+            const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
+            const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
+            const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
                 ? 'custom'
                 : this.state.heatmap
                     ? 'heatmap'
@@ -509,17 +486,13 @@ export class TensorViewer {
                     tensorId: tensor.id,
                     tensorName: tensor.name,
                     displayCoord: displayCoord.slice(),
-                    viewedCoord: displayCoord.slice(),
-                    fullCoord: displayCoord.slice(),
+                    viewedCoord: hit.coord.slice(),
+                    fullCoord: fullCoord.slice(),
                     value,
                     colorSource,
                 },
-                position: new Vector3(centerX, centerY, 0),
+                position: new Vector3(tensor.offset[0] + hit.position.x, tensor.offset[1] + hit.position.y, 0),
             };
-        }
-        if (entries.some((entry) => entry.grid2D === null)) {
-            this.sync2DCamera();
-            return this.scenePointerToHover(clientX, clientY);
         }
         return null;
     }
@@ -579,10 +552,10 @@ export class TensorViewer {
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
         const outlineCoord = hover.viewedCoord;
         if (this.state.displayMode === '2d') {
-            const position = displayPositionForCoord2D(outlineCoord, outlineShape);
+            const position = displayPositionForCoord2D(outlineCoord, outlineShape, this.layoutGapMultiple());
             return new Vector3(tensor.offset[0] + position.x, tensor.offset[1] + position.y, 0);
         }
-        return displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
+        return displayPositionForCoord(outlineCoord, outlineShape, this.layoutGapMultiple()).add(vectorFromTuple(tensor.offset));
     }
 
     private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): boolean {
@@ -613,7 +586,7 @@ export class TensorViewer {
         if (!tensor) return false;
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
         const outlineCoord = hover.viewedCoord;
-        const position = displayPositionForCoord2D(outlineCoord, outlineShape);
+        const position = displayPositionForCoord2D(outlineCoord, outlineShape, this.layoutGapMultiple());
         const topLeft = this.projectCanvasPoint(tensor.offset[0] + position.x - 0.5, tensor.offset[1] + position.y + 0.5);
         const bottomRight = this.projectCanvasPoint(tensor.offset[0] + position.x + 0.5, tensor.offset[1] + position.y - 0.5);
         const rect = this.flatCanvas.getBoundingClientRect();
@@ -631,7 +604,7 @@ export class TensorViewer {
         if (!tensor) return false;
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
         const outlineCoord = hover.viewedCoord;
-        const center = displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
+        const center = displayPositionForCoord(outlineCoord, outlineShape, this.layoutGapMultiple()).add(vectorFromTuple(tensor.offset));
         const rect = this.renderer.domElement.getBoundingClientRect();
         let minX = Number.POSITIVE_INFINITY;
         let maxX = Number.NEGATIVE_INFINITY;
@@ -674,7 +647,7 @@ export class TensorViewer {
         let minY = Number.POSITIVE_INFINITY;
         let maxY = Number.NEGATIVE_INFINITY;
         this.tensors.forEach((tensor) => {
-            const extent = displayExtent2D(tensor.view.outlineShape);
+            const extent = displayExtent2D(tensor.view.outlineShape, this.layoutGapMultiple());
             minX = Math.min(minX, tensor.offset[0] - extent.x / 2);
             maxX = Math.max(maxX, tensor.offset[0] + extent.x / 2);
             minY = Math.min(minY, tensor.offset[1] - extent.y / 2);
@@ -866,7 +839,7 @@ export class TensorViewer {
             const mesh = group.children[0];
             if (mesh instanceof InstancedMesh) {
                 const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
-                const extent2D = displayExtent2D(outlineShape);
+                const extent2D = displayExtent2D(outlineShape, this.layoutGapMultiple());
                 const bounds = (mesh.boundingBox ?? new Box3().setFromObject(mesh)).clone();
                 this.pickMeshes.push({
                     tensorId: tensor.id,
@@ -878,7 +851,6 @@ export class TensorViewer {
                         minY: tensor.offset[1] - extent2D.y / 2,
                         maxY: tensor.offset[1] + extent2D.y / 2,
                     },
-                    grid2D: this.defaultGrid2D(tensor, (mesh.userData.meta as MeshMeta).renderShape),
                 });
             }
         });
@@ -894,19 +866,32 @@ export class TensorViewer {
         min: number,
         max: number,
     ): boolean {
-        const grid = this.state.displayMode === '2d' ? this.defaultGrid2D(tensor, renderShape) : null;
         const colorArray = mesh.instanceColor?.array as Float32Array | undefined;
-        if (!grid || tensor.customColors.size !== 0 || !colorArray) return false;
+        const isIdentityView = this.state.displayMode === '2d'
+            && tensor.shape.length <= 2
+            && tensor.view.hiddenTokens.length === 0
+            && tensor.view.tokens.length === tensor.shape.length
+            && tensor.view.tokens.every((token, index) => token.kind === 'axis_group'
+                && token.visible
+                && token.axes.length === 1
+                && token.axes[0] === index);
+        if (!isIdentityView || tensor.customColors.size !== 0 || !colorArray) return false;
 
         // default 1d/2d views are affine grids, so write instance buffers directly.
         const matrixArray = mesh.instanceMatrix.array as Float32Array;
-        const range = max - min || 1;
+        const extent = displayExtent2D(renderShape, this.layoutGapMultiple());
+        const rowCount = renderShape.length > 1 ? renderShape[0] : 1;
+        const columnCount = renderShape.length > 1 ? renderShape[1] : (renderShape[0] ?? 1);
+        const startX = tensor.offset[0] - extent.x / 2 + 0.5;
+        const startY = tensor.offset[1] + extent.y / 2 - 0.5;
+        const stepX = columnCount > 1 ? (extent.x - 1) / (columnCount - 1) : 0;
+        const stepY = rowCount > 1 ? (extent.y - 1) / (rowCount - 1) : 0;
         let cellIndex = 0;
 
-        for (let row = 0; row < grid.rowCount; row += 1) {
-            const y = grid.startY - row * grid.stepY;
-            for (let column = 0; column < grid.columnCount; column += 1) {
-                const x = grid.startX + column * grid.stepX;
+        for (let row = 0; row < rowCount; row += 1) {
+            const y = startY - row * stepY;
+            for (let column = 0; column < columnCount; column += 1) {
+                const x = startX + column * stepX;
                 const matrixOffset = cellIndex * 16;
                 matrixArray[matrixOffset] = 1;
                 matrixArray[matrixOffset + 1] = 0;
@@ -928,7 +913,7 @@ export class TensorViewer {
                 const value = numericValue(tensor.data, cellIndex);
                 const colorOffset = cellIndex * 3;
                 if (this.state.heatmap) {
-                    const gray = Math.max(0, Math.min(1, (value - min) / range));
+                    const gray = this.heatmapNormalizedValue(value, min, max);
                     colorArray[colorOffset] = gray;
                     colorArray[colorOffset + 1] = gray;
                     colorArray[colorOffset + 2] = gray;
@@ -991,8 +976,8 @@ export class TensorViewer {
             family.forEach((familyAxis) => {
                 if (familyAxis >= axis) end[familyAxis] = Math.max(0, shape[familyAxis] - 1);
             });
-            const startPos = displayPositionForCoord2D(start, shape);
-            const endPos = displayPositionForCoord2D(end, shape);
+            const startPos = displayPositionForCoord2D(start, shape, this.layoutGapMultiple());
+            const endPos = displayPositionForCoord2D(end, shape, this.layoutGapMultiple());
             const delta = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
             const length = Math.hypot(delta.x, delta.y) || 1;
             const axisDir = { x: delta.x / length, y: delta.y / length };
@@ -1043,8 +1028,8 @@ export class TensorViewer {
                     if (familyAxis >= axis) end[familyAxis] = Math.max(0, shape[familyAxis] - 1);
                 });
             }
-            const startPos = displayPositionForCoord(start, shape);
-            const endPos = displayPositionForCoord(end, shape);
+            const startPos = displayPositionForCoord(start, shape, this.layoutGapMultiple());
+            const endPos = displayPositionForCoord(end, shape, this.layoutGapMultiple());
             const axisDir = endPos.clone().sub(startPos);
             const direction = axisDir.lengthSq() > 1e-9
                 ? axisDir.normalize()
@@ -1107,7 +1092,7 @@ export class TensorViewer {
             count,
         );
         mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
-        const outlineExtent2D = displayExtent2D(outlineShape);
+        const outlineExtent2D = displayExtent2D(outlineShape, this.layoutGapMultiple());
         const { min, max } = tensor.valueRange;
         if (!this.populateFastMesh2D(tensor, mesh, renderShape, min, max)) {
             const matrix = new Matrix4();
@@ -1120,10 +1105,10 @@ export class TensorViewer {
                 const value = numericValue(tensor.data, fullLinear);
                 const position = this.state.displayMode === '2d'
                     ? (() => {
-                        const flat = displayPositionForCoord2D(outlineCoord, outlineShape);
+                        const flat = displayPositionForCoord2D(outlineCoord, outlineShape, this.layoutGapMultiple());
                         return new Vector3(tensor.offset[0] + flat.x, tensor.offset[1] + flat.y, 0);
                     })()
-                    : displayPositionForCoord(outlineCoord, outlineShape).add(offset);
+                    : displayPositionForCoord(outlineCoord, outlineShape, this.layoutGapMultiple()).add(offset);
                 matrix.makeTranslation(position.x, position.y, position.z);
                 mesh.setMatrixAt(index, matrix);
                 mesh.setColorAt(index, this.cellColor(tensor, fullCoord, value, min, max));
@@ -1142,7 +1127,7 @@ export class TensorViewer {
             );
             mesh.boundingSphere = new Sphere(center, Math.hypot(halfX, halfY));
         } else {
-            const outlineExtent = displayExtent(outlineShape);
+            const outlineExtent = displayExtent(outlineShape, this.layoutGapMultiple());
             const halfExtent = outlineExtent.clone().multiplyScalar(0.5);
             const center = vectorFromTuple(tensor.offset);
             mesh.boundingBox = new Box3(center.clone().sub(halfExtent), center.clone().add(halfExtent));
@@ -1155,7 +1140,7 @@ export class TensorViewer {
             group.add(this.buildOutline2D(outlineExtent2D, tensor.offset));
             if (this.state.showDimensionLines) group.add(this.buildDimensionGuides2D(outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
         } else {
-            const outlineExtent = displayExtent(outlineShape);
+            const outlineExtent = displayExtent(outlineShape, this.layoutGapMultiple());
             group.add(this.buildOutline(outlineExtent, tensor.offset));
             if (this.state.showDimensionLines) group.add(this.buildDimensionGuides(outlineExtent, outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
         }
@@ -1180,9 +1165,9 @@ export class TensorViewer {
     private cellColor(tensor: TensorRecord, fullCoord: number[], value: number, min: number, max: number): Color {
         const customColor = tensor.customColors.get(coordKey(fullCoord));
         if (customColor?.kind === 'rgba') return colorFromRgba(customColor.value);
-        if (customColor?.kind === 'hs') return colorFromHueSaturation(customColor.value, this.state.heatmap ? (max === min ? 1 : Math.max(0, Math.min(1, (value - min) / (max - min)))) : 1);
+        if (customColor?.kind === 'hs') return colorFromHueSaturation(customColor.value, this.state.heatmap ? this.heatmapNormalizedValue(value, min, max) : 1);
         if (!this.state.heatmap) return BASE_COLOR.clone();
-        const gray = heatmapGray(value, min, max) / 255;
+        const gray = this.heatmapNormalizedValue(value, min, max);
         return new Color().setRGB(gray, gray, gray);
     }
 
@@ -1269,6 +1254,7 @@ export class TensorViewer {
         this.state.hover = null;
         this.state.lastHover = null;
         this.hoverOutline.visible = false;
+        this.hoverOutline2D.visible = false;
         this.lastHoverLogKey = null;
         this.emitHover();
     }
@@ -1282,6 +1268,7 @@ export class TensorViewer {
         this.state.hover = null;
         this.state.lastHover = null;
         this.hoverOutline.visible = false;
+        this.hoverOutline2D.visible = false;
         this.lastHoverLogKey = null;
     }
 
@@ -1316,6 +1303,9 @@ export class TensorViewer {
 
     private applySnapshot(snapshot: ViewerSnapshot): void {
         this.state.heatmap = snapshot.heatmap;
+        this.state.dimensionBlockGapMultiple = snapshot.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
+        this.state.displayGaps = snapshot.displayGaps ?? true;
+        this.state.logScale = snapshot.logScale ?? false;
         this.state.showDimensionLines = snapshot.showDimensionLines;
         this.state.showInspectorPanel = snapshot.showInspectorPanel;
         this.state.showHoverDetailsPanel = snapshot.showHoverDetailsPanel;
@@ -1458,6 +1448,9 @@ export class TensorViewer {
             version: 1,
             displayMode: this.state.displayMode,
             heatmap: this.state.heatmap,
+            dimensionBlockGapMultiple: this.state.dimensionBlockGapMultiple,
+            displayGaps: this.state.displayGaps,
+            logScale: this.state.logScale,
             showDimensionLines: this.state.showDimensionLines,
             showInspectorPanel: this.state.showInspectorPanel,
             showHoverDetailsPanel: this.state.showHoverDetailsPanel,
@@ -1511,11 +1504,36 @@ export class TensorViewer {
         return this.state.heatmap;
     }
 
+    public setDimensionBlockGapMultiple(value: number): number {
+        const nextValue = Number.isFinite(value) ? Math.max(1, value) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
+        if (nextValue === this.state.dimensionBlockGapMultiple) return nextValue;
+        this.state.dimensionBlockGapMultiple = nextValue;
+        logEvent('display:dimension-block-gap-multiple', nextValue);
+        if (this.state.hover) this.clearHover();
+        this.rebuildAllMeshes();
+        return nextValue;
+    }
+
+    public toggleDisplayGaps(force?: boolean): boolean {
+        this.state.displayGaps = force ?? !this.state.displayGaps;
+        logEvent('display:gaps', this.state.displayGaps);
+        if (this.state.hover) this.clearHover();
+        this.rebuildAllMeshes();
+        return this.state.displayGaps;
+    }
+
     public toggleDimensionLines(force?: boolean): boolean {
         this.state.showDimensionLines = force ?? !this.state.showDimensionLines;
         logEvent('display:dimension-lines', this.state.showDimensionLines);
         this.rebuildAllMeshes();
         return this.state.showDimensionLines;
+    }
+
+    public toggleLogScale(force?: boolean): boolean {
+        this.state.logScale = force ?? !this.state.logScale;
+        logEvent('display:log-scale', this.state.logScale);
+        this.rebuildAllMeshes();
+        return this.state.logScale;
     }
 
     public toggleInspectorPanel(force?: boolean): boolean {
@@ -1534,7 +1552,7 @@ export class TensorViewer {
     public getViewDims(tensorId: string): Vec3 {
         const tensor = this.tensors.get(tensorId);
         if (!tensor) throw new Error(`Unknown tensor ${tensorId}.`);
-        const extent = displayExtent(tensor.view.outlineShape);
+        const extent = displayExtent(tensor.view.outlineShape, this.layoutGapMultiple());
         return [extent.x, extent.y, extent.z];
     }
 

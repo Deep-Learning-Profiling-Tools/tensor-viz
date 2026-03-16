@@ -3,6 +3,7 @@ import {
     defaultTensorView,
     mapDisplayCoordToFullCoord,
     mapDisplayCoordToOutlineCoord,
+    mapOutlineCoordToDisplayCoord,
     parseTensorView,
 } from './view.js';
 
@@ -52,5 +53,12 @@ describe('parseTensorView', () => {
         expect(result.spec.displayShape).toEqual([2, 1, 3]);
         expect(mapDisplayCoordToFullCoord([1, 0, 2], result.spec)).toEqual([1, 2]);
         expect(mapDisplayCoordToOutlineCoord([1, 0, 2], result.spec)).toEqual([1, 0, 2]);
+    });
+
+    it('maps outline coordinates back to visible display coordinates', () => {
+        const result = parseTensorView([2, 3, 4, 5], 'ab 1 C D');
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(mapOutlineCoordToDisplayCoord([5, 0, 2, 4], result.spec)).toEqual([0, 2, 4]);
     });
 });

@@ -9,7 +9,7 @@ from tensor_viz.bundle import create_session_bundle
 # TODO: allow custom single-letter labels (e.g. BCHW instead of ABCD)
 # TODO: check embeddability
 
-DEMO = 3
+DEMO = 5
 
 if DEMO == 0: # basic
     x = np.random.randn(2,3)
@@ -73,7 +73,7 @@ if DEMO == 2: # multi-tensor view
 if DEMO == 3: # big boy
     #x = np.random.randn(4096,4096)
     #x = np.random.randn(1024,1024)
-    x = np.random.randn(32,32,32,32)
+    x = np.random.randn(*[4]*10)
     viz(x)
 if DEMO == 4: # tabs
     t1 = tensor_viz.Tab("t1")

@@ -95,6 +95,19 @@ export function mapDisplayCoordToOutlineCoord(displayCoord: number[], spec: Tens
     return outline;
 }
 
+export function mapOutlineCoordToDisplayCoord(outlineCoord: number[], spec: TensorViewSpec): number[] {
+    const display: number[] = [];
+    spec.tokens.forEach((token, outlineAxis) => {
+        if (!token.visible) return;
+        if (token.kind === 'singleton') {
+            display.push(0);
+            return;
+        }
+        display.push(Math.max(0, Math.min(token.size - 1, outlineCoord[outlineAxis] ?? 0)));
+    });
+    return display;
+}
+
 export function buildPreviewExpression(spec: TensorViewSpec): string {
     const visibleAxes = spec.tokens
         .filter((token) => token.kind === 'axis_group')

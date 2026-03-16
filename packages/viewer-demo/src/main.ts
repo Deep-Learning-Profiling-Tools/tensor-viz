@@ -33,6 +33,7 @@ app.innerHTML = `
       <div class="menu-list">
         <button data-action="tensor-view" type="button">Toggle Tensor View <span>Ctrl+V</span></button>
         <button data-action="inspector" type="button">Toggle Inspector <span></span></button>
+        <button data-action="advanced-settings" type="button">Toggle Advanced Settings <span></span></button>
       </div>
     </div>
   </div>
@@ -44,6 +45,7 @@ app.innerHTML = `
   <aside class="sidebar" id="sidebar">
     <section class="widget" id="tensor-view-widget"></section>
     <section class="widget" id="inspector-widget"></section>
+    <section class="widget" id="advanced-settings-widget"></section>
     <section class="widget" id="colorbar-widget"></section>
   </aside>
   <div class="command-palette hidden" id="command-palette">
@@ -61,6 +63,7 @@ const tabStrip = document.querySelector<HTMLDivElement>('#tab-strip');
 const sidebarSplitter = document.querySelector<HTMLDivElement>('#sidebar-splitter');
 const tensorViewWidget = document.querySelector<HTMLElement>('#tensor-view-widget');
 const inspectorWidget = document.querySelector<HTMLElement>('#inspector-widget');
+const advancedSettingsWidget = document.querySelector<HTMLElement>('#advanced-settings-widget');
 const colorbarWidget = document.querySelector<HTMLElement>('#colorbar-widget');
 const commandPalette = document.querySelector<HTMLDivElement>('#command-palette');
 const commandPaletteBackdrop = document.querySelector<HTMLDivElement>('#command-palette-backdrop');
@@ -73,6 +76,7 @@ if (
     || !sidebarSplitter
     || !tensorViewWidget
     || !inspectorWidget
+    || !advancedSettingsWidget
     || !colorbarWidget
     || !commandPalette
     || !commandPaletteBackdrop
@@ -85,6 +89,7 @@ const viewer = new TensorViewer(viewport);
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
+let showAdvancedSettingsWidget = false;
 let inspectorReady = false;
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
@@ -162,6 +167,7 @@ function commandActions(): CommandAction[] {
         { action: 'dims', label: 'Toggle Dimension Lines', shortcut: 'Ctrl+D', keywords: 'display dimensions guides labels' },
         { action: 'tensor-view', label: 'Toggle Tensor View', shortcut: 'Ctrl+V', keywords: 'widgets tensor view panel' },
         { action: 'inspector', label: 'Toggle Inspector', shortcut: '', keywords: 'widgets inspector panel' },
+        { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
         { action: 'view', label: 'Focus Tensor View Input', shortcut: '', keywords: 'focus tensor view input field' },
     ];
 }
@@ -349,6 +355,7 @@ commandPaletteInput.addEventListener('keydown', async (event) => {
 function updateSidebar(snapshot: ViewerSnapshot): void {
     tensorViewWidget.classList.toggle('hidden', !showTensorViewWidget);
     inspectorWidget.classList.toggle('hidden', !snapshot.showInspectorPanel);
+    advancedSettingsWidget.classList.toggle('hidden', !showAdvancedSettingsWidget);
     const model = viewer.getInspectorModel();
     colorbarWidget.classList.toggle('hidden', !snapshot.heatmap || !model.colorRange);
 }
@@ -504,6 +511,7 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
         colorbarWidget.innerHTML = '';
         return;
     }
+    const scaleMode = snapshot.logScale ? '<div class="colorbar-mode">Log Scale</div>' : '<div class="colorbar-mode">Linear Scale</div>';
     const sections = model.colorRanges.map((range) => `
       <div class="colorbar-section">
         <div class="colorbar-title">${range.id} (${range.name})</div>
@@ -515,11 +523,58 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
       </div>
     `).join('');
     colorbarWidget.innerHTML = `
-      ${titleWithInfo('Colorbar', 'Shows the heatmap range for each loaded tensor using its current minimum and maximum values.')}
+      ${titleWithInfo('Colorbar', 'Shows the heatmap range for each loaded tensor using its current minimum and maximum values. The gradient can be linear or signed-log depending on Advanced Settings.')}
       <div class="widget-body">
+        ${scaleMode}
         ${sections}
       </div>
     `;
+}
+
+function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
+    const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
+    const displayGaps = snapshot.displayGaps ?? true;
+    const logScale = snapshot.logScale ?? false;
+    advancedSettingsWidget.innerHTML = `
+      ${titleWithInfo('Advanced Settings', 'Adjust lower-level layout tuning that changes how tensor dimension blocks are spaced.')}
+      <div class="widget-body">
+        <div class="field">
+          ${labelWithInfo('Dimension Block Gap Multiple', 'Sets the factor used to grow the gap between higher-level dimension blocks in both 2D and 3D layouts.', 'dimension-block-gap-multiple')}
+          <input id="dimension-block-gap-multiple" type="number" min="1" step="0.25" value="${currentValue}" />
+        </div>
+        <label class="toggle-field" for="display-gaps">
+          <span>Display Gaps</span>
+          <input id="display-gaps" type="checkbox" ${displayGaps ? 'checked' : ''} />
+        </label>
+        <label class="toggle-field" for="log-scale">
+          <span>Log</span>
+          <input id="log-scale" type="checkbox" ${logScale ? 'checked' : ''} />
+        </label>
+      </div>
+    `;
+    const input = advancedSettingsWidget.querySelector<HTMLInputElement>('#dimension-block-gap-multiple');
+    const displayGapsInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#display-gaps');
+    const logScaleInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#log-scale');
+    if (!input) return;
+    input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        input.blur();
+    });
+    input.addEventListener('change', () => {
+        const nextValue = viewer.setDimensionBlockGapMultiple(Number(input.value));
+        input.value = String(nextValue);
+        logUi('advanced-settings:dimension-block-gap-multiple', nextValue);
+    });
+    displayGapsInput?.addEventListener('change', () => {
+        const nextValue = viewer.toggleDisplayGaps(displayGapsInput.checked);
+        displayGapsInput.checked = nextValue;
+        logUi('advanced-settings:display-gaps', nextValue);
+    });
+    logScaleInput?.addEventListener('change', () => {
+        const nextValue = viewer.toggleLogScale(logScaleInput.checked);
+        logScaleInput.checked = nextValue;
+        logUi('advanced-settings:log-scale', nextValue);
+    });
 }
 
 function render(snapshot: ViewerSnapshot): void {
@@ -528,6 +583,7 @@ function render(snapshot: ViewerSnapshot): void {
     renderTabStrip();
     renderTensorViewWidget(snapshot);
     renderInspectorWidget();
+    renderAdvancedSettingsWidget(snapshot);
     renderColorbarWidget(snapshot);
 }
 
@@ -600,6 +656,10 @@ async function runAction(action: string): Promise<void> {
             return;
         case 'tensor-view':
             showTensorViewWidget = !showTensorViewWidget;
+            render(viewer.getSnapshot());
+            return;
+        case 'advanced-settings':
+            showAdvancedSettingsWidget = !showAdvancedSettingsWidget;
             render(viewer.getSnapshot());
             return;
         case 'view': {

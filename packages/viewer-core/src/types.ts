@@ -39,6 +39,9 @@ export type ViewerSnapshot = {
     version: 1;
     displayMode: '2d' | '3d';
     heatmap: boolean;
+    dimensionBlockGapMultiple?: number;
+    displayGaps?: boolean;
+    logScale?: boolean;
     showDimensionLines: boolean;
     showInspectorPanel: boolean;
     showHoverDetailsPanel: boolean;
@@ -149,6 +152,9 @@ export type TensorRecord = {
 export type ViewerState = {
     displayMode: '2d' | '3d';
     heatmap: boolean;
+    dimensionBlockGapMultiple: number;
+    displayGaps: boolean;
+    logScale: boolean;
     showDimensionLines: boolean;
     showInspectorPanel: boolean;
     showHoverDetailsPanel: boolean;

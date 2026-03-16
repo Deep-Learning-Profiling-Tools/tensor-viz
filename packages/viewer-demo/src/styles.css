@@ -238,6 +238,7 @@ select {
 }
 
 .field input[type="text"],
+.field input[type="number"],
 .field select,
 .slider-row input[type="number"] {
     width: 100%;
@@ -299,6 +300,14 @@ select {
     gap: 0.35rem;
 }
 
+.colorbar-mode {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
 .colorbar-title {
     font-size: 0.78rem;
     font-weight: 600;
@@ -312,6 +321,21 @@ select {
     color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+}
+
+.toggle-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid rgba(100, 116, 139, 0.16);
+    background: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #64748b;
 }
 
 .hidden {
