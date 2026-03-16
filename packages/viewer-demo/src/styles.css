@@ -165,6 +165,14 @@ select {
     color: #475569;
 }
 
+.title-row,
+.label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
 .widget-body,
 .meta-grid,
 .slider-list {
@@ -185,6 +193,48 @@ select {
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: #64748b;
+}
+
+.info-button {
+    position: relative;
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    padding: 0;
+    border: 1px solid rgba(100, 116, 139, 0.28);
+    border-radius: 999px;
+    background: #fff;
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: help;
+}
+
+.info-button::after {
+    content: attr(data-info);
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.45rem);
+    z-index: 30;
+    display: none;
+    width: 220px;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid rgba(100, 116, 139, 0.18);
+    background: #fff;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+    color: #334155;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: normal;
+    text-transform: none;
+    text-align: left;
+}
+
+.info-button:hover::after,
+.info-button:focus-visible::after {
+    display: block;
 }
 
 .field input[type="text"],

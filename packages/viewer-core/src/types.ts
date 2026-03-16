@@ -29,6 +29,7 @@ export type HoverInfo = {
     tensorId: string;
     tensorName: string;
     displayCoord: number[];
+    viewedCoord: number[];
     fullCoord: number[];
     value: number;
     colorSource: 'base' | 'heatmap' | 'custom';

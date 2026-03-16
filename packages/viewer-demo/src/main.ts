@@ -99,9 +99,11 @@ const MAX_SIDEBAR_WIDTH = 720;
 
 type InspectorRefs = {
     hoverTensor: HTMLDivElement;
+    viewedCoord: HTMLDivElement;
     fullCoord: HTMLDivElement;
     value: HTMLDivElement;
     hoverTensorValue: HTMLSpanElement;
+    viewedCoordValue: HTMLSpanElement;
     fullCoordValue: HTMLSpanElement;
     valueField: HTMLSpanElement;
     dtypeValue: HTMLSpanElement;
@@ -125,6 +127,28 @@ function logUi(event: string, details?: unknown): void {
 
 function formatRangeValue(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toPrecision(6);
+}
+
+function escapeInfo(text: string): string {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function infoButton(text: string): string {
+    const escaped = escapeInfo(text);
+    return `<button class="info-button" type="button" tabindex="-1" aria-label="${escaped}" data-info="${escaped}">i</button>`;
+}
+
+function titleWithInfo(title: string, info: string): string {
+    return `<div class="title-row"><h2>${title}</h2>${infoButton(info)}</div>`;
+}
+
+function labelWithInfo(label: string, info: string, htmlFor?: string): string {
+    const target = htmlFor ? ` for="${htmlFor}"` : '';
+    return `<label${target} class="label-row"><span>${label}</span>${infoButton(info)}</label>`;
 }
 
 function commandActions(): CommandAction[] {
@@ -333,7 +357,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
     if (!model.handle) {
-        tensorViewWidget.innerHTML = '<h2>Tensor View</h2><div class="widget-body">No tensor loaded.</div>';
+        tensorViewWidget.innerHTML = `${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control sliced hidden tokens.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
 
@@ -342,19 +366,19 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
       <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.id} (${tensor.name})</option>
     `).join('');
     tensorViewWidget.innerHTML = `
-      <h2>Tensor View</h2>
+      ${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control sliced hidden tokens.')}
       <div class="widget-body">
         <div class="field">
-          <label for="tensor-select">Tensor</label>
+          ${labelWithInfo('Tensor', 'Choose which loaded tensor the Tensor View editor controls.', 'tensor-select')}
           <select id="tensor-select">${tensorOptions}</select>
         </div>
         <div class="field">
-          <label for="view-input">Visible Dimensions</label>
+          ${labelWithInfo('Visible Dimensions', 'Use the Tensor View grammar. Uppercase tokens are visible, lowercase tokens are sliced, and 1 inserts a singleton dimension.', 'view-input')}
           <input id="view-input" type="text" value="${model.viewInput}" placeholder="empty resets to default" />
         </div>
         ${error ? `<div class="error-box">${error}</div>` : ''}
         <div class="field">
-          <label>Preview</label>
+          ${labelWithInfo('Preview', 'Shows the implied permute, reshape, and slice operations for the current Tensor View string.')}
           <div class="mono-block">${model.preview}</div>
         </div>
         <div class="slider-list" id="hidden-token-controls"></div>
@@ -428,26 +452,29 @@ function renderInspectorWidget(): void {
     if (!model.handle) {
         inspectorReady = false;
         inspectorRefs = null;
-        inspectorWidget.innerHTML = '<h2>Inspector</h2><div class="widget-body">No tensor loaded.</div>';
+        inspectorWidget.innerHTML = `${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
     if (!inspectorReady) {
         inspectorWidget.innerHTML = `
-          <h2>Inspector</h2>
+          ${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}
           <div class="widget-body meta-grid">
-            <div id="inspector-hover-tensor"><span class="meta-label">Hover Tensor</span><span class="meta-value" id="inspector-hover-tensor-value"></span></div>
-            <div id="inspector-full-coord"><span class="meta-label">Full Coord</span><span class="meta-value" id="inspector-full-coord-value"></span></div>
-            <div id="inspector-value"><span class="meta-label">Value</span><span class="meta-value" id="inspector-value-field"></span></div>
-            <div><span class="meta-label">DType</span><span class="meta-value" id="inspector-dtype"></span></div>
-            <div><span class="meta-label">Shape</span><span class="meta-value" id="inspector-shape"></span></div>
-            <div><span class="meta-label">Rank</span><span class="meta-value" id="inspector-rank"></span></div>
+            <div id="inspector-hover-tensor"><div class="label-row"><span class="meta-label">Hover Tensor</span>${infoButton('The loaded tensor currently under the cursor.')}</div><span class="meta-value" id="inspector-hover-tensor-value"></span></div>
+            <div id="inspector-viewed-coord"><div class="label-row"><span class="meta-label">Viewed Coord</span>${infoButton('Coordinate in the current Tensor View layout, including grouped and singleton dimensions.')}</div><span class="meta-value" id="inspector-viewed-coord-value"></span></div>
+            <div id="inspector-full-coord"><div class="label-row"><span class="meta-label">Full Coord</span>${infoButton('Coordinate in the original dense tensor shape before view regrouping or slicing.')}</div><span class="meta-value" id="inspector-full-coord-value"></span></div>
+            <div id="inspector-value"><div class="label-row"><span class="meta-label">Value</span>${infoButton('Numeric value at the hovered tensor element.')}</div><span class="meta-value" id="inspector-value-field"></span></div>
+            <div><div class="label-row"><span class="meta-label">DType</span>${infoButton('Underlying numeric storage type for the active tensor.')}</div><span class="meta-value" id="inspector-dtype"></span></div>
+            <div><div class="label-row"><span class="meta-label">Shape</span>${infoButton('Original tensor shape before Tensor View transformations.')}</div><span class="meta-value" id="inspector-shape"></span></div>
+            <div><div class="label-row"><span class="meta-label">Rank</span>${infoButton('Number of dimensions in the original tensor.')}</div><span class="meta-value" id="inspector-rank"></span></div>
           </div>
         `;
         inspectorRefs = {
             hoverTensor: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hover-tensor')!,
+            viewedCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-viewed-coord')!,
             fullCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-full-coord')!,
             value: inspectorWidget.querySelector<HTMLDivElement>('#inspector-value')!,
             hoverTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hover-tensor-value')!,
+            viewedCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-viewed-coord-value')!,
             fullCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-full-coord-value')!,
             valueField: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-value-field')!,
             dtypeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-dtype')!,
@@ -459,9 +486,11 @@ function renderInspectorWidget(): void {
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
     inspectorRefs.hoverTensor.classList.toggle('hidden', !hover);
+    inspectorRefs.viewedCoord.classList.toggle('hidden', !hover);
     inspectorRefs.fullCoord.classList.toggle('hidden', !hover);
     inspectorRefs.value.classList.toggle('hidden', !hover);
     inspectorRefs.hoverTensorValue.textContent = hover?.tensorName ?? '';
+    inspectorRefs.viewedCoordValue.textContent = hover ? `[${hover.viewedCoord.join(', ')}]` : '';
     inspectorRefs.fullCoordValue.textContent = hover ? `[${hover.fullCoord.join(', ')}]` : '';
     inspectorRefs.valueField.textContent = hover ? String(hover.value) : '';
     inspectorRefs.dtypeValue.textContent = model.handle.dtype;
@@ -486,7 +515,7 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
       </div>
     `).join('');
     colorbarWidget.innerHTML = `
-      <h2>Colorbar</h2>
+      ${titleWithInfo('Colorbar', 'Shows the heatmap range for each loaded tensor using its current minimum and maximum values.')}
       <div class="widget-body">
         ${sections}
       </div>

@@ -23,6 +23,7 @@ import {
     SRGBColorSpace,
     Scene,
     ShapeGeometry,
+    Sphere,
     Vector2,
     Vector3,
     WebGLRenderer,
@@ -76,6 +77,26 @@ type ViewerOptions = {
 type MeshMeta = {
     tensorId: string;
     renderShape: number[];
+};
+
+type PickMesh = {
+    tensorId: string;
+    mesh: InstancedMesh;
+    bounds: Box3;
+    rect2D: {
+        minX: number;
+        maxX: number;
+        minY: number;
+        maxY: number;
+    };
+    grid2D: {
+        rowCount: number;
+        columnCount: number;
+        startX: number;
+        startY: number;
+        stepX: number;
+        stepY: number;
+    } | null;
 };
 
 const CANVAS_WORLD_SCALE = 4;
@@ -272,7 +293,7 @@ export class TensorViewer {
     private readonly tensorMeshes = new Map<string, Group>();
     private readonly listeners = new Set<(snapshot: ViewerSnapshot) => void>();
     private readonly hoverListeners = new Set<(hover: HoverInfo | null) => void>();
-    private readonly pickMeshes: InstancedMesh[] = [];
+    private readonly pickMeshes: PickMesh[] = [];
     private readonly state: ViewerState = {
         displayMode: '2d',
         heatmap: true,
@@ -406,12 +427,111 @@ export class TensorViewer {
         this.orthographicCamera.updateProjectionMatrix();
     }
 
+    private canvasPointerToWorld(clientX: number, clientY: number): { x: number; y: number } {
+        const rect = this.flatCanvas.getBoundingClientRect();
+        const scaleX = this.flatCanvas.width / Math.max(1, rect.width);
+        const scaleY = this.flatCanvas.height / Math.max(1, rect.height);
+        return {
+            x: ((clientX - rect.left) * scaleX - this.flatCanvas.width / 2 - this.canvasPan.x) / (CANVAS_WORLD_SCALE * this.canvasZoom),
+            y: -(((clientY - rect.top) * scaleY - this.flatCanvas.height / 2 - this.canvasPan.y) / (CANVAS_WORLD_SCALE * this.canvasZoom)),
+        };
+    }
+
+    private defaultGrid2D(tensor: TensorRecord, renderShape: number[]): PickMesh['grid2D'] {
+        const isIdentityView = tensor.shape.length <= 2
+            && tensor.view.hiddenTokens.length === 0
+            && tensor.view.tokens.length === tensor.shape.length
+            && tensor.view.tokens.every((token, index) => token.kind === 'axis_group'
+                && token.visible
+                && token.axes.length === 1
+                && token.axes[0] === index);
+        if (!isIdentityView) return null;
+        const extent = displayExtent2D(renderShape);
+        const rowCount = renderShape.length > 1 ? renderShape[0] : 1;
+        const columnCount = renderShape.length > 1 ? renderShape[1] : (renderShape[0] ?? 1);
+        return {
+            rowCount,
+            columnCount,
+            startX: tensor.offset[0] - extent.x / 2 + 0.5,
+            startY: tensor.offset[1] + extent.y / 2 - 0.5,
+            stepX: columnCount > 1 ? (extent.x - 1) / (columnCount - 1) : 0,
+            stepY: rowCount > 1 ? (extent.y - 1) / (rowCount - 1) : 0,
+        };
+    }
+
+    private pickEntries(clientX: number, clientY: number): PickMesh[] {
+        const currentTensorId = this.state.hover?.tensorId;
+        const activeTensorId = this.state.activeTensorId;
+        const candidates = this.state.displayMode === '2d'
+            ? (() => {
+                const point = this.canvasPointerToWorld(clientX, clientY);
+                return this.pickMeshes.filter((entry) => point.x >= entry.rect2D.minX
+                    && point.x <= entry.rect2D.maxX
+                    && point.y >= entry.rect2D.minY
+                    && point.y <= entry.rect2D.maxY);
+            })()
+            : this.pickMeshes.filter((entry) => this.raycaster.ray.intersectsBox(entry.bounds));
+        candidates.sort((left, right) => {
+            const leftPriority = left.tensorId === currentTensorId ? 2 : left.tensorId === activeTensorId ? 1 : 0;
+            const rightPriority = right.tensorId === currentTensorId ? 2 : right.tensorId === activeTensorId ? 1 : 0;
+            return rightPriority - leftPriority;
+        });
+        return candidates;
+    }
+
+    private canvasPointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
+        const point = this.canvasPointerToWorld(clientX, clientY);
+        const entries = this.pickEntries(clientX, clientY);
+        for (const entry of entries) {
+            const grid = entry.grid2D;
+            if (!grid) continue;
+            const column = grid.stepX === 0 ? 0 : Math.round((point.x - grid.startX) / grid.stepX);
+            const row = grid.stepY === 0 ? 0 : Math.round((grid.startY - point.y) / grid.stepY);
+            if (column < 0 || column >= grid.columnCount || row < 0 || row >= grid.rowCount) continue;
+            const centerX = grid.startX + column * grid.stepX;
+            const centerY = grid.startY - row * grid.stepY;
+            if (Math.abs(point.x - centerX) > 0.5 || Math.abs(point.y - centerY) > 0.5) continue;
+
+            const tensor = this.requireTensor(entry.tensorId);
+            const displayCoord = tensor.shape.length === 0
+                ? []
+                : tensor.shape.length === 1
+                    ? [column]
+                    : [row, column];
+            const value = numericValue(tensor.data, tensor.shape.length === 0 ? 0 : row * grid.columnCount + column);
+            const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(displayCoord))
+                ? 'custom'
+                : this.state.heatmap
+                    ? 'heatmap'
+                    : 'base';
+            return {
+                hover: {
+                    tensorId: tensor.id,
+                    tensorName: tensor.name,
+                    displayCoord: displayCoord.slice(),
+                    viewedCoord: displayCoord.slice(),
+                    fullCoord: displayCoord.slice(),
+                    value,
+                    colorSource,
+                },
+                position: new Vector3(centerX, centerY, 0),
+            };
+        }
+        if (entries.some((entry) => entry.grid2D === null)) {
+            this.sync2DCamera();
+            return this.scenePointerToHover(clientX, clientY);
+        }
+        return null;
+    }
+
     private scenePointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
         this.pointer.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
         this.raycaster.setFromCamera(this.pointer, this.camera);
-        const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
+        const entries = this.pickEntries(clientX, clientY);
+        if (entries.length === 0) return null;
+        const hits = this.raycaster.intersectObjects(entries.map((entry) => entry.mesh), false);
         const hit = hits[0];
         if (!hit || hit.instanceId === undefined) return null;
 
@@ -419,6 +539,7 @@ export class TensorViewer {
         const meta = mesh.userData.meta as MeshMeta;
         const displayCoord = meta.renderShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.renderShape);
         const tensor = this.requireTensor(meta.tensorId);
+        const viewedCoord = mapDisplayCoordToOutlineCoord(displayCoord, tensor.view);
         const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
         const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
         const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
@@ -435,6 +556,7 @@ export class TensorViewer {
                 tensorId: meta.tensorId,
                 tensorName: this.tensors.get(meta.tensorId)?.name ?? meta.tensorId,
                 displayCoord: displayCoord.slice(),
+                viewedCoord: viewedCoord.slice(),
                 fullCoord: fullCoord.slice(),
                 value,
                 colorSource,
@@ -455,7 +577,7 @@ export class TensorViewer {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return null;
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
-        const outlineCoord = mapDisplayCoordToOutlineCoord(hover.displayCoord, tensor.view);
+        const outlineCoord = hover.viewedCoord;
         if (this.state.displayMode === '2d') {
             const position = displayPositionForCoord2D(outlineCoord, outlineShape);
             return new Vector3(tensor.offset[0] + position.x, tensor.offset[1] + position.y, 0);
@@ -490,7 +612,7 @@ export class TensorViewer {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
-        const outlineCoord = mapDisplayCoordToOutlineCoord(hover.displayCoord, tensor.view);
+        const outlineCoord = hover.viewedCoord;
         const position = displayPositionForCoord2D(outlineCoord, outlineShape);
         const topLeft = this.projectCanvasPoint(tensor.offset[0] + position.x - 0.5, tensor.offset[1] + position.y + 0.5);
         const bottomRight = this.projectCanvasPoint(tensor.offset[0] + position.x + 0.5, tensor.offset[1] + position.y - 0.5);
@@ -508,7 +630,7 @@ export class TensorViewer {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
         const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
-        const outlineCoord = mapDisplayCoordToOutlineCoord(hover.displayCoord, tensor.view);
+        const outlineCoord = hover.viewedCoord;
         const center = displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
         const rect = this.renderer.domElement.getBoundingClientRect();
         let minX = Number.POSITIVE_INFINITY;
@@ -623,7 +745,7 @@ export class TensorViewer {
             if (this.syncHoverOutline(currentHover, '2d')) this.requestRender();
             return;
         }
-        const hit = this.scenePointerToHover(event.clientX, event.clientY);
+        const hit = this.canvasPointerToHover(event.clientX, event.clientY);
         this.updateHover(hit?.hover ?? null, '2d', hit?.position);
     };
 
@@ -632,7 +754,9 @@ export class TensorViewer {
     };
 
     private readonly onCanvasClick = (event: PointerEvent): void => {
-        const hover = this.scenePointerToHover(event.clientX, event.clientY)?.hover ?? null;
+        const hover = this.hoveredCellContainsPointer(event.clientX, event.clientY, this.state.hover)
+            ? this.state.hover
+            : this.canvasPointerToHover(event.clientX, event.clientY)?.hover ?? null;
         if (!hover) return;
         this.state.activeTensorId = hover.tensorId;
         this.state.hover = hover;
@@ -740,11 +864,84 @@ export class TensorViewer {
             this.tensorMeshes.set(tensor.id, group);
             this.scene.add(group);
             const mesh = group.children[0];
-            if (mesh instanceof InstancedMesh) this.pickMeshes.push(mesh);
+            if (mesh instanceof InstancedMesh) {
+                const outlineShape = tensor.view.outlineShape.length === 0 ? [1] : tensor.view.outlineShape;
+                const extent2D = displayExtent2D(outlineShape);
+                const bounds = (mesh.boundingBox ?? new Box3().setFromObject(mesh)).clone();
+                this.pickMeshes.push({
+                    tensorId: tensor.id,
+                    mesh,
+                    bounds,
+                    rect2D: {
+                        minX: tensor.offset[0] - extent2D.x / 2,
+                        maxX: tensor.offset[0] + extent2D.x / 2,
+                        minY: tensor.offset[1] - extent2D.y / 2,
+                        maxY: tensor.offset[1] + extent2D.y / 2,
+                    },
+                    grid2D: this.defaultGrid2D(tensor, (mesh.userData.meta as MeshMeta).renderShape),
+                });
+            }
         });
         if (shouldFitCamera) this.fitCamera();
         else this.requestRender();
         this.emit();
+    }
+
+    private populateFastMesh2D(
+        tensor: TensorRecord,
+        mesh: InstancedMesh,
+        renderShape: number[],
+        min: number,
+        max: number,
+    ): boolean {
+        const grid = this.state.displayMode === '2d' ? this.defaultGrid2D(tensor, renderShape) : null;
+        const colorArray = mesh.instanceColor?.array as Float32Array | undefined;
+        if (!grid || tensor.customColors.size !== 0 || !colorArray) return false;
+
+        // default 1d/2d views are affine grids, so write instance buffers directly.
+        const matrixArray = mesh.instanceMatrix.array as Float32Array;
+        const range = max - min || 1;
+        let cellIndex = 0;
+
+        for (let row = 0; row < grid.rowCount; row += 1) {
+            const y = grid.startY - row * grid.stepY;
+            for (let column = 0; column < grid.columnCount; column += 1) {
+                const x = grid.startX + column * grid.stepX;
+                const matrixOffset = cellIndex * 16;
+                matrixArray[matrixOffset] = 1;
+                matrixArray[matrixOffset + 1] = 0;
+                matrixArray[matrixOffset + 2] = 0;
+                matrixArray[matrixOffset + 3] = 0;
+                matrixArray[matrixOffset + 4] = 0;
+                matrixArray[matrixOffset + 5] = 1;
+                matrixArray[matrixOffset + 6] = 0;
+                matrixArray[matrixOffset + 7] = 0;
+                matrixArray[matrixOffset + 8] = 0;
+                matrixArray[matrixOffset + 9] = 0;
+                matrixArray[matrixOffset + 10] = 1;
+                matrixArray[matrixOffset + 11] = 0;
+                matrixArray[matrixOffset + 12] = x;
+                matrixArray[matrixOffset + 13] = y;
+                matrixArray[matrixOffset + 14] = 0;
+                matrixArray[matrixOffset + 15] = 1;
+
+                const value = numericValue(tensor.data, cellIndex);
+                const colorOffset = cellIndex * 3;
+                if (this.state.heatmap) {
+                    const gray = Math.max(0, Math.min(1, (value - min) / range));
+                    colorArray[colorOffset] = gray;
+                    colorArray[colorOffset + 1] = gray;
+                    colorArray[colorOffset + 2] = gray;
+                } else {
+                    colorArray[colorOffset] = BASE_COLOR.r;
+                    colorArray[colorOffset + 1] = BASE_COLOR.g;
+                    colorArray[colorOffset + 2] = BASE_COLOR.b;
+                }
+                cellIndex += 1;
+            }
+        }
+
+        return true;
     }
 
     private buildOutline(extent: Vector3, offset: Vec3): LineSegments {
@@ -910,38 +1107,55 @@ export class TensorViewer {
             count,
         );
         mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
-        const matrix = new Matrix4();
+        const outlineExtent2D = displayExtent2D(outlineShape);
         const { min, max } = tensor.valueRange;
-
-        for (let index = 0; index < count; index += 1) {
-            const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
-            const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-            const outlineCoord = mapDisplayCoordToOutlineCoord(displayCoord, tensor.view);
-            const fullLinear = this.linearIndex(fullCoord, tensor.shape);
-            const value = numericValue(tensor.data, fullLinear);
-            const position = this.state.displayMode === '2d'
-                ? (() => {
-                    const flat = displayPositionForCoord2D(outlineCoord, outlineShape);
-                    return new Vector3(tensor.offset[0] + flat.x, tensor.offset[1] + flat.y, 0);
-                })()
-                : displayPositionForCoord(outlineCoord, outlineShape).add(vectorFromTuple(tensor.offset));
-            matrix.makeTranslation(position.x, position.y, position.z);
-            mesh.setMatrixAt(index, matrix);
-            mesh.setColorAt(index, this.cellColor(tensor, fullCoord, value, min, max));
+        if (!this.populateFastMesh2D(tensor, mesh, renderShape, min, max)) {
+            const matrix = new Matrix4();
+            const offset = vectorFromTuple(tensor.offset);
+            for (let index = 0; index < count; index += 1) {
+                const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
+                const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
+                const outlineCoord = mapDisplayCoordToOutlineCoord(displayCoord, tensor.view);
+                const fullLinear = this.linearIndex(fullCoord, tensor.shape);
+                const value = numericValue(tensor.data, fullLinear);
+                const position = this.state.displayMode === '2d'
+                    ? (() => {
+                        const flat = displayPositionForCoord2D(outlineCoord, outlineShape);
+                        return new Vector3(tensor.offset[0] + flat.x, tensor.offset[1] + flat.y, 0);
+                    })()
+                    : displayPositionForCoord(outlineCoord, outlineShape).add(offset);
+                matrix.makeTranslation(position.x, position.y, position.z);
+                mesh.setMatrixAt(index, matrix);
+                mesh.setColorAt(index, this.cellColor(tensor, fullCoord, value, min, max));
+            }
         }
 
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-        mesh.computeBoundingBox();
-        mesh.computeBoundingSphere();
+        if (this.state.displayMode === '2d') {
+            const halfX = outlineExtent2D.x / 2;
+            const halfY = outlineExtent2D.y / 2;
+            const center = new Vector3(tensor.offset[0], tensor.offset[1], 0);
+            mesh.boundingBox = new Box3(
+                new Vector3(center.x - halfX, center.y - halfY, 0),
+                new Vector3(center.x + halfX, center.y + halfY, 0),
+            );
+            mesh.boundingSphere = new Sphere(center, Math.hypot(halfX, halfY));
+        } else {
+            const outlineExtent = displayExtent(outlineShape);
+            const halfExtent = outlineExtent.clone().multiplyScalar(0.5);
+            const center = vectorFromTuple(tensor.offset);
+            mesh.boundingBox = new Box3(center.clone().sub(halfExtent), center.clone().add(halfExtent));
+            mesh.boundingSphere = new Sphere(center, halfExtent.length());
+        }
         mesh.material.needsUpdate = true;
         mesh.userData.meta = { tensorId: tensor.id, renderShape } satisfies MeshMeta;
         group.add(mesh);
-        const outlineExtent = displayExtent(outlineShape);
         if (this.state.displayMode === '2d') {
-            group.add(this.buildOutline2D(displayExtent2D(outlineShape), tensor.offset));
+            group.add(this.buildOutline2D(outlineExtent2D, tensor.offset));
             if (this.state.showDimensionLines) group.add(this.buildDimensionGuides2D(outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
         } else {
+            const outlineExtent = displayExtent(outlineShape);
             group.add(this.buildOutline(outlineExtent, tensor.offset));
             if (this.state.showDimensionLines) group.add(this.buildDimensionGuides(outlineExtent, outlineShape, tensor.offset, tensor.view.tokens.map((token) => token.label.toUpperCase())));
         }

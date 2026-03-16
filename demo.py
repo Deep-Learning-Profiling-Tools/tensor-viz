@@ -3,19 +3,26 @@ from tensor_viz import viz
 import tensor_viz
 from tensor_viz.bundle import create_session_bundle
 
-DEMO = 4
+# TODO: sidebar not cut off (screenshot)
+# TODO: color code shapes in Inspector panel with x/y[/z] family lines
+# TODO: color code letters in Tensor View
+# TODO: allow custom single-letter labels (e.g. BCHW instead of ABCD)
+# TODO: check embeddability
+
+DEMO = 3
 
 if DEMO == 0: # basic
     x = np.random.randn(2,3)
     viz(x)
 if DEMO == 1: # linear layout
     x = (
-        np.arange(2048)
-          .reshape(2,2,2,2,2,2,2,2,2,2,2)
-          .transpose(7, 0, 1, 9, 2, 3, 4, 8, 5, 6, 10)
+        np.arange(2048).reshape(2,2,2,2,2,2,2,2,2,2,2).transpose(7, 0, 1, 9, 2, 3, 4, 8, 5, 6, 10)
         #.reshape(128, 16)
-          .reshape(16, 8, 16)
+        #.reshape(16, 8, 16)
     )
+    #import matplotlib.pyplot as plt
+    #plt.imshow(x)
+    #plt.show()
     viz(x)
 if DEMO == 2: # multi-tensor view
     SHAPE = (3, 4)
@@ -64,7 +71,9 @@ if DEMO == 2: # multi-tensor view
 
     viz(BASE, session_bundle=bundle)
 if DEMO == 3: # big boy
-    x = np.random.randn(4096,4096)
+    #x = np.random.randn(4096,4096)
+    #x = np.random.randn(1024,1024)
+    x = np.random.randn(32,32,32,32)
     viz(x)
 if DEMO == 4: # tabs
     t1 = tensor_viz.Tab("t1")
