@@ -27,7 +27,8 @@ select {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 8px minmax(0, var(--sidebar-width));
     grid-template-rows: auto auto minmax(0, 1fr);
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .ribbon {
@@ -147,7 +148,10 @@ select {
     align-content: start;
     gap: 1px;
     background: rgba(15, 23, 42, 0.08);
+    min-height: 0;
     min-width: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 
 .widget {
@@ -218,7 +222,8 @@ select {
     top: calc(100% + 0.45rem);
     z-index: 30;
     display: none;
-    width: 220px;
+    box-sizing: border-box;
+    width: min(220px, calc(var(--sidebar-width) - 2.25rem), calc(100vw - 2rem));
     padding: 0.55rem 0.65rem;
     border: 1px solid rgba(100, 116, 139, 0.18);
     background: #fff;
@@ -230,6 +235,7 @@ select {
     letter-spacing: normal;
     text-transform: none;
     text-align: left;
+    overflow-wrap: anywhere;
 }
 
 .info-button:hover::after,
@@ -276,6 +282,22 @@ select {
 .meta-grid > div {
     display: grid;
     gap: 0.2rem;
+}
+
+.axis-value {
+    font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    font-size: 0.88rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.axis-value-segment {
+    color: var(--axis-color);
+    font-weight: 600;
+}
+
+.axis-value-punct {
+    color: #64748b;
 }
 
 .slider-row {
@@ -336,6 +358,11 @@ select {
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: #64748b;
+}
+
+.toggle-field .label-row {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .hidden {

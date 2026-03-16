@@ -10,10 +10,11 @@ from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Mapping, Sequence
+from urllib.parse import urlparse
 
 import numpy as np
 
-from .bundle import Tab, create_session_bundle
+from .bundle import SessionData, Tab, TensorLabels, create_session_data
 
 
 def _static_root() -> Path:
@@ -50,7 +51,8 @@ def viz(
     tensor: np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray] | Tab | Sequence[Tab],
     *,
     name: str | None = None,
-    session_bundle: bytes | None = None,
+    labels: TensorLabels | None = None,
+    session_data: SessionData | None = None,
     open_browser: bool = True,
     host: str = "127.0.0.1",
     port: int = 0,
@@ -58,7 +60,7 @@ def viz(
 ) -> ViewerSession:
     """Launch the standalone viewer for one or more NumPy tensors."""
 
-    session_bundle = session_bundle or create_session_bundle(tensor, name=name)
+    session_data = session_data or create_session_data(tensor, name=name, labels=labels)
     static_root = _static_root()
     if not static_root.exists():
         raise FileNotFoundError(
@@ -66,26 +68,36 @@ def viz(
         )
 
     class Handler(SimpleHTTPRequestHandler):
-        """Serve the demo app and a one-shot `.viz` session bundle."""
+        """Serve the demo app plus raw session bytes."""
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(static_root), **kwargs)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/api/session.viz":
+            path = urlparse(self.path).path
+            if path == "/api/session.json":
                 self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(session_bundle)))
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(session_data.manifest_bytes)))
                 self.end_headers()
-                self.wfile.write(session_bundle)
+                self.wfile.write(session_data.manifest_bytes)
                 return
 
-            if self.path.startswith("/api/"):
+            if path.startswith("/api/"):
+                data_path = path.removeprefix("/api/")
+                payload = session_data.tensor_bytes.get(data_path)
+                if payload is not None:
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
-            target = static_root / self.path.lstrip("/")
-            if self.path == "/" or not target.exists():
+            target = static_root / path.lstrip("/")
+            if path == "/" or not target.exists():
                 self.path = "/index.html"
             return super().do_GET()
 

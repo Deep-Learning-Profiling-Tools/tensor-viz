@@ -10,7 +10,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "jszip": "^3.10.1",
     "three": "^0.181.1",
     "troika-three-text": "^0.52.4"
   },

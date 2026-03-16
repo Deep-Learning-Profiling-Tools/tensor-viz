@@ -1,4 +1,5 @@
 export type DType = 'float64' | 'float32' | 'int32' | 'uint8';
+export type DimensionMappingScheme = 'z-order' | 'contiguous';
 export type NumericArray = Float64Array | Float32Array | Int32Array | Uint8Array;
 export type Vec3 = readonly [number, number, number];
 export type RGBA = readonly [number, number, number, number];
@@ -17,6 +18,7 @@ export type TensorHandle = {
     name: string;
     rank: number;
     shape: readonly number[];
+    axisLabels: readonly string[];
     dtype: DType;
 };
 
@@ -42,6 +44,8 @@ export type ViewerSnapshot = {
     dimensionBlockGapMultiple?: number;
     displayGaps?: boolean;
     logScale?: boolean;
+    showSlicesInSamePlace?: boolean;
+    dimensionMappingScheme?: DimensionMappingScheme;
     showDimensionLines: boolean;
     showInspectorPanel: boolean;
     showHoverDetailsPanel: boolean;
@@ -112,6 +116,7 @@ export type BundleManifest = {
         name: string;
         dtype: DType;
         shape: number[];
+        axisLabels?: string[];
         byteOrder: 'little';
         dataFile: string;
         offset: Vec3;
@@ -155,6 +160,8 @@ export type ViewerState = {
     dimensionBlockGapMultiple: number;
     displayGaps: boolean;
     logScale: boolean;
+    showSlicesInSamePlace: boolean;
+    dimensionMappingScheme: DimensionMappingScheme;
     showDimensionLines: boolean;
     showInspectorPanel: boolean;
     showHoverDetailsPanel: boolean;

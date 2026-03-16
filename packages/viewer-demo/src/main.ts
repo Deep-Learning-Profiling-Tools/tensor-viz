@@ -1,8 +1,14 @@
 import {
-    loadSessionBundle,
+    axisWorldKeyForMode,
+    createTypedArray,
+    parseTensorView,
     TensorViewer,
     product,
+    type BundleManifest,
+    type DimensionMappingScheme,
     type LoadedBundleDocument,
+    type NumericArray,
+    type SessionBundleManifest,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import './styles.css';
@@ -154,6 +160,33 @@ function titleWithInfo(title: string, info: string): string {
 function labelWithInfo(label: string, info: string, htmlFor?: string): string {
     const target = htmlFor ? ` for="${htmlFor}"` : '';
     return `<label${target} class="label-row"><span>${label}</span>${infoButton(info)}</label>`;
+}
+
+function axisColor(displayMode: '2d' | '3d', rank: number, axis: number, scheme: DimensionMappingScheme): string {
+    const worldKey = axisWorldKeyForMode(displayMode, rank, axis, scheme);
+    const family = Array.from({ length: rank }, (_entry, index) => index)
+        .filter((index) => axisWorldKeyForMode(displayMode, rank, index, scheme) === worldKey);
+    const familyIndex = Math.max(0, family.indexOf(axis));
+    const intensity = Math.max(1, familyIndex + 1) / Math.max(1, family.length);
+    const channel = Math.round(intensity * 255);
+    if (worldKey === 1) return `rgb(0 ${channel} 0)`;
+    if (worldKey === 2) return `rgb(0 0 ${channel})`;
+    return `rgb(${channel} 0 0)`;
+}
+
+function axisSpan(content: string, color: string): string {
+    return `<span class="axis-value-segment" style="--axis-color: ${color};">${escapeInfo(content)}</span>`;
+}
+
+function formatAxisValues(values: readonly (number | string)[], displayMode: '2d' | '3d', scheme: DimensionMappingScheme): string {
+    if (values.length === 0) return '[]';
+    const segments = values.map((value, axis) => axisSpan(String(value), axisColor(displayMode, values.length, axis, scheme)));
+    return `[${segments.join('<span class="axis-value-punct">, </span>')}]`;
+}
+
+function formatAxisTokens(tokens: readonly string[], displayMode: '2d' | '3d', scheme: DimensionMappingScheme): string {
+    if (tokens.length === 0) return '';
+    return tokens.map((token, axis) => axisSpan(token, axisColor(displayMode, tokens.length, axis, scheme))).join('<span class="axis-value-punct"> </span>');
 }
 
 function commandActions(): CommandAction[] {
@@ -369,6 +402,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     }
 
     const error = viewErrors.get(model.handle.id);
+    const parsedView = parseTensorView(model.handle.shape.slice(), model.viewInput, undefined, model.handle.axisLabels);
+    const visibleTokens = parsedView.ok ? parsedView.spec.tokens.filter((token) => token.visible).map((token) => token.label) : [];
+    const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     const tensorOptions = model.tensors.map((tensor) => `
       <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.id} (${tensor.name})</option>
     `).join('');
@@ -382,6 +418,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         <div class="field">
           ${labelWithInfo('Visible Dimensions', 'Use the Tensor View grammar. Uppercase tokens are visible, lowercase tokens are sliced, and 1 inserts a singleton dimension.', 'view-input')}
           <input id="view-input" type="text" value="${model.viewInput}" placeholder="empty resets to default" />
+          <div class="axis-value">${formatAxisTokens(visibleTokens, snapshot.displayMode, dimensionMappingScheme)}</div>
         </div>
         ${error ? `<div class="error-box">${error}</div>` : ''}
         <div class="field">
@@ -454,8 +491,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     }));
 }
 
-function renderInspectorWidget(): void {
+function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
+    const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     if (!model.handle) {
         inspectorReady = false;
         inspectorRefs = null;
@@ -497,11 +535,11 @@ function renderInspectorWidget(): void {
     inspectorRefs.fullCoord.classList.toggle('hidden', !hover);
     inspectorRefs.value.classList.toggle('hidden', !hover);
     inspectorRefs.hoverTensorValue.textContent = hover?.tensorName ?? '';
-    inspectorRefs.viewedCoordValue.textContent = hover ? `[${hover.viewedCoord.join(', ')}]` : '';
-    inspectorRefs.fullCoordValue.textContent = hover ? `[${hover.fullCoord.join(', ')}]` : '';
+    inspectorRefs.viewedCoordValue.innerHTML = hover ? formatAxisValues(hover.viewedCoord, snapshot.displayMode, dimensionMappingScheme) : '';
+    inspectorRefs.fullCoordValue.innerHTML = hover ? formatAxisValues(hover.fullCoord, snapshot.displayMode, dimensionMappingScheme) : '';
     inspectorRefs.valueField.textContent = hover ? String(hover.value) : '';
     inspectorRefs.dtypeValue.textContent = model.handle.dtype;
-    inspectorRefs.shapeValue.textContent = `[${model.handle.shape.join(', ')}]`;
+    inspectorRefs.shapeValue.innerHTML = formatAxisValues(model.handle.shape, snapshot.displayMode, dimensionMappingScheme);
     inspectorRefs.rankValue.textContent = String(model.handle.rank);
 }
 
@@ -535,25 +573,46 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
     const displayGaps = snapshot.displayGaps ?? true;
     const logScale = snapshot.logScale ?? false;
+    const showSlicesInSamePlace = snapshot.showSlicesInSamePlace ?? false;
+    const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     advancedSettingsWidget.innerHTML = `
-      ${titleWithInfo('Advanced Settings', 'Adjust lower-level layout tuning that changes how tensor dimension blocks are spaced.')}
+      ${titleWithInfo('Advanced Settings', 'Adjust lower-level layout tuning that changes how tensor dimension blocks are spaced and assigned to x, y, and z families.')}
       <div class="widget-body">
         <div class="field">
           ${labelWithInfo('Dimension Block Gap Multiple', 'Sets the factor used to grow the gap between higher-level dimension blocks in both 2D and 3D layouts.', 'dimension-block-gap-multiple')}
           <input id="dimension-block-gap-multiple" type="number" min="1" step="0.25" value="${currentValue}" />
         </div>
+        <div class="field">
+          ${labelWithInfo('Dimension Mapping Scheme', 'Controls how tensor dimensions are assigned to the x, y, and z layout families. Z-Order alternates from the last axis. Contiguous keeps nearby axes in the same family.', 'dimension-mapping-scheme')}
+          <select id="dimension-mapping-scheme">
+            <option value="z-order" ${dimensionMappingScheme === 'z-order' ? 'selected' : ''}>Z-Order</option>
+            <option value="contiguous" ${dimensionMappingScheme === 'contiguous' ? 'selected' : ''}>Contiguous</option>
+          </select>
+        </div>
         <label class="toggle-field" for="display-gaps">
           <span>Display Gaps</span>
           <input id="display-gaps" type="checkbox" ${displayGaps ? 'checked' : ''} />
         </label>
+        <label class="toggle-field" for="show-slices-in-same-place">
+          <span class="label-row">
+            <span>Show Slices In Same Place</span>
+            ${infoButton('When enabled, sliced views are rendered using only their visible dimensions, so different hidden slices occupy the same position and the outline is based on visible axes only.')}
+          </span>
+          <input id="show-slices-in-same-place" type="checkbox" ${showSlicesInSamePlace ? 'checked' : ''} />
+        </label>
         <label class="toggle-field" for="log-scale">
-          <span>Log</span>
+          <span class="label-row">
+            <span>Log</span>
+            ${infoButton('Uses signed-log scaling for the heatmap and colorbar so large magnitudes are compressed while preserving negative versus positive values.')}
+          </span>
           <input id="log-scale" type="checkbox" ${logScale ? 'checked' : ''} />
         </label>
       </div>
     `;
     const input = advancedSettingsWidget.querySelector<HTMLInputElement>('#dimension-block-gap-multiple');
+    const dimensionMappingSchemeInput = advancedSettingsWidget.querySelector<HTMLSelectElement>('#dimension-mapping-scheme');
     const displayGapsInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#display-gaps');
+    const showSlicesInSamePlaceInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#show-slices-in-same-place');
     const logScaleInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#log-scale');
     if (!input) return;
     input.addEventListener('keydown', (event) => {
@@ -565,10 +624,20 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
         input.value = String(nextValue);
         logUi('advanced-settings:dimension-block-gap-multiple', nextValue);
     });
+    dimensionMappingSchemeInput?.addEventListener('change', () => {
+        const nextValue = viewer.setDimensionMappingScheme(dimensionMappingSchemeInput.value as DimensionMappingScheme);
+        dimensionMappingSchemeInput.value = nextValue;
+        logUi('advanced-settings:dimension-mapping-scheme', nextValue);
+    });
     displayGapsInput?.addEventListener('change', () => {
         const nextValue = viewer.toggleDisplayGaps(displayGapsInput.checked);
         displayGapsInput.checked = nextValue;
         logUi('advanced-settings:display-gaps', nextValue);
+    });
+    showSlicesInSamePlaceInput?.addEventListener('change', () => {
+        const nextValue = viewer.toggleShowSlicesInSamePlace(showSlicesInSamePlaceInput.checked);
+        showSlicesInSamePlaceInput.checked = nextValue;
+        logUi('advanced-settings:slices-same-place', nextValue);
     });
     logScaleInput?.addEventListener('change', () => {
         const nextValue = viewer.toggleLogScale(logScaleInput.checked);
@@ -582,7 +651,7 @@ function render(snapshot: ViewerSnapshot): void {
     updateSidebar(snapshot);
     renderTabStrip();
     renderTensorViewWidget(snapshot);
-    renderInspectorWidget();
+    renderInspectorWidget(snapshot);
     renderAdvancedSettingsWidget(snapshot);
     renderColorbarWidget(snapshot);
 }
@@ -601,10 +670,36 @@ async function saveTensorToDisk(): Promise<void> {
     URL.revokeObjectURL(url);
 }
 
+/** loads one tab's raw tensor payloads from the local python session server. */
+async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
+    const entries = await Promise.all(tensors.map(async (tensor) => {
+        const response = await fetch(`/api/${tensor.dataFile}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Missing tensor payload ${tensor.dataFile}.`);
+        return [tensor.id, createTypedArray(tensor.dtype, await response.arrayBuffer())] as const;
+    }));
+    return new Map(entries);
+}
+
+/** loads one session tab from the raw manifest plus tensor-byte endpoints. */
+async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
+    return {
+        id: tab.id,
+        title: tab.title,
+        manifest: {
+            version: 1,
+            viewer: tab.viewer,
+            tensors: tab.tensors,
+        },
+        tensors: await loadTabTensors(tab.tensors),
+    };
+}
+
 async function tryLoadSession(): Promise<boolean> {
-    const response = await fetch('/api/session.viz', { cache: 'no-store' });
+    const response = await fetch('/api/session.json', { cache: 'no-store' });
     if (!response.ok) return false;
-    sessionTabs = await loadSessionBundle(await response.blob());
+    const manifest = await response.json() as SessionBundleManifest;
+    if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
+    sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));
     activeTabId = sessionTabs[0]?.id ?? null;
     if (activeTabId) await loadTab(activeTabId);
     return true;
@@ -740,7 +835,7 @@ window.addEventListener('keydown', async (event) => {
 });
 
 viewer.subscribe(render);
-viewer.subscribeHover(() => renderInspectorWidget());
+viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
 
 tryLoadSession().then((loaded) => {
     if (!loaded) seedDemoTensor();

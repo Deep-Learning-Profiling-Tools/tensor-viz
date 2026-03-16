@@ -1,6 +1,5 @@
-export { loadBundle, loadSessionBundle, saveBundle } from './bundle.js';
 export { createTypedArray, isNpyFile, loadNpy, saveNpy } from './npy.js';
-export { displayExtent, displayPositionForCoord, unravelIndex } from './layout.js';
+export { axisWorldKeyForMode, displayExtent, displayHitForPoint2D, displayPositionForCoord, displayPositionForCoord2D, unravelIndex } from './layout.js';
 export {
     buildPreviewExpression,
     defaultTensorView,
@@ -16,6 +15,7 @@ export type {
     ColorInstruction,
     CustomColor,
     DType,
+    DimensionMappingScheme,
     HoverInfo,
     InspectorTensorOption,
     HueSaturation,

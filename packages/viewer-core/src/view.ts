@@ -10,6 +10,28 @@ function axisLabel(index: number): string {
     return out;
 }
 
+function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): {
+    ok: true;
+    axisLabels: string[];
+} | {
+    ok: false;
+    errors: string[];
+} {
+    const defaults = shape.map((_dim, axis) => axisLabel(axis));
+    if (!axisLabelsInput) return { ok: true, axisLabels: defaults };
+    if (axisLabelsInput.length !== shape.length) {
+        return { ok: false, errors: [`Expected ${shape.length} axis labels, got ${axisLabelsInput.length}.`] };
+    }
+    const axisLabels = axisLabelsInput.map((label) => String(label).trim().toUpperCase());
+    if (axisLabels.some((label) => !/^[A-Z][^A-Z]*$/.test(label))) {
+        return { ok: false, errors: ['Axis labels must start with a letter and may only use non-letters after it.'] };
+    }
+    if (new Set(axisLabels.map((label) => label.toLowerCase())).size !== axisLabels.length) {
+        return { ok: false, errors: ['Axis labels must be unique.'] };
+    }
+    return { ok: true, axisLabels };
+}
+
 export function product(values: number[]): number {
     return values.reduce((acc, value) => acc * Math.max(1, value), 1);
 }
@@ -21,8 +43,11 @@ export function normalizeShape(shape: number[]): number[] {
     });
 }
 
-export function defaultTensorView(shape: number[]): string {
-    return normalizeShape(shape).map((_dim, axis) => axisLabel(axis)).join(' ');
+export function defaultTensorView(shape: number[], axisLabelsInput?: readonly string[]): string {
+    const normalizedShape = normalizeShape(shape);
+    const axisLabels = parseAxisLabels(normalizedShape, axisLabelsInput);
+    if (!axisLabels.ok) throw new Error(axisLabels.errors.join(' '));
+    return axisLabels.axisLabels.join(' ');
 }
 
 function clampHiddenIndices(shape: number[], hiddenIndices?: number[]): number[] {
@@ -95,6 +120,20 @@ export function mapDisplayCoordToOutlineCoord(displayCoord: number[], spec: Tens
     return outline;
 }
 
+export function viewedShape(spec: TensorViewSpec, showSlicesInSamePlace = false): number[] {
+    const shape = showSlicesInSamePlace ? spec.displayShape : spec.outlineShape;
+    return shape.length === 0 ? [1] : shape.slice();
+}
+
+export function mapDisplayCoordToViewedCoord(
+    displayCoord: number[],
+    spec: TensorViewSpec,
+    showSlicesInSamePlace = false,
+): number[] {
+    if (!showSlicesInSamePlace) return mapDisplayCoordToOutlineCoord(displayCoord, spec);
+    return spec.displayShape.length === 0 ? [] : displayCoord.slice();
+}
+
 export function mapOutlineCoordToDisplayCoord(outlineCoord: number[], spec: TensorViewSpec): number[] {
     const display: number[] = [];
     spec.tokens.forEach((token, outlineAxis) => {
@@ -106,6 +145,41 @@ export function mapOutlineCoordToDisplayCoord(outlineCoord: number[], spec: Tens
         display.push(Math.max(0, Math.min(token.size - 1, outlineCoord[outlineAxis] ?? 0)));
     });
     return display;
+}
+
+export function mapViewedCoordToDisplayCoord(
+    viewedCoord: number[],
+    spec: TensorViewSpec,
+    showSlicesInSamePlace = false,
+): number[] {
+    if (!showSlicesInSamePlace) return mapOutlineCoordToDisplayCoord(viewedCoord, spec);
+    return spec.displayShape.length === 0 ? [] : viewedCoord.slice();
+}
+
+/** returns whether an outline coordinate belongs to the currently visible hidden-token slice. */
+export function outlineCoordIsVisible(outlineCoord: number[], spec: TensorViewSpec): boolean {
+    let hiddenIndex = 0;
+    for (let outlineAxis = 0; outlineAxis < spec.tokens.length; outlineAxis += 1) {
+        const token = spec.tokens[outlineAxis];
+        if (!token || token.kind !== 'axis_group' || token.visible) continue;
+        const hidden = spec.hiddenTokens[hiddenIndex];
+        if (!hidden || (outlineCoord[outlineAxis] ?? 0) !== hidden.value) return false;
+        hiddenIndex += 1;
+    }
+    return true;
+}
+
+export function viewedCoordIsVisible(
+    viewedCoord: number[],
+    spec: TensorViewSpec,
+    showSlicesInSamePlace = false,
+): boolean {
+    return showSlicesInSamePlace || outlineCoordIsVisible(viewedCoord, spec);
+}
+
+export function viewedTokenLabels(spec: TensorViewSpec, showSlicesInSamePlace = false): string[] {
+    const tokens = showSlicesInSamePlace ? spec.tokens.filter((token) => token.visible) : spec.tokens;
+    return tokens.map((token) => token.label.toUpperCase());
 }
 
 export function buildPreviewExpression(spec: TensorViewSpec): string {
@@ -136,13 +210,20 @@ export function buildPreviewExpression(spec: TensorViewSpec): string {
     return expr;
 }
 
-export function parseTensorView(shapeInput: number[], input: string, hiddenIndices?: number[]): ViewParseResult {
+export function parseTensorView(
+    shapeInput: number[],
+    input: string,
+    hiddenIndices?: number[],
+    axisLabelsInput?: readonly string[],
+): ViewParseResult {
     const shape = normalizeShape(shapeInput);
-    const axisLabels = shape.map((_dim, axis) => axisLabel(axis));
+    const axisLabelsResult = parseAxisLabels(shape, axisLabelsInput);
+    if (!axisLabelsResult.ok) return axisLabelsResult;
+    const axisLabels = axisLabelsResult.axisLabels;
     const text = input.trim().replace(/\s+/g, ' ');
     const normalizedHiddenIndices = clampHiddenIndices(shape, hiddenIndices);
     if (text === '') {
-        return parseTensorView(shape, defaultTensorView(shape), normalizedHiddenIndices);
+        return parseTensorView(shape, defaultTensorView(shape, axisLabels), normalizedHiddenIndices, axisLabels);
     }
 
     const labelEntries = axisLabels
@@ -158,25 +239,26 @@ export function parseTensorView(shapeInput: number[], input: string, hiddenIndic
             continue;
         }
 
-        if (!/^[A-Za-z]+$/.test(rawToken)) {
-            errors.push(`Invalid token "${rawToken}".`);
-            continue;
-        }
-
-        const hasLower = /[a-z]/.test(rawToken);
-        const hasUpper = /[A-Z]/.test(rawToken);
-        if (hasLower && hasUpper) {
-            errors.push(`Grouped token "${rawToken}" must be all upper or all lower case.`);
-            continue;
-        }
-
         const lower = rawToken.toLowerCase();
         const axes: number[] = [];
+        let visible: boolean | null = null;
         let cursor = 0;
         while (cursor < lower.length) {
             const match = labelEntries.find((entry) => lower.startsWith(entry.lower, cursor));
             if (!match) {
                 errors.push(`Token "${rawToken}" could not be parsed against tensor axes.`);
+                break;
+            }
+            const segment = rawToken.slice(cursor, cursor + match.lower.length);
+            const segmentVisible = segment === match.label;
+            const segmentHidden = segment === match.lower;
+            if (!segmentVisible && !segmentHidden) {
+                errors.push(`Token "${rawToken}" could not be parsed against tensor axes.`);
+                break;
+            }
+            if (visible === null) visible = segmentVisible;
+            else if (visible !== segmentVisible) {
+                errors.push(`Grouped token "${rawToken}" must be all upper or all lower case.`);
                 break;
             }
             if (seenAxes.has(match.axis)) {
@@ -192,8 +274,8 @@ export function parseTensorView(shapeInput: number[], input: string, hiddenIndic
         if (axes.some((axis) => !Number.isInteger(axis))) continue;
         tokens.push({
             kind: 'axis_group',
-            visible: hasUpper,
-            label: axes.map((axis) => axisLabels[axis]).join(hasUpper ? '' : '').toUpperCase(),
+            visible: visible ?? true,
+            label: axes.map((axis) => axisLabels[axis]).join(''),
             axes,
             size: product(axes.map((axis) => shape[axis])),
         });

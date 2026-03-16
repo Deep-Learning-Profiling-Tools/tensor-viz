@@ -117,7 +117,8 @@ Special case:
 ### Visible Dimensions Semantics
 
 - tokens are space-separated: `A B C D`
-- axis labels are uppercase when visible and lowercase when hidden
+- axis labels start with one letter and may have trailing non-letters, for example `A`, `T0`, `T11`
+- visibility is encoded by that leading letter being uppercase or lowercase
 - `1` inserts a singleton dimension
 - coalesced groups are written as one token: `BC`, `DA`, `ABC`
 - coalesced groups are atomic for visibility:
@@ -453,19 +454,20 @@ Rules:
 
 ## Persistence
 
-Use a versioned bundle format in v1:
+Use a versioned session format in v1:
 
 - one JSON manifest for viewer state and tensor metadata
 - one binary payload per tensor
 
-Recommended container:
+Recommended live transport:
 
-- `.viz` zip bundle
+- one JSON session manifest
+- one raw binary payload per tensor
 
-Recommended bundle contents:
+Recommended endpoint layout:
 
-- `manifest.json`
-- `tensors/<tensor-id>.bin`
+- `/api/session.json`
+- `/api/<tensor-data-file>`
 
 Example manifest:
 
@@ -516,7 +518,7 @@ The Python package is a thin wrapper over the same browser viewer.
 
 ```py
 import tensor_viz
-tensor_viz.viz(tensor: np.ndarray, *, name: str | None = None)
+tensor_viz.viz(tensor: np.ndarray, *, name: str | None = None, labels: str | None = None)
 ```
 
 Recommended v1 signature:
@@ -526,6 +528,7 @@ def viz(
     tensor: np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray],
     *,
     name: str | None = None,
+    labels: str | Sequence[str] | Sequence[str | Sequence[str] | None] | Mapping[str, str | Sequence[str] | None] | None = None,
     open_browser: bool = True,
     host: str = "127.0.0.1",
     port: int = 0,
@@ -537,6 +540,7 @@ def viz(
 ### Python Behavior
 
 - normalize input arrays into the same dense tensor schema used by the TS viewer
+- allow optional per-tensor axis-label overrides such as `labels="BCHW"` or `labels=["T0", "T11"]`
 - start a tiny local HTTP server
 - serve the bundled demo assets
 - expose a one-shot session manifest containing tensor metadata

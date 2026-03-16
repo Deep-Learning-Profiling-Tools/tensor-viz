@@ -3,8 +3,14 @@ import {
     defaultTensorView,
     mapDisplayCoordToFullCoord,
     mapDisplayCoordToOutlineCoord,
+    mapDisplayCoordToViewedCoord,
     mapOutlineCoordToDisplayCoord,
+    mapViewedCoordToDisplayCoord,
+    outlineCoordIsVisible,
     parseTensorView,
+    viewedCoordIsVisible,
+    viewedShape,
+    viewedTokenLabels,
 } from './view.js';
 
 describe('parseTensorView', () => {
@@ -25,6 +31,40 @@ describe('parseTensorView', () => {
 
     it('rejects mixed case grouped tokens', () => {
         const result = parseTensorView([2, 3, 4], 'A bC');
+        expect(result.ok).toBe(false);
+    });
+
+    it('supports custom axis labels', () => {
+        expect(defaultTensorView([2, 3, 4, 5], ['B', 'C', 'H', 'W'])).toBe('B C H W');
+        const result = parseTensorView([2, 3, 4, 5], 'b C H W', [1, 0, 0, 0], ['B', 'C', 'H', 'W']);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.spec.canonical).toBe('b C H W');
+        expect(result.spec.hiddenTokens[0]?.token).toBe('b');
+        expect(result.spec.axisLabels).toEqual(['B', 'C', 'H', 'W']);
+    });
+
+    it('supports labels with trailing non-letters', () => {
+        expect(defaultTensorView([2, 3], ['T0', 'T11'])).toBe('T0 T11');
+        const result = parseTensorView([2, 3], 't0 T11', [1, 0], ['T0', 'T11']);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.spec.canonical).toBe('t0 T11');
+        expect(result.spec.hiddenTokens[0]?.token).toBe('t0');
+        const grouped = parseTensorView([2, 3], 'T0T11', undefined, ['T0', 'T11']);
+        expect(grouped.ok).toBe(true);
+        if (!grouped.ok) return;
+        expect(grouped.spec.canonical).toBe('T0T11');
+        expect(grouped.spec.displayShape).toEqual([6]);
+    });
+
+    it('rejects invalid custom axis labels', () => {
+        const result = parseTensorView([2, 3], 'A B', undefined, ['A', 'A']);
+        expect(result.ok).toBe(false);
+    });
+
+    it('rejects labels with extra letters after the prefix', () => {
+        const result = parseTensorView([2], 'T0', undefined, ['TH']);
         expect(result.ok).toBe(false);
     });
 
@@ -60,5 +100,24 @@ describe('parseTensorView', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(mapOutlineCoordToDisplayCoord([5, 0, 2, 4], result.spec)).toEqual([0, 2, 4]);
+    });
+
+    it('rejects outline coordinates from invisible hidden slices', () => {
+        const result = parseTensorView([3, 4, 5], 'a B C', [1, 0, 0]);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(outlineCoordIsVisible([1, 2, 3], result.spec)).toBe(true);
+        expect(outlineCoordIsVisible([0, 2, 3], result.spec)).toBe(false);
+    });
+
+    it('can show hidden slices in the same visual place', () => {
+        const result = parseTensorView([2, 3, 4, 5], 'A b C d', [0, 1, 0, 2]);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(viewedShape(result.spec, true)).toEqual([2, 4]);
+        expect(viewedTokenLabels(result.spec, true)).toEqual(['A', 'C']);
+        expect(mapDisplayCoordToViewedCoord([1, 2], result.spec, true)).toEqual([1, 2]);
+        expect(mapViewedCoordToDisplayCoord([1, 2], result.spec, true)).toEqual([1, 2]);
+        expect(viewedCoordIsVisible([1, 2], result.spec, true)).toBe(true);
     });
 });
