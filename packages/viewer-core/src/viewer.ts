@@ -46,14 +46,14 @@ import {
     buildPreviewExpression,
     defaultTensorView,
     expandGroupedIndex,
-    mapDisplayCoordToFullCoord,
-    mapDisplayCoordToViewedCoord,
-    mapViewedCoordToDisplayCoord,
+    layoutAxisLabels,
+    layoutCoordIsVisible,
+    layoutShape,
+    mapLayoutCoordToViewCoord,
+    mapViewCoordToLayoutCoord,
+    mapViewCoordToTensorCoord,
     parseTensorView,
     product,
-    viewedCoordIsVisible,
-    viewedShape,
-    viewedTokenLabels,
 } from './view.js';
 import type {
     BundleManifest,
@@ -84,7 +84,7 @@ type ViewerOptions = {
 
 type MeshMeta = {
     tensorId: string;
-    renderShape: number[];
+    instanceShape: number[];
 };
 
 type PickMesh = {
@@ -296,7 +296,7 @@ export class TensorViewer {
         dimensionBlockGapMultiple: DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
         displayGaps: true,
         logScale: false,
-        showSlicesInSamePlace: false,
+        collapseHiddenAxes: false,
         dimensionMappingScheme: 'z-order',
         showDimensionLines: true,
         showInspectorPanel: true,
@@ -424,28 +424,28 @@ export class TensorViewer {
         return this.state.displayGaps ? this.state.dimensionBlockGapMultiple : 0;
     }
 
-    private renderShape(spec: TensorViewSpec): number[] {
-        return spec.displayShape.length === 0 ? [1] : spec.displayShape;
+    private instanceShape(spec: TensorViewSpec): number[] {
+        return spec.viewShape.length === 0 ? [1] : spec.viewShape;
     }
 
-    private viewedShape(spec: TensorViewSpec): number[] {
-        return viewedShape(spec, this.state.showSlicesInSamePlace);
+    private layoutShape(spec: TensorViewSpec): number[] {
+        return layoutShape(spec, this.state.collapseHiddenAxes);
     }
 
-    private mapDisplayCoordToViewedCoord(displayCoord: number[], spec: TensorViewSpec): number[] {
-        return mapDisplayCoordToViewedCoord(displayCoord, spec, this.state.showSlicesInSamePlace);
+    private mapViewCoordToLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
+        return mapViewCoordToLayoutCoord(viewCoord, spec, this.state.collapseHiddenAxes);
     }
 
-    private mapViewedCoordToDisplayCoord(viewedCoord: number[], spec: TensorViewSpec): number[] {
-        return mapViewedCoordToDisplayCoord(viewedCoord, spec, this.state.showSlicesInSamePlace);
+    private mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec): number[] {
+        return mapLayoutCoordToViewCoord(layoutCoord, spec, this.state.collapseHiddenAxes);
     }
 
-    private viewedCoordIsVisible(viewedCoord: number[], spec: TensorViewSpec): boolean {
-        return viewedCoordIsVisible(viewedCoord, spec, this.state.showSlicesInSamePlace);
+    private layoutCoordIsVisible(coord: number[], spec: TensorViewSpec): boolean {
+        return layoutCoordIsVisible(coord, spec, this.state.collapseHiddenAxes);
     }
 
-    private viewedTokenLabels(spec: TensorViewSpec): string[] {
-        return viewedTokenLabels(spec, this.state.showSlicesInSamePlace);
+    private layoutAxisLabels(spec: TensorViewSpec): string[] {
+        return layoutAxisLabels(spec, this.state.collapseHiddenAxes);
     }
 
     private heatmapNormalizedValue(value: number, min: number, max: number): number {
@@ -504,7 +504,7 @@ export class TensorViewer {
         const entries = this.pickEntries(clientX, clientY);
         for (const entry of entries) {
             const tensor = this.requireTensor(entry.tensorId);
-            const shape = this.viewedShape(tensor.view);
+            const shape = this.layoutShape(tensor.view);
             const hit = displayHitForPoint2D(
                 point.x - tensor.offset[0],
                 point.y - tensor.offset[1],
@@ -513,11 +513,11 @@ export class TensorViewer {
                 this.state.dimensionMappingScheme,
             );
             if (!hit) continue;
-            if (!this.viewedCoordIsVisible(hit.coord, tensor.view)) continue;
-            const displayCoord = this.mapViewedCoordToDisplayCoord(hit.coord, tensor.view);
-            const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-            const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
-            const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
+            if (!this.layoutCoordIsVisible(hit.coord, tensor.view)) continue;
+            const viewCoord = this.mapLayoutCoordToViewCoord(hit.coord, tensor.view);
+            const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+            const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
+            const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(tensorCoord))
                 ? 'custom'
                 : this.state.heatmap
                     ? 'heatmap'
@@ -526,9 +526,9 @@ export class TensorViewer {
                 hover: {
                     tensorId: tensor.id,
                     tensorName: tensor.name,
-                    displayCoord: displayCoord.slice(),
-                    viewedCoord: this.mapDisplayCoordToViewedCoord(displayCoord, tensor.view),
-                    fullCoord: fullCoord.slice(),
+                    viewCoord: viewCoord.slice(),
+                    layoutCoord: this.mapViewCoordToLayoutCoord(viewCoord, tensor.view),
+                    tensorCoord: tensorCoord.slice(),
                     value,
                     colorSource,
                 },
@@ -552,11 +552,11 @@ export class TensorViewer {
         const mesh = hit.object as InstancedMesh;
         const meta = mesh.userData.meta as MeshMeta;
         const tensor = this.requireTensor(meta.tensorId);
-        const displayCoord = tensor.view.displayShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.renderShape);
-        const viewedCoord = this.mapDisplayCoordToViewedCoord(displayCoord, tensor.view);
-        const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-        const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
-        const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(fullCoord))
+        const viewCoord = tensor.view.viewShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.instanceShape);
+        const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
+        const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+        const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
+        const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(tensorCoord))
             ? 'custom'
             : this.state.heatmap
                 ? 'heatmap'
@@ -569,9 +569,9 @@ export class TensorViewer {
             hover: {
                 tensorId: meta.tensorId,
                 tensorName: this.tensors.get(meta.tensorId)?.name ?? meta.tensorId,
-                displayCoord: displayCoord.slice(),
-                viewedCoord: viewedCoord.slice(),
-                fullCoord: fullCoord.slice(),
+                viewCoord: viewCoord.slice(),
+                layoutCoord: layoutCoord.slice(),
+                tensorCoord: tensorCoord.slice(),
                 value,
                 colorSource,
             },
@@ -583,20 +583,20 @@ export class TensorViewer {
         return !!left
             && !!right
             && left.tensorId === right.tensorId
-            && left.fullCoord.length === right.fullCoord.length
-            && left.fullCoord.every((value, index) => value === right.fullCoord[index]);
+            && left.tensorCoord.length === right.tensorCoord.length
+            && left.tensorCoord.every((value, index) => value === right.tensorCoord[index]);
     }
 
     private hoverPosition(hover: HoverInfo): Vector3 | null {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return null;
-        const shape = this.viewedShape(tensor.view);
-        const viewedCoord = hover.viewedCoord;
+        const shape = this.layoutShape(tensor.view);
+        const layoutCoord = hover.layoutCoord;
         if (this.state.displayMode === '2d') {
-            const position = displayPositionForCoord2D(viewedCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+            const position = displayPositionForCoord2D(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
             return new Vector3(tensor.offset[0] + position.x, tensor.offset[1] + position.y, 0);
         }
-        return displayPositionForCoord(viewedCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(vectorFromTuple(tensor.offset));
+        return displayPositionForCoord(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(vectorFromTuple(tensor.offset));
     }
 
     private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): boolean {
@@ -625,8 +625,8 @@ export class TensorViewer {
     private canvasHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
-        const shape = this.viewedShape(tensor.view);
-        const position = displayPositionForCoord2D(hover.viewedCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+        const shape = this.layoutShape(tensor.view);
+        const position = displayPositionForCoord2D(hover.layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
         const topLeft = this.projectCanvasPoint(tensor.offset[0] + position.x - 0.5, tensor.offset[1] + position.y + 0.5);
         const bottomRight = this.projectCanvasPoint(tensor.offset[0] + position.x + 0.5, tensor.offset[1] + position.y - 0.5);
         const rect = this.flatCanvas.getBoundingClientRect();
@@ -642,8 +642,8 @@ export class TensorViewer {
     private sceneHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
-        const shape = this.viewedShape(tensor.view);
-        const center = displayPositionForCoord(hover.viewedCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme)
+        const shape = this.layoutShape(tensor.view);
+        const center = displayPositionForCoord(hover.layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme)
             .add(vectorFromTuple(tensor.offset));
         const rect = this.renderer.domElement.getBoundingClientRect();
         let minX = Number.POSITIVE_INFINITY;
@@ -687,7 +687,7 @@ export class TensorViewer {
         let minY = Number.POSITIVE_INFINITY;
         let maxY = Number.NEGATIVE_INFINITY;
         this.tensors.forEach((tensor) => {
-            const extent = displayExtent2D(this.viewedShape(tensor.view), this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+            const extent = displayExtent2D(this.layoutShape(tensor.view), this.layoutGapMultiple(), this.state.dimensionMappingScheme);
             minX = Math.min(minX, tensor.offset[0] - extent.x / 2);
             maxX = Math.max(maxX, tensor.offset[0] + extent.x / 2);
             minY = Math.min(minY, tensor.offset[1] - extent.y / 2);
@@ -874,7 +874,7 @@ export class TensorViewer {
             this.scene.add(group);
             const mesh = group.children[0];
             if (mesh instanceof InstancedMesh) {
-                const shape = this.viewedShape(tensor.view);
+                const shape = this.layoutShape(tensor.view);
                 const extent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
                 const bounds = (mesh.boundingBox ?? new Box3().setFromObject(mesh)).clone();
                 this.pickMeshes.push({
@@ -898,14 +898,14 @@ export class TensorViewer {
     private populateFastMesh2D(
         tensor: TensorRecord,
         mesh: InstancedMesh,
-        renderShape: number[],
+        instanceShape: number[],
         min: number,
         max: number,
     ): boolean {
         const colorArray = mesh.instanceColor?.array as Float32Array | undefined;
         const isIdentityView = this.state.displayMode === '2d'
             && tensor.shape.length <= 2
-            && tensor.view.hiddenTokens.length === 0
+            && tensor.view.sliceTokens.length === 0
             && tensor.view.tokens.length === tensor.shape.length
             && tensor.view.tokens.every((token, index) => token.kind === 'axis_group'
                 && token.visible
@@ -915,9 +915,9 @@ export class TensorViewer {
 
         // default 1d/2d views are affine grids, so write instance buffers directly.
         const matrixArray = mesh.instanceMatrix.array as Float32Array;
-        const extent = displayExtent2D(renderShape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-        const rowCount = renderShape.length > 1 ? renderShape[0] : 1;
-        const columnCount = renderShape.length > 1 ? renderShape[1] : (renderShape[0] ?? 1);
+        const extent = displayExtent2D(instanceShape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+        const rowCount = instanceShape.length > 1 ? instanceShape[0] : 1;
+        const columnCount = instanceShape.length > 1 ? instanceShape[1] : (instanceShape[0] ?? 1);
         const startX = tensor.offset[0] - extent.x / 2 + 0.5;
         const startY = tensor.offset[1] + extent.y / 2 - 0.5;
         const stepX = columnCount > 1 ? (extent.x - 1) / (columnCount - 1) : 0;
@@ -1119,10 +1119,10 @@ export class TensorViewer {
 
     private buildTensorGroup(tensor: TensorRecord): Group {
         const group = new Group();
-        const renderShape = this.renderShape(tensor.view);
-        const shape = this.viewedShape(tensor.view);
-        const labels = this.viewedTokenLabels(tensor.view);
-        const count = product(renderShape);
+        const instanceShape = this.instanceShape(tensor.view);
+        const shape = this.layoutShape(tensor.view);
+        const labels = this.layoutAxisLabels(tensor.view);
+        const count = product(instanceShape);
         const mesh = new InstancedMesh(
             this.state.displayMode === '2d' ? this.planeGeometry : this.cubeGeometry,
             new MeshBasicMaterial({ color: 0xffffff, vertexColors: true, toneMapped: false }),
@@ -1131,24 +1131,24 @@ export class TensorViewer {
         mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
         const outlineExtent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
         const { min, max } = tensor.valueRange;
-        if (!this.populateFastMesh2D(tensor, mesh, renderShape, min, max)) {
+        if (!this.populateFastMesh2D(tensor, mesh, instanceShape, min, max)) {
             const matrix = new Matrix4();
             const offset = vectorFromTuple(tensor.offset);
             for (let index = 0; index < count; index += 1) {
-                const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
-                const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-                const viewedCoord = this.mapDisplayCoordToViewedCoord(displayCoord, tensor.view);
-                const fullLinear = this.linearIndex(fullCoord, tensor.shape);
-                const value = numericValue(tensor.data, fullLinear);
+                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
+                const tensorLinear = this.linearIndex(tensorCoord, tensor.shape);
+                const value = numericValue(tensor.data, tensorLinear);
                 const position = this.state.displayMode === '2d'
                     ? (() => {
-                        const flat = displayPositionForCoord2D(viewedCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+                        const flat = displayPositionForCoord2D(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
                         return new Vector3(tensor.offset[0] + flat.x, tensor.offset[1] + flat.y, 0);
                     })()
-                    : displayPositionForCoord(viewedCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(offset);
+                    : displayPositionForCoord(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(offset);
                 matrix.makeTranslation(position.x, position.y, position.z);
                 mesh.setMatrixAt(index, matrix);
-                mesh.setColorAt(index, this.cellColor(tensor, fullCoord, value, min, max));
+                mesh.setColorAt(index, this.cellColor(tensor, tensorCoord, value, min, max));
             }
         }
 
@@ -1171,7 +1171,7 @@ export class TensorViewer {
             mesh.boundingSphere = new Sphere(center, halfExtent.length());
         }
         mesh.material.needsUpdate = true;
-        mesh.userData.meta = { tensorId: tensor.id, renderShape } satisfies MeshMeta;
+        mesh.userData.meta = { tensorId: tensor.id, instanceShape } satisfies MeshMeta;
         group.add(mesh);
         if (this.state.displayMode === '2d') {
             group.add(this.buildOutline2D(outlineExtent2D, tensor.offset));
@@ -1184,14 +1184,14 @@ export class TensorViewer {
         return group;
     }
 
-    /** updates instance colors in place when only the hidden slice changed. */
-    private updateHiddenSliceMesh(tensor: TensorRecord, previousView: TensorViewSpec): boolean {
+    /** updates instance colors in place when only the sliced tensor indices changed. */
+    private updateSliceMesh(tensor: TensorRecord, previousView: TensorViewSpec): boolean {
         if (previousView.canonical !== tensor.view.canonical) return false;
         if (!previousView.hiddenIndices.some((value, index) => value !== tensor.view.hiddenIndices[index])) return false;
-        if (previousView.displayShape.length !== tensor.view.displayShape.length
-            || previousView.displayShape.some((size, index) => size !== tensor.view.displayShape[index])) return false;
-        const shape = this.viewedShape(tensor.view);
-        const previousShape = viewedShape(previousView, this.state.showSlicesInSamePlace);
+        if (previousView.viewShape.length !== tensor.view.viewShape.length
+            || previousView.viewShape.some((size, index) => size !== tensor.view.viewShape[index])) return false;
+        const shape = this.layoutShape(tensor.view);
+        const previousShape = layoutShape(previousView, this.state.collapseHiddenAxes);
         if (previousShape.length !== shape.length
             || previousShape.some((size, index) => size !== shape[index])) return false;
 
@@ -1200,10 +1200,10 @@ export class TensorViewer {
         const colorArray = mesh instanceof InstancedMesh ? mesh.instanceColor?.array as Float32Array | undefined : undefined;
         if (!(mesh instanceof InstancedMesh) || !colorArray) return false;
 
-        const renderShape = this.renderShape(tensor.view);
-        const anchorDisplayCoord = tensor.view.displayShape.length === 0 ? [] : new Array(tensor.view.displayShape.length).fill(0);
-        const previousAnchor = mapDisplayCoordToViewedCoord(anchorDisplayCoord, previousView, this.state.showSlicesInSamePlace);
-        const nextAnchor = this.mapDisplayCoordToViewedCoord(anchorDisplayCoord, tensor.view);
+        const instanceShape = this.instanceShape(tensor.view);
+        const anchorViewCoord = tensor.view.viewShape.length === 0 ? [] : new Array(tensor.view.viewShape.length).fill(0);
+        const previousAnchor = mapViewCoordToLayoutCoord(anchorViewCoord, previousView, this.state.collapseHiddenAxes);
+        const nextAnchor = this.mapViewCoordToLayoutCoord(anchorViewCoord, tensor.view);
         if (this.state.displayMode === '2d') {
             const previousPosition = displayPositionForCoord2D(previousAnchor, previousShape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
             const nextPosition = displayPositionForCoord2D(nextAnchor, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
@@ -1218,13 +1218,13 @@ export class TensorViewer {
 
         const { min, max } = tensor.valueRange;
         const hasCustomColors = tensor.customColors.size !== 0;
-        const count = product(renderShape);
+        const count = product(instanceShape);
         for (let index = 0; index < count; index += 1) {
-            const displayCoord = count === 1 && tensor.view.displayShape.length === 0 ? [] : unravelIndex(index, renderShape);
-            const fullCoord = mapDisplayCoordToFullCoord(displayCoord, tensor.view);
-            const value = numericValue(tensor.data, this.linearIndex(fullCoord, tensor.shape));
+            const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+            const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+            const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
             const colorOffset = index * 3;
-            const customColor = hasCustomColors ? tensor.customColors.get(coordKey(fullCoord)) : undefined;
+            const customColor = hasCustomColors ? tensor.customColors.get(coordKey(tensorCoord)) : undefined;
             if (customColor?.kind === 'rgba') {
                 colorArray[colorOffset] = customColor.value[0] / 255;
                 colorArray[colorOffset + 1] = customColor.value[1] / 255;
@@ -1273,8 +1273,8 @@ export class TensorViewer {
         return index;
     }
 
-    private cellColor(tensor: TensorRecord, fullCoord: number[], value: number, min: number, max: number): Color {
-        const customColor = tensor.customColors.get(coordKey(fullCoord));
+    private cellColor(tensor: TensorRecord, tensorCoord: number[], value: number, min: number, max: number): Color {
+        const customColor = tensor.customColors.get(coordKey(tensorCoord));
         if (customColor?.kind === 'rgba') return colorFromRgba(customColor.value);
         if (customColor?.kind === 'hs') return colorFromHueSaturation(customColor.value, this.state.heatmap ? this.heatmapNormalizedValue(value, min, max) : 1);
         if (!this.state.heatmap) return BASE_COLOR.clone();
@@ -1407,7 +1407,7 @@ export class TensorViewer {
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         tensor.view = parsed.spec;
         return {
-            visible: tensor.view.canonical,
+            view: tensor.view.canonical,
             hiddenIndices: tensor.view.hiddenIndices.slice(),
         };
     }
@@ -1417,7 +1417,7 @@ export class TensorViewer {
         this.state.dimensionBlockGapMultiple = snapshot.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
         this.state.displayGaps = snapshot.displayGaps ?? true;
         this.state.logScale = snapshot.logScale ?? false;
-        this.state.showSlicesInSamePlace = snapshot.showSlicesInSamePlace ?? false;
+        this.state.collapseHiddenAxes = snapshot.collapseHiddenAxes ?? snapshot.showSlicesInSamePlace ?? false;
         this.state.dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
         this.state.showDimensionLines = snapshot.showDimensionLines;
         this.state.showInspectorPanel = snapshot.showInspectorPanel;
@@ -1444,7 +1444,7 @@ export class TensorViewer {
             const tensor = this.tensors.get(entry.id);
             if (!tensor) return;
             tensor.offset = entry.offset;
-            this.assignTensorView(tensor, entry.view.visible, entry.view.hiddenIndices);
+            this.assignTensorView(tensor, entry.view.view ?? entry.view.visible ?? '', entry.view.hiddenIndices);
         });
 
         if (!this.state.activeTensorId || !this.tensors.has(this.state.activeTensorId)) {
@@ -1473,7 +1473,7 @@ export class TensorViewer {
         }
         this.state.hover = hover;
         if (hover) this.state.lastHover = hover;
-        const hoverKey = hover ? `${hover.tensorId}:${hover.fullCoord.join(',')}:${hover.value}` : null;
+        const hoverKey = hover ? `${hover.tensorId}:${hover.tensorCoord.join(',')}:${hover.value}` : null;
         if (hoverKey !== this.lastHoverLogKey) {
             this.lastHoverLogKey = hoverKey;
             logEvent(`${source}:hover`, hover ?? 'none');
@@ -1571,7 +1571,7 @@ export class TensorViewer {
             dimensionBlockGapMultiple: this.state.dimensionBlockGapMultiple,
             displayGaps: this.state.displayGaps,
             logScale: this.state.logScale,
-            showSlicesInSamePlace: this.state.showSlicesInSamePlace,
+            collapseHiddenAxes: this.state.collapseHiddenAxes,
             dimensionMappingScheme: this.state.dimensionMappingScheme,
             showDimensionLines: this.state.showDimensionLines,
             showInspectorPanel: this.state.showInspectorPanel,
@@ -1587,7 +1587,7 @@ export class TensorViewer {
                 name: tensor.name,
                 offset: tensor.offset,
                 view: {
-                    visible: tensor.view.canonical,
+                    view: tensor.view.canonical,
                     hiddenIndices: tensor.view.hiddenIndices.slice(),
                 },
             })),
@@ -1658,12 +1658,16 @@ export class TensorViewer {
         return this.state.logScale;
     }
 
-    public toggleShowSlicesInSamePlace(force?: boolean): boolean {
-        this.state.showSlicesInSamePlace = force ?? !this.state.showSlicesInSamePlace;
-        logEvent('display:slices-same-place', this.state.showSlicesInSamePlace);
+    public toggleCollapseHiddenAxes(force?: boolean): boolean {
+        this.state.collapseHiddenAxes = force ?? !this.state.collapseHiddenAxes;
+        logEvent('display:collapse-hidden-axes', this.state.collapseHiddenAxes);
         if (this.state.hover) this.clearHover();
         this.rebuildAllMeshes();
-        return this.state.showSlicesInSamePlace;
+        return this.state.collapseHiddenAxes;
+    }
+
+    public toggleShowSlicesInSamePlace(force?: boolean): boolean {
+        return this.toggleCollapseHiddenAxes(force);
     }
 
     /** changes how dimensions are assigned to x/y/z layout families. */
@@ -1693,14 +1697,14 @@ export class TensorViewer {
     public getViewDims(tensorId: string): Vec3 {
         const tensor = this.tensors.get(tensorId);
         if (!tensor) throw new Error(`Unknown tensor ${tensorId}.`);
-        const extent = displayExtent(this.viewedShape(tensor.view), this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+        const extent = displayExtent(this.layoutShape(tensor.view), this.layoutGapMultiple(), this.state.dimensionMappingScheme);
         return [extent.x, extent.y, extent.z];
     }
 
     public getTensorView(tensorId: string): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         return {
-            visible: tensor.view.canonical,
+            view: tensor.view.canonical,
             hiddenIndices: tensor.view.hiddenIndices.slice(),
         };
     }
@@ -1710,7 +1714,7 @@ export class TensorViewer {
         const previousView = tensor.view;
         const snapshot = this.assignTensorView(tensor, spec, hiddenIndices);
         logEvent('tensor:view', { tensorId, view: tensor.view.canonical, hiddenIndices: tensor.view.hiddenIndices });
-        if (this.updateHiddenSliceMesh(tensor, previousView)) return snapshot;
+        if (this.updateSliceMesh(tensor, previousView)) return snapshot;
         this.rebuildAllMeshes();
         return snapshot;
     }
@@ -1798,7 +1802,7 @@ export class TensorViewer {
         colorRanges: Array<{ id: string; name: string; min: number; max: number }>;
         viewInput: string;
         preview: string;
-        hiddenTokens: Array<{ token: string; size: number; value: number }>;
+        sliceTokens: Array<{ token: string; size: number; value: number }>;
         colorRange: { min: number; max: number } | null;
     } {
         const tensors = Array.from(this.tensors.values()).map((tensor) => ({ id: tensor.id, name: tensor.name }));
@@ -1811,7 +1815,7 @@ export class TensorViewer {
             ? this.state.activeTensorId
             : this.tensors.keys().next().value ?? null;
         if (!activeTensorId) {
-            return { handle: null, tensors, colorRanges, viewInput: '', preview: '', hiddenTokens: [], colorRange: null };
+            return { handle: null, tensors, colorRanges, viewInput: '', preview: '', sliceTokens: [], colorRange: null };
         }
         const tensor = this.requireTensor(activeTensorId);
         return {
@@ -1827,7 +1831,7 @@ export class TensorViewer {
             colorRanges,
             viewInput: tensor.view.canonical,
             preview: buildPreviewExpression(tensor.view),
-            hiddenTokens: tensor.view.hiddenTokens.map((token) => ({
+            sliceTokens: tensor.view.sliceTokens.map((token) => ({
                 token: token.token,
                 size: token.size,
                 value: token.value,
@@ -1843,24 +1847,28 @@ export class TensorViewer {
         this.emit();
     }
 
-    public setHiddenTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
+    public setSliceTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
-        const hidden = tensor.view.hiddenTokens.find((entry) => entry.token === token);
-        if (!hidden) throw new Error(`Unknown hidden token ${token}.`);
+        const sliceToken = tensor.view.sliceTokens.find((entry) => entry.token === token);
+        if (!sliceToken) throw new Error(`Unknown slice token ${token}.`);
         const nextHiddenIndices = tensor.view.hiddenIndices.slice();
-        const clamped = Math.max(0, Math.min(hidden.size - 1, Math.floor(value)));
-        if (hidden.value === clamped) {
+        const clamped = Math.max(0, Math.min(sliceToken.size - 1, Math.floor(value)));
+        if (sliceToken.value === clamped) {
             return {
-                visible: tensor.view.canonical,
+                view: tensor.view.canonical,
                 hiddenIndices: tensor.view.hiddenIndices.slice(),
             };
         }
-        const expanded = expandGroupedIndex(hidden.axes, clamped, tensor.shape);
-        hidden.axes.forEach((axis, axisIndex) => {
+        const expanded = expandGroupedIndex(sliceToken.axes, clamped, tensor.shape);
+        sliceToken.axes.forEach((axis, axisIndex) => {
             nextHiddenIndices[axis] = expanded[axisIndex];
         });
-        logEvent('tensor:hidden-token', { tensorId, token, value: clamped });
+        logEvent('tensor:slice-token', { tensorId, token, value: clamped });
         return this.setTensorView(tensorId, tensor.view.canonical, nextHiddenIndices);
+    }
+
+    public setHiddenTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
+        return this.setSliceTokenValue(tensorId, token, value);
     }
 
     public destroy(): void {

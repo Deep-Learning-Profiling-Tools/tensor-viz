@@ -23,16 +23,17 @@ export type TensorHandle = {
 };
 
 export type TensorViewSnapshot = {
-    visible: string;
+    view: string;
     hiddenIndices: number[];
+    visible?: string;
 };
 
 export type HoverInfo = {
     tensorId: string;
     tensorName: string;
-    displayCoord: number[];
-    viewedCoord: number[];
-    fullCoord: number[];
+    viewCoord: number[];
+    layoutCoord: number[];
+    tensorCoord: number[];
     value: number;
     colorSource: 'base' | 'heatmap' | 'custom';
 };
@@ -44,6 +45,7 @@ export type ViewerSnapshot = {
     dimensionBlockGapMultiple?: number;
     displayGaps?: boolean;
     logScale?: boolean;
+    collapseHiddenAxes?: boolean;
     showSlicesInSamePlace?: boolean;
     dimensionMappingScheme?: DimensionMappingScheme;
     showDimensionLines: boolean;
@@ -69,7 +71,7 @@ export type InspectorTensorOption = {
     name: string;
 };
 
-export type HiddenToken = {
+export type SliceToken = {
     token: string;
     axes: number[];
     size: number;
@@ -88,14 +90,14 @@ export type TensorViewSpec = {
     input: string;
     canonical: string;
     axisLabels: string[];
-    axisShape: number[];
+    tensorShape: number[];
     tokens: ViewToken[];
-    visibleAxes: number[];
-    hiddenAxes: number[];
+    viewAxes: number[];
+    sliceAxes: number[];
     hiddenIndices: number[];
-    hiddenTokens: HiddenToken[];
-    displayShape: number[];
-    outlineShape: number[];
+    sliceTokens: SliceToken[];
+    viewShape: number[];
+    layoutShape: number[];
 };
 
 export type ViewParseResult =
@@ -160,7 +162,7 @@ export type ViewerState = {
     dimensionBlockGapMultiple: number;
     displayGaps: boolean;
     logScale: boolean;
-    showSlicesInSamePlace: boolean;
+    collapseHiddenAxes: boolean;
     dimensionMappingScheme: DimensionMappingScheme;
     showDimensionLines: boolean;
     showInspectorPanel: boolean;

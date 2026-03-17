@@ -194,7 +194,7 @@ def _build_viewer_manifest(tensors: list[SessionTensor]) -> dict[str, Any]:
                 "name": entry.name,
                 "offset": [0, 0, 0] if index == 0 else [index * 6, 0, 0],
                 "view": {
-                    "visible": " ".join(entry.axis_labels),
+                    "view": " ".join(entry.axis_labels),
                     "hiddenIndices": [0] * entry.array.ndim,
                 },
             }
@@ -221,7 +221,7 @@ def _build_tensor_manifest(
             "dataFile": f"{data_prefix}/{entry.tensor_id}.bin",
             "offset": [0, 0, 0] if index == 0 else [index * 6, 0, 0],
             "view": {
-                "visible": " ".join(entry.axis_labels),
+                "view": " ".join(entry.axis_labels),
                 "hiddenIndices": [0] * entry.array.ndim,
             },
             "colorInstructions": (color_instructions or {}).get(entry.tensor_id),

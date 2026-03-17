@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
     defaultTensorView,
-    mapDisplayCoordToFullCoord,
-    mapDisplayCoordToOutlineCoord,
-    mapDisplayCoordToViewedCoord,
-    mapOutlineCoordToDisplayCoord,
-    mapViewedCoordToDisplayCoord,
-    outlineCoordIsVisible,
+    layoutAxisLabels,
+    layoutCoordIsVisible,
+    layoutCoordMatchesSlice,
+    layoutShape,
+    mapLayoutCoordToViewCoord,
+    mapViewCoordToLayoutCoord,
+    mapViewCoordToTensorCoord,
     parseTensorView,
-    viewedCoordIsVisible,
-    viewedShape,
-    viewedTokenLabels,
 } from './view.js';
 
 describe('parseTensorView', () => {
@@ -19,7 +17,7 @@ describe('parseTensorView', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.spec.canonical).toBe('A B C');
-        expect(result.spec.displayShape).toEqual([2, 3, 4]);
+        expect(result.spec.viewShape).toEqual([2, 3, 4]);
     });
 
     it('treats empty string as reset to default', () => {
@@ -40,7 +38,7 @@ describe('parseTensorView', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.spec.canonical).toBe('b C H W');
-        expect(result.spec.hiddenTokens[0]?.token).toBe('b');
+        expect(result.spec.sliceTokens[0]?.token).toBe('b');
         expect(result.spec.axisLabels).toEqual(['B', 'C', 'H', 'W']);
     });
 
@@ -50,12 +48,12 @@ describe('parseTensorView', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.spec.canonical).toBe('t0 T11');
-        expect(result.spec.hiddenTokens[0]?.token).toBe('t0');
+        expect(result.spec.sliceTokens[0]?.token).toBe('t0');
         const grouped = parseTensorView([2, 3], 'T0T11', undefined, ['T0', 'T11']);
         expect(grouped.ok).toBe(true);
         if (!grouped.ok) return;
         expect(grouped.spec.canonical).toBe('T0T11');
-        expect(grouped.spec.displayShape).toEqual([6]);
+        expect(grouped.spec.viewShape).toEqual([6]);
     });
 
     it('rejects invalid custom axis labels', () => {
@@ -68,56 +66,56 @@ describe('parseTensorView', () => {
         expect(result.ok).toBe(false);
     });
 
-    it('supports hidden grouped tokens', () => {
+    it('supports sliced grouped tokens', () => {
         const result = parseTensorView([2, 3, 4, 5], 'a BC D');
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(result.spec.hiddenTokens).toHaveLength(1);
-        expect(result.spec.hiddenTokens[0].token).toBe('a');
+        expect(result.spec.sliceTokens).toHaveLength(1);
+        expect(result.spec.sliceTokens[0].token).toBe('a');
     });
 
-    it('keeps outline shape for hidden tokens', () => {
-        const hidden = parseTensorView([4, 8], 'A b');
+    it('keeps layout shape for sliced tokens', () => {
+        const sliced = parseTensorView([4, 8], 'A b');
         const visible = parseTensorView([4, 8], 'A B');
-        expect(hidden.ok).toBe(true);
+        expect(sliced.ok).toBe(true);
         expect(visible.ok).toBe(true);
-        if (!hidden.ok || !visible.ok) return;
-        expect(hidden.spec.outlineShape).toEqual(visible.spec.outlineShape);
-        expect(hidden.spec.displayShape).toEqual([4]);
+        if (!sliced.ok || !visible.ok) return;
+        expect(sliced.spec.layoutShape).toEqual(visible.spec.layoutShape);
+        expect(sliced.spec.viewShape).toEqual([4]);
     });
 
-    it('keeps singleton display axes in coordinate mapping', () => {
+    it('keeps singleton view axes in coordinate mapping', () => {
         const result = parseTensorView([2, 3], 'A 1 B');
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(result.spec.displayShape).toEqual([2, 1, 3]);
-        expect(mapDisplayCoordToFullCoord([1, 0, 2], result.spec)).toEqual([1, 2]);
-        expect(mapDisplayCoordToOutlineCoord([1, 0, 2], result.spec)).toEqual([1, 0, 2]);
+        expect(result.spec.viewShape).toEqual([2, 1, 3]);
+        expect(mapViewCoordToTensorCoord([1, 0, 2], result.spec)).toEqual([1, 2]);
+        expect(mapViewCoordToLayoutCoord([1, 0, 2], result.spec)).toEqual([1, 0, 2]);
     });
 
-    it('maps outline coordinates back to visible display coordinates', () => {
+    it('maps layout coordinates back to visible view coordinates', () => {
         const result = parseTensorView([2, 3, 4, 5], 'ab 1 C D');
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(mapOutlineCoordToDisplayCoord([5, 0, 2, 4], result.spec)).toEqual([0, 2, 4]);
+        expect(mapLayoutCoordToViewCoord([5, 0, 2, 4], result.spec)).toEqual([0, 2, 4]);
     });
 
-    it('rejects outline coordinates from invisible hidden slices', () => {
+    it('rejects layout coordinates from invisible sliced views', () => {
         const result = parseTensorView([3, 4, 5], 'a B C', [1, 0, 0]);
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(outlineCoordIsVisible([1, 2, 3], result.spec)).toBe(true);
-        expect(outlineCoordIsVisible([0, 2, 3], result.spec)).toBe(false);
+        expect(layoutCoordMatchesSlice([1, 2, 3], result.spec)).toBe(true);
+        expect(layoutCoordMatchesSlice([0, 2, 3], result.spec)).toBe(false);
     });
 
-    it('can show hidden slices in the same visual place', () => {
+    it('can collapse hidden axes into the same visual place', () => {
         const result = parseTensorView([2, 3, 4, 5], 'A b C d', [0, 1, 0, 2]);
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(viewedShape(result.spec, true)).toEqual([2, 4]);
-        expect(viewedTokenLabels(result.spec, true)).toEqual(['A', 'C']);
-        expect(mapDisplayCoordToViewedCoord([1, 2], result.spec, true)).toEqual([1, 2]);
-        expect(mapViewedCoordToDisplayCoord([1, 2], result.spec, true)).toEqual([1, 2]);
-        expect(viewedCoordIsVisible([1, 2], result.spec, true)).toBe(true);
+        expect(layoutShape(result.spec, true)).toEqual([2, 4]);
+        expect(layoutAxisLabels(result.spec, true)).toEqual(['A', 'C']);
+        expect(mapViewCoordToLayoutCoord([1, 2], result.spec, true)).toEqual([1, 2]);
+        expect(mapLayoutCoordToViewCoord([1, 2], result.spec, true)).toEqual([1, 2]);
+        expect(layoutCoordIsVisible([1, 2], result.spec, true)).toBe(true);
     });
 });

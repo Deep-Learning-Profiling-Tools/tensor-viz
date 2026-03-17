@@ -108,13 +108,13 @@ Tensor View supports:
 - permutation
 - coalescing
 
-The visible-dimension string is a strict public interface. Invalid strings are rejected and surfaced as parse errors in the UI and API.
+The view string is a strict public interface. Invalid strings are rejected and surfaced as parse errors in the UI and API.
 
 Special case:
 
 - an empty tensor-view string resets the tensor to its default view
 
-### Visible Dimensions Semantics
+### View String Semantics
 
 - tokens are space-separated: `A B C D`
 - axis labels start with one letter and may have trailing non-letters, for example `A`, `T0`, `T11`
@@ -130,14 +130,14 @@ Special case:
 
 - uppercase token: visible axis/group
 - lowercase token: hidden axis/group sliced to one index
-- hidden tokens remain in the string so full-tensor outline context is preserved
+- sliced tokens remain in the string so full layout context is preserved
 
-### Outline Shape Semantics
+### Layout Shape Semantics
 
-- outline shape is derived from the token sequence while ignoring case
+- layout shape is derived from the token sequence while ignoring case
 - examples:
-  - `ADG B C 1 E F 1 H I` and `adg B C 1 E F 1 H I` share the same outline shape
-  - that outline differs from raw `A B C D E F G H I`
+  - `ADG B C 1 E F 1 H I` and `adg B C 1 E F 1 H I` share the same layout shape
+  - that layout differs from raw `A B C D E F G H I`
 
 ### Slider Semantics
 
@@ -234,18 +234,18 @@ Internal tensor state should explicitly store:
 
 The parsed tensor-view object must store explicit metadata, not re-derive it from strings repeatedly:
 
-- canonical visible string
+- canonical view string
 - token list
 - token kind: axis-group or singleton
 - token visibility
 - token axes
 - token grouped size
-- display-axis mapping
-- outline-axis mapping
-- hidden token descriptors
+- view-axis mapping
+- layout-axis mapping
+- slice token descriptors
 - hidden indices
-- display shape
-- outline shape
+- view shape
+- layout shape
 
 ## Public TypeScript API
 
@@ -265,15 +265,16 @@ interface TensorHandle {
 }
 
 interface TensorViewSnapshot {
-  visible: string;
+  view: string;
   hiddenIndices: number[];
 }
 
 interface HoverInfo {
   tensorId: string;
   tensorName: string;
-  displayCoord: number[];
-  fullCoord: number[];
+  viewCoord: number[];
+  layoutCoord: number[];
+  tensorCoord: number[];
   value: number;
 }
 
@@ -431,13 +432,13 @@ Use `three` with instanced meshes from the start.
 
 - ranks 1-3 map directly to width/height/depth
 - rank greater than 3 uses recursive outer-group spacing
-- display mesh is driven by display shape
-- reference outline is driven by outline shape
-- hidden dimensions affect slice mapping and outline semantics, not the number of visible display cells
+- display mesh is driven by view shape
+- reference outline is driven by layout shape
+- sliced dimensions affect slice mapping and layout semantics, not the number of visible view cells
 
 ### 2D Mode
 
-2D mode is not a different tensor model. It is an alternate rendering mode over the same display shape.
+2D mode is not a different tensor model. It is an alternate rendering mode over the same view shape.
 
 Rules:
 
@@ -448,8 +449,8 @@ Rules:
 
 ### Dimension Lines and Outlines
 
-- dimension lines render for the current outline shape
-- slice outlines reflect hidden-token indices
+- dimension lines render for the current layout shape
+- slice outlines reflect slice-token indices
 - dimension line visibility is a toggle in state and persistence
 
 ## Persistence
@@ -601,7 +602,7 @@ Cover:
 - duplicate axes
 - missing axes
 - preview-expression generation
-- outline-shape equality while ignoring case
+- layout-shape equality while ignoring case
 
 ### Viewer API Tests
 

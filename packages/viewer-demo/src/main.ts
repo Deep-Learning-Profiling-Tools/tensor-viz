@@ -109,16 +109,16 @@ const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
 
 type InspectorRefs = {
-    hoverTensor: HTMLDivElement;
-    viewedCoord: HTMLDivElement;
-    fullCoord: HTMLDivElement;
+    hoveredTensor: HTMLDivElement;
+    layoutCoord: HTMLDivElement;
+    tensorCoord: HTMLDivElement;
     value: HTMLDivElement;
-    hoverTensorValue: HTMLSpanElement;
-    viewedCoordValue: HTMLSpanElement;
-    fullCoordValue: HTMLSpanElement;
+    hoveredTensorValue: HTMLSpanElement;
+    layoutCoordValue: HTMLSpanElement;
+    tensorCoordValue: HTMLSpanElement;
     valueField: HTMLSpanElement;
     dtypeValue: HTMLSpanElement;
-    shapeValue: HTMLSpanElement;
+    tensorShapeValue: HTMLSpanElement;
     rankValue: HTMLSpanElement;
 };
 
@@ -397,7 +397,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
     if (!model.handle) {
-        tensorViewWidget.innerHTML = `${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control sliced hidden tokens.')}<div class="widget-body">No tensor loaded.</div>`;
+        tensorViewWidget.innerHTML = `${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
 
@@ -409,14 +409,14 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
       <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.id} (${tensor.name})</option>
     `).join('');
     tensorViewWidget.innerHTML = `
-      ${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control sliced hidden tokens.')}
+      ${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}
       <div class="widget-body">
         <div class="field">
           ${labelWithInfo('Tensor', 'Choose which loaded tensor the Tensor View editor controls.', 'tensor-select')}
           <select id="tensor-select">${tensorOptions}</select>
         </div>
         <div class="field">
-          ${labelWithInfo('Visible Dimensions', 'Use the Tensor View grammar. Uppercase tokens are visible, lowercase tokens are sliced, and 1 inserts a singleton dimension.', 'view-input')}
+          ${labelWithInfo('View String', 'Use the Tensor View grammar. Uppercase tokens stay visible, lowercase tokens become slices, and 1 inserts a singleton dimension.', 'view-input')}
           <input id="view-input" type="text" value="${model.viewInput}" placeholder="empty resets to default" />
           <div class="axis-value">${formatAxisTokens(visibleTokens, snapshot.displayMode, dimensionMappingScheme)}</div>
         </div>
@@ -425,13 +425,13 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           ${labelWithInfo('Preview', 'Shows the implied permute, reshape, and slice operations for the current Tensor View string.')}
           <div class="mono-block">${model.preview}</div>
         </div>
-        <div class="slider-list" id="hidden-token-controls"></div>
+        <div class="slider-list" id="slice-token-controls"></div>
       </div>
     `;
 
     const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
     const select = tensorViewWidget.querySelector<HTMLSelectElement>('#tensor-select');
-    const hiddenHost = tensorViewWidget.querySelector<HTMLElement>('#hidden-token-controls');
+    const sliceHost = tensorViewWidget.querySelector<HTMLElement>('#slice-token-controls');
     select?.addEventListener('change', () => {
         logUi('tensor-select', select.value);
         viewer.setActiveTensor(select.value);
@@ -453,19 +453,19 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         });
     }
 
-    hiddenHost?.replaceChildren(...model.hiddenTokens.map((token) => {
+    sliceHost?.replaceChildren(...model.sliceTokens.map((token) => {
         const row = document.createElement('div');
         row.className = 'slider-row';
         row.innerHTML = `
-          <label for="hidden-${token.token}">${token.token}</label>
-          <input id="hidden-${token.token}" type="range" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
-          <input id="hidden-${token.token}-number" type="number" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
+          <label for="slice-${token.token}">${token.token}</label>
+          <input id="slice-${token.token}" type="range" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
+          <input id="slice-${token.token}-number" type="number" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
         `;
-        const slider = row.querySelector<HTMLInputElement>(`#hidden-${token.token}`);
-        const number = row.querySelector<HTMLInputElement>(`#hidden-${token.token}-number`);
+        const slider = row.querySelector<HTMLInputElement>(`#slice-${token.token}`);
+        const number = row.querySelector<HTMLInputElement>(`#slice-${token.token}-number`);
         const applyValue = (nextValue: number): void => {
-            logUi('hidden-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
-            viewer.setHiddenTokenValue(model.handle!.id, token.token, nextValue);
+            logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
+            viewer.setSliceTokenValue(model.handle!.id, token.token, nextValue);
         };
         slider?.addEventListener('pointerdown', () => {
             suspendTensorViewRender = true;
@@ -504,42 +504,42 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
         inspectorWidget.innerHTML = `
           ${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}
           <div class="widget-body meta-grid">
-            <div id="inspector-hover-tensor"><div class="label-row"><span class="meta-label">Hover Tensor</span>${infoButton('The loaded tensor currently under the cursor.')}</div><span class="meta-value" id="inspector-hover-tensor-value"></span></div>
-            <div id="inspector-viewed-coord"><div class="label-row"><span class="meta-label">Viewed Coord</span>${infoButton('Coordinate in the current Tensor View layout, including grouped and singleton dimensions.')}</div><span class="meta-value" id="inspector-viewed-coord-value"></span></div>
-            <div id="inspector-full-coord"><div class="label-row"><span class="meta-label">Full Coord</span>${infoButton('Coordinate in the original dense tensor shape before view regrouping or slicing.')}</div><span class="meta-value" id="inspector-full-coord-value"></span></div>
+            <div id="inspector-hovered-tensor"><div class="label-row"><span class="meta-label">Hovered Tensor</span>${infoButton('The loaded tensor currently under the cursor.')}</div><span class="meta-value" id="inspector-hovered-tensor-value"></span></div>
+            <div id="inspector-layout-coord"><div class="label-row"><span class="meta-label">Layout Coord</span>${infoButton('Coordinate in the rendered layout after grouping and optional slice collapsing.')}</div><span class="meta-value" id="inspector-layout-coord-value"></span></div>
+            <div id="inspector-tensor-coord"><div class="label-row"><span class="meta-label">Tensor Coord</span>${infoButton('Coordinate in the original dense tensor before view regrouping or slicing.')}</div><span class="meta-value" id="inspector-tensor-coord-value"></span></div>
             <div id="inspector-value"><div class="label-row"><span class="meta-label">Value</span>${infoButton('Numeric value at the hovered tensor element.')}</div><span class="meta-value" id="inspector-value-field"></span></div>
             <div><div class="label-row"><span class="meta-label">DType</span>${infoButton('Underlying numeric storage type for the active tensor.')}</div><span class="meta-value" id="inspector-dtype"></span></div>
-            <div><div class="label-row"><span class="meta-label">Shape</span>${infoButton('Original tensor shape before Tensor View transformations.')}</div><span class="meta-value" id="inspector-shape"></span></div>
+            <div><div class="label-row"><span class="meta-label">Tensor Shape</span>${infoButton('Original tensor shape before Tensor View transformations.')}</div><span class="meta-value" id="inspector-tensor-shape"></span></div>
             <div><div class="label-row"><span class="meta-label">Rank</span>${infoButton('Number of dimensions in the original tensor.')}</div><span class="meta-value" id="inspector-rank"></span></div>
           </div>
         `;
         inspectorRefs = {
-            hoverTensor: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hover-tensor')!,
-            viewedCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-viewed-coord')!,
-            fullCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-full-coord')!,
+            hoveredTensor: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hovered-tensor')!,
+            layoutCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-layout-coord')!,
+            tensorCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-tensor-coord')!,
             value: inspectorWidget.querySelector<HTMLDivElement>('#inspector-value')!,
-            hoverTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hover-tensor-value')!,
-            viewedCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-viewed-coord-value')!,
-            fullCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-full-coord-value')!,
+            hoveredTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hovered-tensor-value')!,
+            layoutCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-layout-coord-value')!,
+            tensorCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-tensor-coord-value')!,
             valueField: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-value-field')!,
             dtypeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-dtype')!,
-            shapeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-shape')!,
+            tensorShapeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-tensor-shape')!,
             rankValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-rank')!,
         };
         inspectorReady = true;
     }
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
-    inspectorRefs.hoverTensor.classList.toggle('hidden', !hover);
-    inspectorRefs.viewedCoord.classList.toggle('hidden', !hover);
-    inspectorRefs.fullCoord.classList.toggle('hidden', !hover);
+    inspectorRefs.hoveredTensor.classList.toggle('hidden', !hover);
+    inspectorRefs.layoutCoord.classList.toggle('hidden', !hover);
+    inspectorRefs.tensorCoord.classList.toggle('hidden', !hover);
     inspectorRefs.value.classList.toggle('hidden', !hover);
-    inspectorRefs.hoverTensorValue.textContent = hover?.tensorName ?? '';
-    inspectorRefs.viewedCoordValue.innerHTML = hover ? formatAxisValues(hover.viewedCoord, snapshot.displayMode, dimensionMappingScheme) : '';
-    inspectorRefs.fullCoordValue.innerHTML = hover ? formatAxisValues(hover.fullCoord, snapshot.displayMode, dimensionMappingScheme) : '';
+    inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
+    inspectorRefs.layoutCoordValue.innerHTML = hover ? formatAxisValues(hover.layoutCoord, snapshot.displayMode, dimensionMappingScheme) : '';
+    inspectorRefs.tensorCoordValue.innerHTML = hover ? formatAxisValues(hover.tensorCoord, snapshot.displayMode, dimensionMappingScheme) : '';
     inspectorRefs.valueField.textContent = hover ? String(hover.value) : '';
     inspectorRefs.dtypeValue.textContent = model.handle.dtype;
-    inspectorRefs.shapeValue.innerHTML = formatAxisValues(model.handle.shape, snapshot.displayMode, dimensionMappingScheme);
+    inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(model.handle.shape, snapshot.displayMode, dimensionMappingScheme);
     inspectorRefs.rankValue.textContent = String(model.handle.rank);
 }
 
@@ -573,32 +573,32 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
     const displayGaps = snapshot.displayGaps ?? true;
     const logScale = snapshot.logScale ?? false;
-    const showSlicesInSamePlace = snapshot.showSlicesInSamePlace ?? false;
+    const collapseHiddenAxes = snapshot.collapseHiddenAxes ?? snapshot.showSlicesInSamePlace ?? false;
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     advancedSettingsWidget.innerHTML = `
       ${titleWithInfo('Advanced Settings', 'Adjust lower-level layout tuning that changes how tensor dimension blocks are spaced and assigned to x, y, and z families.')}
       <div class="widget-body">
         <div class="field">
-          ${labelWithInfo('Dimension Block Gap Multiple', 'Sets the factor used to grow the gap between higher-level dimension blocks in both 2D and 3D layouts.', 'dimension-block-gap-multiple')}
+          ${labelWithInfo('Block Gap Scale', 'Sets the factor used to grow the gap between higher-level dimension blocks in both 2D and 3D layouts.', 'dimension-block-gap-multiple')}
           <input id="dimension-block-gap-multiple" type="number" min="1" step="0.25" value="${currentValue}" />
         </div>
         <div class="field">
-          ${labelWithInfo('Dimension Mapping Scheme', 'Controls how tensor dimensions are assigned to the x, y, and z layout families. Z-Order alternates from the last axis. Contiguous keeps nearby axes in the same family.', 'dimension-mapping-scheme')}
+          ${labelWithInfo('Axis Family Mapping', 'Controls how tensor dimensions are assigned to the x, y, and z layout families. Z-Order alternates from the last axis. Contiguous keeps nearby axes in the same family.', 'dimension-mapping-scheme')}
           <select id="dimension-mapping-scheme">
             <option value="z-order" ${dimensionMappingScheme === 'z-order' ? 'selected' : ''}>Z-Order</option>
             <option value="contiguous" ${dimensionMappingScheme === 'contiguous' ? 'selected' : ''}>Contiguous</option>
           </select>
         </div>
         <label class="toggle-field" for="display-gaps">
-          <span>Display Gaps</span>
+          <span>Show Block Gaps</span>
           <input id="display-gaps" type="checkbox" ${displayGaps ? 'checked' : ''} />
         </label>
-        <label class="toggle-field" for="show-slices-in-same-place">
+        <label class="toggle-field" for="collapse-hidden-axes">
           <span class="label-row">
-            <span>Show Slices In Same Place</span>
-            ${infoButton('When enabled, sliced views are rendered using only their visible dimensions, so different hidden slices occupy the same position and the outline is based on visible axes only.')}
+            <span>Collapse Hidden Axes</span>
+            ${infoButton('When enabled, sliced views are rendered using only their visible dimensions, so different slices occupy the same position and the outline is based on visible axes only.')}
           </span>
-          <input id="show-slices-in-same-place" type="checkbox" ${showSlicesInSamePlace ? 'checked' : ''} />
+          <input id="collapse-hidden-axes" type="checkbox" ${collapseHiddenAxes ? 'checked' : ''} />
         </label>
         <label class="toggle-field" for="log-scale">
           <span class="label-row">
@@ -612,7 +612,7 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const input = advancedSettingsWidget.querySelector<HTMLInputElement>('#dimension-block-gap-multiple');
     const dimensionMappingSchemeInput = advancedSettingsWidget.querySelector<HTMLSelectElement>('#dimension-mapping-scheme');
     const displayGapsInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#display-gaps');
-    const showSlicesInSamePlaceInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#show-slices-in-same-place');
+    const collapseHiddenAxesInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#collapse-hidden-axes');
     const logScaleInput = advancedSettingsWidget.querySelector<HTMLInputElement>('#log-scale');
     if (!input) return;
     input.addEventListener('keydown', (event) => {
@@ -634,10 +634,10 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
         displayGapsInput.checked = nextValue;
         logUi('advanced-settings:display-gaps', nextValue);
     });
-    showSlicesInSamePlaceInput?.addEventListener('change', () => {
-        const nextValue = viewer.toggleShowSlicesInSamePlace(showSlicesInSamePlaceInput.checked);
-        showSlicesInSamePlaceInput.checked = nextValue;
-        logUi('advanced-settings:slices-same-place', nextValue);
+    collapseHiddenAxesInput?.addEventListener('change', () => {
+        const nextValue = viewer.toggleCollapseHiddenAxes(collapseHiddenAxesInput.checked);
+        collapseHiddenAxesInput.checked = nextValue;
+        logUi('advanced-settings:collapse-hidden-axes', nextValue);
     });
     logScaleInput?.addEventListener('change', () => {
         const nextValue = viewer.toggleLogScale(logScaleInput.checked);

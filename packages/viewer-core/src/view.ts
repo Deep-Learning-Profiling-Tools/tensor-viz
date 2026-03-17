@@ -1,4 +1,4 @@
-import type { HiddenToken, TensorViewSpec, ViewParseResult, ViewToken } from './types.js';
+import type { SliceToken, TensorViewSpec, ViewParseResult, ViewToken } from './types.js';
 
 function axisLabel(index: number): string {
     let value = index;
@@ -80,131 +80,118 @@ export function expandGroupedIndex(axes: number[], linearIndex: number, shape: n
     return unflattenAxesIndex(axes, linearIndex, normalizeShape(shape));
 }
 
-export function mapDisplayCoordToFullCoord(displayCoord: number[], spec: TensorViewSpec): number[] {
-    const full = spec.hiddenIndices.slice();
-    let displayAxis = 0;
+export function mapViewCoordToTensorCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
+    const tensorCoord = spec.hiddenIndices.slice();
+    let viewAxis = 0;
     spec.tokens.forEach((token) => {
         if (!token.visible) return;
         if (token.kind === 'singleton') {
-            displayAxis += 1;
+            viewAxis += 1;
             return;
         }
-        const size = token.size;
-        const value = Math.max(0, Math.min(size - 1, displayCoord[displayAxis] ?? 0));
-        const expanded = unflattenAxesIndex(token.axes, value, spec.axisShape);
+        const value = Math.max(0, Math.min(token.size - 1, viewCoord[viewAxis] ?? 0));
+        const expanded = unflattenAxesIndex(token.axes, value, spec.tensorShape);
         token.axes.forEach((axis, axisIndex) => {
-            full[axis] = expanded[axisIndex];
+            tensorCoord[axis] = expanded[axisIndex];
         });
-        displayAxis += 1;
+        viewAxis += 1;
     });
-    return full;
+    return tensorCoord;
 }
 
-export function mapDisplayCoordToOutlineCoord(displayCoord: number[], spec: TensorViewSpec): number[] {
-    const outline: number[] = [];
-    let displayAxis = 0;
+function mapViewCoordToFullLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
+    const layoutCoord: number[] = [];
+    let viewAxis = 0;
     spec.tokens.forEach((token) => {
         if (token.kind === 'singleton') {
-            outline.push(0);
-            if (token.visible) displayAxis += 1;
+            layoutCoord.push(0);
+            if (token.visible) viewAxis += 1;
             return;
         }
         if (!token.visible) {
-            const hidden = spec.hiddenTokens.find((entry) => entry.token === token.label.toLowerCase());
-            outline.push(hidden?.value ?? 0);
+            const sliceToken = spec.sliceTokens.find((entry) => entry.token === token.label.toLowerCase());
+            layoutCoord.push(sliceToken?.value ?? 0);
             return;
         }
-        outline.push(Math.max(0, Math.min(token.size - 1, displayCoord[displayAxis] ?? 0)));
-        displayAxis += 1;
+        layoutCoord.push(Math.max(0, Math.min(token.size - 1, viewCoord[viewAxis] ?? 0)));
+        viewAxis += 1;
     });
-    return outline;
+    return layoutCoord;
 }
 
-export function viewedShape(spec: TensorViewSpec, showSlicesInSamePlace = false): number[] {
-    const shape = showSlicesInSamePlace ? spec.displayShape : spec.outlineShape;
+export function layoutShape(spec: TensorViewSpec, collapseHiddenAxes = false): number[] {
+    const shape = collapseHiddenAxes ? spec.viewShape : spec.layoutShape;
     return shape.length === 0 ? [1] : shape.slice();
 }
 
-export function mapDisplayCoordToViewedCoord(
-    displayCoord: number[],
+export function mapViewCoordToLayoutCoord(
+    viewCoord: number[],
     spec: TensorViewSpec,
-    showSlicesInSamePlace = false,
+    collapseHiddenAxes = false,
 ): number[] {
-    if (!showSlicesInSamePlace) return mapDisplayCoordToOutlineCoord(displayCoord, spec);
-    return spec.displayShape.length === 0 ? [] : displayCoord.slice();
+    if (collapseHiddenAxes) return spec.viewShape.length === 0 ? [] : viewCoord.slice();
+    return mapViewCoordToFullLayoutCoord(viewCoord, spec);
 }
 
-export function mapOutlineCoordToDisplayCoord(outlineCoord: number[], spec: TensorViewSpec): number[] {
-    const display: number[] = [];
-    spec.tokens.forEach((token, outlineAxis) => {
+export function mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec, collapseHiddenAxes = false): number[] {
+    if (collapseHiddenAxes) return spec.viewShape.length === 0 ? [] : layoutCoord.slice();
+    const viewCoord: number[] = [];
+    spec.tokens.forEach((token, layoutAxis) => {
         if (!token.visible) return;
         if (token.kind === 'singleton') {
-            display.push(0);
+            viewCoord.push(0);
             return;
         }
-        display.push(Math.max(0, Math.min(token.size - 1, outlineCoord[outlineAxis] ?? 0)));
+        viewCoord.push(Math.max(0, Math.min(token.size - 1, layoutCoord[layoutAxis] ?? 0)));
     });
-    return display;
+    return viewCoord;
 }
 
-export function mapViewedCoordToDisplayCoord(
-    viewedCoord: number[],
-    spec: TensorViewSpec,
-    showSlicesInSamePlace = false,
-): number[] {
-    if (!showSlicesInSamePlace) return mapOutlineCoordToDisplayCoord(viewedCoord, spec);
-    return spec.displayShape.length === 0 ? [] : viewedCoord.slice();
-}
-
-/** returns whether an outline coordinate belongs to the currently visible hidden-token slice. */
-export function outlineCoordIsVisible(outlineCoord: number[], spec: TensorViewSpec): boolean {
-    let hiddenIndex = 0;
-    for (let outlineAxis = 0; outlineAxis < spec.tokens.length; outlineAxis += 1) {
-        const token = spec.tokens[outlineAxis];
+/** returns whether a full layout coordinate belongs to the active sliced tensor. */
+export function layoutCoordMatchesSlice(layoutCoord: number[], spec: TensorViewSpec): boolean {
+    let sliceIndex = 0;
+    for (let layoutAxis = 0; layoutAxis < spec.tokens.length; layoutAxis += 1) {
+        const token = spec.tokens[layoutAxis];
         if (!token || token.kind !== 'axis_group' || token.visible) continue;
-        const hidden = spec.hiddenTokens[hiddenIndex];
-        if (!hidden || (outlineCoord[outlineAxis] ?? 0) !== hidden.value) return false;
-        hiddenIndex += 1;
+        const sliceToken = spec.sliceTokens[sliceIndex];
+        if (!sliceToken || (layoutCoord[layoutAxis] ?? 0) !== sliceToken.value) return false;
+        sliceIndex += 1;
     }
     return true;
 }
 
-export function viewedCoordIsVisible(
-    viewedCoord: number[],
-    spec: TensorViewSpec,
-    showSlicesInSamePlace = false,
-): boolean {
-    return showSlicesInSamePlace || outlineCoordIsVisible(viewedCoord, spec);
+export function layoutCoordIsVisible(layoutCoord: number[], spec: TensorViewSpec, collapseHiddenAxes = false): boolean {
+    return collapseHiddenAxes || layoutCoordMatchesSlice(layoutCoord, spec);
 }
 
-export function viewedTokenLabels(spec: TensorViewSpec, showSlicesInSamePlace = false): string[] {
-    const tokens = showSlicesInSamePlace ? spec.tokens.filter((token) => token.visible) : spec.tokens;
+export function layoutAxisLabels(spec: TensorViewSpec, collapseHiddenAxes = false): string[] {
+    const tokens = collapseHiddenAxes ? spec.tokens.filter((token) => token.visible) : spec.tokens;
     return tokens.map((token) => token.label.toUpperCase());
 }
 
 export function buildPreviewExpression(spec: TensorViewSpec): string {
-    const visibleAxes = spec.tokens
+    const viewAxes = spec.tokens
         .filter((token) => token.kind === 'axis_group')
         .flatMap((token) => token.axes);
     let expr = 'tensor';
-    const isIdentity = visibleAxes.length === spec.axisShape.length
-        && visibleAxes.every((axis, index) => axis === index);
-    if (!isIdentity) expr += `.permute(${visibleAxes.join(', ')})`;
+    const isIdentity = viewAxes.length === spec.tensorShape.length
+        && viewAxes.every((axis, index) => axis === index);
+    if (!isIdentity) expr += `.permute(${viewAxes.join(', ')})`;
 
     const reshapeTerms = spec.tokens.map((token) => {
         if (token.kind === 'singleton') return '1';
-        if (token.axes.length === 1) return `${spec.axisShape[token.axes[0]]}`;
-        return token.axes.map((axis) => `${spec.axisShape[axis]}`).join('*');
+        if (token.axes.length === 1) return `${spec.tensorShape[token.axes[0]]}`;
+        return token.axes.map((axis) => `${spec.tensorShape[axis]}`).join('*');
     });
-    const defaultTerms = normalizeShape(spec.axisShape).map(String);
+    const defaultTerms = normalizeShape(spec.tensorShape).map(String);
     if (reshapeTerms.join(',') !== defaultTerms.join(',')) {
         expr += `.reshape(${reshapeTerms.join(', ')})`;
     }
 
     const sliceTerms = spec.tokens.flatMap((token) => {
         if (token.visible) return [];
-        const hidden = spec.hiddenTokens.find((entry) => entry.token === token.label.toLowerCase());
-        return [String(hidden?.value ?? 0)];
+        const sliceToken = spec.sliceTokens.find((entry) => entry.token === token.label.toLowerCase());
+        return [String(sliceToken?.value ?? 0)];
     });
     if (sliceTerms.length > 0) expr += `[${sliceTerms.join(', ')}]`;
     return expr;
@@ -286,7 +273,7 @@ export function parseTensorView(
     });
     if (errors.length > 0) return { ok: false, errors };
 
-    const hiddenTokens: HiddenToken[] = tokens
+    const sliceTokens: SliceToken[] = tokens
         .filter((token) => token.kind === 'axis_group' && !token.visible)
         .map((token) => ({
             token: token.label.toLowerCase(),
@@ -294,10 +281,6 @@ export function parseTensorView(
             size: token.size,
             value: flattenAxesIndex(token.axes, normalizedHiddenIndices, shape),
         }));
-    const visibleAxisTokens = tokens.filter((token) => token.kind === 'axis_group' && token.visible);
-    const displayShape = tokens
-        .filter((token) => token.visible)
-        .map((token) => token.size);
 
     return {
         ok: true,
@@ -308,14 +291,16 @@ export function parseTensorView(
                 return token.visible ? token.label : token.label.toLowerCase();
             }).join(' '),
             axisLabels,
-            axisShape: shape,
+            tensorShape: shape,
             tokens,
-            visibleAxes: visibleAxisTokens.flatMap((token) => token.axes),
-            hiddenAxes: hiddenTokens.flatMap((token) => token.axes),
+            viewAxes: tokens
+                .filter((token) => token.kind === 'axis_group' && token.visible)
+                .flatMap((token) => token.axes),
+            sliceAxes: sliceTokens.flatMap((token) => token.axes),
             hiddenIndices: normalizedHiddenIndices,
-            hiddenTokens,
-            displayShape,
-            outlineShape: tokens.map((token) => token.size),
+            sliceTokens,
+            viewShape: tokens.filter((token) => token.visible).map((token) => token.size),
+            layoutShape: tokens.map((token) => token.size),
         },
     };
 }
