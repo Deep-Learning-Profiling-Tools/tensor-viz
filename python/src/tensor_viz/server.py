@@ -9,12 +9,10 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Sequence
 from urllib.parse import urlparse
 
-import numpy as np
-
-from .bundle import SessionData, Tab, TensorLabels, create_session_data
+from .bundle import SessionData, Tab, TensorInput, TensorLabels, create_session_data
 
 
 def _static_root() -> Path:
@@ -27,7 +25,16 @@ def _static_root() -> Path:
 
 @dataclass
 class ViewerSession:
-    """Handle for a running browser session."""
+    """Handle for a running browser session.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import tensor_viz
+    >>> session = tensor_viz.viz(np.random.randn(4, 4), open_browser=False)
+    >>> print(session.url)
+    >>> session.close()
+    """
 
     url: str
     _server: HTTPServer
@@ -48,7 +55,7 @@ class ViewerSession:
 
 
 def viz(
-    tensor: np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray] | Tab | Sequence[Tab],
+    tensor: TensorInput | Tab | Sequence[Tab],
     *,
     name: str | None = None,
     labels: TensorLabels | None = None,
@@ -63,12 +70,15 @@ def viz(
     Parameters
     ----------
     tensor:
-        One NumPy tensor, a sequence of tensors, a mapping of named tensors,
-        one :class:`tensor_viz.bundle.Tab`, or a sequence of tabs.
+        One NumPy tensor, one metadata-only tensor, a sequence or mapping of
+        either, one :class:`tensor_viz.bundle.Tab`, or a sequence of tabs.
+        Sequences and mappings place multiple tensors in the same viewer/tab,
+        while :class:`tensor_viz.bundle.Tab` inputs create separate tabs.
     name:
         Session title for non-tab inputs, or tensor name for a single ndarray.
     labels:
-        Optional axis-label overrides for non-tab inputs.
+        Optional axis-label overrides for non-tab inputs. When omitted, axes
+        use the default viewer labels ``A B C ... Z AA AB ...``.
     session_data:
         Prebuilt raw session payloads. When omitted, the payload is derived
         from ``tensor``, ``name``, and ``labels``.
@@ -79,6 +89,36 @@ def viz(
     keep_alive:
         Keep the server thread non-daemon so short scripts stay alive after
         calling :func:`viz`.
+
+    Examples
+    --------
+    Launch one tensor with custom axis labels:
+
+    >>> import numpy as np
+    >>> import tensor_viz
+    >>> session = tensor_viz.viz(np.random.randn(8, 16, 32), labels="C H W", open_browser=False)
+    >>> session.close()
+
+    Launch named tensors:
+
+    >>> tensors = {"weights": np.random.randn(16, 16), "bias": np.random.randn(16)}
+    >>> session = tensor_viz.viz(tensors, labels={"weights": "O I", "bias": "O"}, open_browser=False)
+    >>> session.close()
+
+    Launch tabs:
+
+    >>> first = tensor_viz.Tab("inputs")
+    >>> first.viz(np.random.randn(3, 32, 32), name="image", labels="C H W")
+    >>> second = tensor_viz.Tab("weights")
+    >>> second.viz({"conv": np.random.randn(16, 3, 3, 3)}, labels={"conv": "O I K0 K1"})
+    >>> session = tensor_viz.viz([first, second], open_browser=False)
+    >>> session.close()
+
+    Launch metadata-only tensors:
+
+    >>> meta = tensor_viz.TensorMeta((1024, 1024, 64), dtype="float32", labels="H W C")
+    >>> session = tensor_viz.viz(meta, open_browser=False)
+    >>> session.close()
     """
 
     session_data = session_data or create_session_data(tensor, name=name, labels=labels)

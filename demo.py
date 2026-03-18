@@ -1,8 +1,8 @@
 import numpy as np
 
-from tensor_viz import Tab, create_session_data, viz
+from tensor_viz import Tab, TensorMeta, create_session_data, viz
 
-DEMO = 0
+DEMO = 3
 
 
 def demo_single_tensor() -> None:
@@ -48,7 +48,7 @@ def demo_mapping_inputs() -> None:
         tensors,
         labels={
             "activations": "BHW",
-            "weights": "K0 K1 Cin Cout",
+            "weights": "K0 K1 I O",
             "mask": "RC",
         },
         name="Mapping Inputs",
@@ -127,7 +127,7 @@ def demo_session_data() -> None:
             ],
         },
     )
-    viz(base, session_data=session_data)
+    viz(tensors, session_data=session_data)
 
 
 def demo_tabs() -> None:
@@ -147,7 +147,7 @@ def demo_tabs() -> None:
     weights = Tab("Weights").viz(
         np.arange(3 * 3 * 8 * 16, dtype=np.float32).reshape(3, 3, 8, 16),
         name="conv",
-        labels="K0 K1 Cin Cout",
+        labels="K0 K1 I O",
     )
     weights.viz(
         np.arange(16 * 32, dtype=np.float32).reshape(16, 32),
@@ -182,6 +182,18 @@ def demo_image_like_tensor() -> None:
     viz(image, labels="HWC", name="Image Like Tensor")
 
 
+def demo_metadata_only() -> None:
+    """Show metadata-only tensors without sending full numeric payloads."""
+
+    viz(
+        {
+            "activations": TensorMeta((32, 64, 64), labels="C H W"),
+            "weights": TensorMeta((64, 32, 3, 3), labels="O I K0 K1"),
+        },
+        name="Metadata Only",
+    )
+
+
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,
@@ -191,6 +203,7 @@ DEMOS = {
     5: demo_tabs,
     6: demo_session_options,
     7: demo_image_like_tensor,
+    8: demo_metadata_only,
 }
 
 

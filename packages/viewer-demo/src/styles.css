@@ -31,6 +31,22 @@ select {
     overflow: hidden;
 }
 
+.startup-note {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    padding: 2rem;
+    color: #475569;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.startup-note p {
+    width: min(34rem, 100%);
+    margin: 0;
+}
+
 .ribbon {
     grid-column: 1 / -1;
     display: flex;

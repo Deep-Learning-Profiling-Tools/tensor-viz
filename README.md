@@ -81,21 +81,24 @@ import numpy as np
 import tensor_viz
 
 x = np.random.randn(32, 64, 64)
-session = tensor_viz.viz(x, labels="C H W")
+session = tensor_viz.viz(x)
 print(session.url)
 session.wait()
 ```
+
+`labels=` is optional. When omitted, axes default to `A B C ... Z AA AB ...`.
 
 ## Python API
 
 The main Python entrypoints are:
 
 - `tensor_viz.viz(...)` to launch a viewer session
+- `tensor_viz.TensorMeta(...)` to describe metadata-only tensors without sending dense payload bytes
 - `tensor_viz.Tab(...)` to group tensors into tabs
 - `tensor_viz.create_session_data(...)` to prebuild a raw session payload
 - `tensor_viz.ViewerSession` to inspect the local URL and stop the server
 
-`demo.py` contains runnable examples for single tensors, sequences, mappings, tabs, labels, prebuilt sessions, and session lifecycle options.
+`demo.py` contains runnable examples for single tensors, metadata-only tensors, sequences, mappings, tabs, labels, prebuilt sessions, and session lifecycle options.
 
 ## TypeScript API
 

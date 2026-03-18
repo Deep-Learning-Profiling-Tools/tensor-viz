@@ -106,6 +106,7 @@ const MIN_CANVAS_FIT_INSET = 16;
 const MAX_CANVAS_FIT_INSET = 48;
 const AUTO_FIT_2D_SCALE = 0.75;
 const AUTO_FIT_3D_DISTANCE_SCALE = 1.25;
+const DEFAULT_TENSOR_SPACING = 2;
 const LOG_PREFIX = '[tensor-viz]';
 const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
 const LOG_ENABLED = (() => {
@@ -210,8 +211,8 @@ function dtypeFromArray(data: NumericArray): DType {
     return 'float64';
 }
 
-function numericValue(data: NumericArray, index: number): number {
-    return Number(data[index] ?? 0);
+function numericValue(data: NumericArray | null, index: number): number {
+    return Number(data?.[index] ?? 0);
 }
 
 function coordKey(coord: number[]): string {
@@ -396,13 +397,17 @@ export class TensorViewer {
         window.addEventListener('keydown', this.onKeyDown);
     }
 
-    private readonly resize = (): void => {
+    public readonly resize = (): void => {
+        const previousWidth = this.flatCanvas.width;
+        const previousHeight = this.flatCanvas.height;
         const width = this.container.clientWidth || 1;
         const height = this.container.clientHeight || 1;
         this.renderer.setSize(width, height);
         const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-        this.flatCanvas.width = Math.floor(width * pixelRatio);
-        this.flatCanvas.height = Math.floor(height * pixelRatio);
+        const nextWidth = Math.floor(width * pixelRatio);
+        const nextHeight = Math.floor(height * pixelRatio);
+        this.flatCanvas.width = nextWidth;
+        this.flatCanvas.height = nextHeight;
         this.flatCanvas.style.width = `${width}px`;
         this.flatCanvas.style.height = `${height}px`;
         this.flatOverlay.setAttribute('viewBox', `0 0 ${this.flatCanvas.width} ${this.flatCanvas.height}`);
@@ -415,6 +420,13 @@ export class TensorViewer {
         this.orthographicCamera.top = (this.flatCanvas.height / CANVAS_WORLD_SCALE) / 2;
         this.orthographicCamera.bottom = -(this.flatCanvas.height / CANVAS_WORLD_SCALE) / 2;
         this.orthographicCamera.updateProjectionMatrix();
+        if (this.state.displayMode === '2d') {
+            if (this.tensors.size !== 0) {
+                this.canvasPan.x += (previousWidth - nextWidth) / 2;
+                this.canvasPan.y += (previousHeight - nextHeight) / 2;
+            }
+            this.sync2DCamera();
+        }
         logEvent('viewport:resize', { width, height });
         this.requestRender();
     };
@@ -449,6 +461,39 @@ export class TensorViewer {
 
     private layoutAxisLabels(spec: TensorViewSpec): string[] {
         return layoutAxisLabels(spec, this.state.collapseHiddenAxes);
+    }
+
+    private tensorExtentForMode(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
+        const shape = layoutShape(tensor.view, this.state.collapseHiddenAxes);
+        if (mode === '2d') {
+            const extent = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+            return [extent.x, extent.y, 0];
+        }
+        const extent = displayExtent(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+        return [extent.x, extent.y, extent.z];
+    }
+
+    private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
+        const [width] = this.tensorExtentForMode(tensor, mode);
+        let maxRight = Number.NEGATIVE_INFINITY;
+        for (const existing of this.tensors.values()) {
+            const [existingWidth] = this.tensorExtentForMode(existing, mode);
+            maxRight = Math.max(maxRight, existing.offset[0] + existingWidth / 2);
+        }
+        if (!Number.isFinite(maxRight)) return [0, 0, 0];
+        return [maxRight + DEFAULT_TENSOR_SPACING + width / 2, 0, 0];
+    }
+
+    private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo, 'value' | 'colorSource'> {
+        const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : null;
+        return {
+            value,
+            colorSource: tensor.customColors.has(coordKey(tensorCoord))
+                ? 'custom'
+                : this.state.heatmap && tensor.valueRange
+                    ? 'heatmap'
+                    : 'base',
+        };
     }
 
     private heatmapNormalizedValue(value: number, min: number, max: number): number {
@@ -519,12 +564,7 @@ export class TensorViewer {
             if (!this.layoutCoordIsVisible(hit.coord, tensor.view)) continue;
             const viewCoord = this.mapLayoutCoordToViewCoord(hit.coord, tensor.view);
             const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
-            const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
-            const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(tensorCoord))
-                ? 'custom'
-                : this.state.heatmap
-                    ? 'heatmap'
-                    : 'base';
+            const { value, colorSource } = this.hoverValue(tensor, tensorCoord);
             return {
                 hover: {
                     tensorId: tensor.id,
@@ -558,12 +598,7 @@ export class TensorViewer {
         const viewCoord = tensor.view.viewShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.instanceShape);
         const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
         const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
-        const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
-        const colorSource: HoverInfo['colorSource'] = tensor.customColors.has(coordKey(tensorCoord))
-            ? 'custom'
-            : this.state.heatmap
-                ? 'heatmap'
-                : 'base';
+        const { value, colorSource } = this.hoverValue(tensor, tensorCoord);
         const instanceMatrix = new Matrix4();
         const position = new Vector3();
         mesh.getMatrixAt(hit.instanceId, instanceMatrix);
@@ -902,8 +937,7 @@ export class TensorViewer {
         tensor: TensorRecord,
         mesh: InstancedMesh,
         instanceShape: number[],
-        min: number,
-        max: number,
+        heatmapRange: { min: number; max: number } | null,
     ): boolean {
         const colorArray = mesh.instanceColor?.array as Float32Array | undefined;
         const isIdentityView = this.state.displayMode === '2d'
@@ -949,10 +983,13 @@ export class TensorViewer {
                 matrixArray[matrixOffset + 14] = 0;
                 matrixArray[matrixOffset + 15] = 1;
 
-                const value = numericValue(tensor.data, cellIndex);
                 const colorOffset = cellIndex * 3;
-                if (this.state.heatmap) {
-                    const gray = this.heatmapNormalizedValue(value, min, max);
+                if (heatmapRange) {
+                    const gray = this.heatmapNormalizedValue(
+                        numericValue(tensor.data, cellIndex),
+                        heatmapRange.min,
+                        heatmapRange.max,
+                    );
                     colorArray[colorOffset] = gray;
                     colorArray[colorOffset + 1] = gray;
                     colorArray[colorOffset + 2] = gray;
@@ -1133,8 +1170,8 @@ export class TensorViewer {
         );
         mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
         const outlineExtent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-        const { min, max } = tensor.valueRange;
-        if (!this.populateFastMesh2D(tensor, mesh, instanceShape, min, max)) {
+        const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
+        if (!this.populateFastMesh2D(tensor, mesh, instanceShape, heatmapRange)) {
             const matrix = new Matrix4();
             const offset = vectorFromTuple(tensor.offset);
             for (let index = 0; index < count; index += 1) {
@@ -1151,7 +1188,7 @@ export class TensorViewer {
                     : displayPositionForCoord(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(offset);
                 matrix.makeTranslation(position.x, position.y, position.z);
                 mesh.setMatrixAt(index, matrix);
-                mesh.setColorAt(index, this.cellColor(tensor, tensorCoord, value, min, max));
+                mesh.setColorAt(index, this.cellColor(tensor, tensorCoord, value, heatmapRange));
             }
         }
 
@@ -1219,7 +1256,7 @@ export class TensorViewer {
             mesh.position.add(nextPosition.sub(previousPosition));
         }
 
-        const { min, max } = tensor.valueRange;
+        const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
         const hasCustomColors = tensor.customColors.size !== 0;
         const count = product(instanceShape);
         for (let index = 0; index < count; index += 1) {
@@ -1235,19 +1272,22 @@ export class TensorViewer {
                 continue;
             }
             if (customColor?.kind === 'hs') {
-                const color = colorFromHueSaturation(customColor.value, this.state.heatmap ? this.heatmapNormalizedValue(value, min, max) : 1);
+                const color = colorFromHueSaturation(
+                    customColor.value,
+                    heatmapRange ? this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max) : 1,
+                );
                 colorArray[colorOffset] = color.r;
                 colorArray[colorOffset + 1] = color.g;
                 colorArray[colorOffset + 2] = color.b;
                 continue;
             }
-            if (!this.state.heatmap) {
+            if (!heatmapRange) {
                 colorArray[colorOffset] = BASE_COLOR.r;
                 colorArray[colorOffset + 1] = BASE_COLOR.g;
                 colorArray[colorOffset + 2] = BASE_COLOR.b;
                 continue;
             }
-            const gray = this.heatmapNormalizedValue(value, min, max);
+            const gray = this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max);
             colorArray[colorOffset] = gray;
             colorArray[colorOffset + 1] = gray;
             colorArray[colorOffset + 2] = gray;
@@ -1276,12 +1316,22 @@ export class TensorViewer {
         return index;
     }
 
-    private cellColor(tensor: TensorRecord, tensorCoord: number[], value: number, min: number, max: number): Color {
+    private cellColor(
+        tensor: TensorRecord,
+        tensorCoord: number[],
+        value: number,
+        heatmapRange: { min: number; max: number } | null,
+    ): Color {
         const customColor = tensor.customColors.get(coordKey(tensorCoord));
         if (customColor?.kind === 'rgba') return colorFromRgba(customColor.value);
-        if (customColor?.kind === 'hs') return colorFromHueSaturation(customColor.value, this.state.heatmap ? this.heatmapNormalizedValue(value, min, max) : 1);
-        if (!this.state.heatmap) return BASE_COLOR.clone();
-        const gray = this.heatmapNormalizedValue(value, min, max);
+        if (customColor?.kind === 'hs') {
+            return colorFromHueSaturation(
+                customColor.value,
+                heatmapRange ? this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max) : 1,
+            );
+        }
+        if (!heatmapRange) return BASE_COLOR.clone();
+        const gray = this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max);
         return new Color().setRGB(gray, gray, gray);
     }
 
@@ -1446,7 +1496,7 @@ export class TensorViewer {
         snapshot.tensors.forEach((entry) => {
             const tensor = this.tensors.get(entry.id);
             if (!tensor) return;
-            tensor.offset = entry.offset;
+            if (entry.offset) tensor.offset = entry.offset;
             this.assignTensorView(tensor, entry.view.view ?? entry.view.visible ?? '', entry.view.hiddenIndices);
         });
 
@@ -1495,21 +1545,33 @@ export class TensorViewer {
         });
     }
 
+    /** Add one metadata-only tensor and render it without loading per-cell numeric values. */
+    public addMetadataTensor(shape: number[], dtype: DType, name?: string, offset?: Vec3, axisLabels?: string[]): TensorHandle {
+        logEvent('tensor:add-metadata', { shape, dtype, name, offset, axisLabels });
+        return this.insertTensor(shape, null, {
+            name,
+            offset,
+            dtype,
+            axisLabels,
+        });
+    }
+
     private insertTensor(
         shape: number[],
-        data: NumericArray,
+        data: NumericArray | null,
         options: {
             id?: string;
             name?: string;
             offset?: Vec3;
             dtype?: DType;
             axisLabels?: string[];
+            displayMode?: '2d' | '3d';
             rebuild?: boolean;
             emit?: boolean;
         } = {},
     ): TensorHandle {
         const normalizedShape = shape.map((dim) => Math.max(1, Math.floor(dim)));
-        if (product(normalizedShape) !== data.length) {
+        if (data && product(normalizedShape) !== data.length) {
             throw new Error(`Tensor data length ${data.length} does not match shape ${normalizedShape.join('x')}.`);
         }
 
@@ -1525,13 +1587,15 @@ export class TensorViewer {
             id,
             name: options.name ?? `Tensor ${this.tensors.size + 1}`,
             shape: normalizedShape,
-            dtype: options.dtype ?? dtypeFromArray(data),
+            dtype: options.dtype ?? (data ? dtypeFromArray(data) : 'float32'),
             data,
-            valueRange: computeMinMax(data),
-            offset: options.offset ?? (this.tensors.size === 0 ? [0, 0, 0] : [this.tensors.size * 6, 0, 0]),
+            hasData: data !== null,
+            valueRange: data ? computeMinMax(data) : null,
+            offset: [0, 0, 0],
             view: parsed.spec,
             customColors: new Map(),
         };
+        tensor.offset = options.offset ?? this.autoTensorOffset(tensor, options.displayMode ?? this.state.displayMode);
         this.tensors.set(id, tensor);
         this.state.activeTensorId ??= id;
         if (options.rebuild === false) {
@@ -1546,6 +1610,7 @@ export class TensorViewer {
             shape: tensor.shape,
             axisLabels: tensor.view.axisLabels,
             dtype: tensor.dtype,
+            hasData: tensor.hasData,
         };
     }
 
@@ -1801,14 +1866,17 @@ export class TensorViewer {
         const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
         this.resetLoadedState();
         manifest.tensors.forEach((entry) => {
-            const data = tensors.get(entry.id);
-            if (!data) throw new Error(`Session tensor ${entry.id} is missing bytes.`);
+            const data = tensors.get(entry.id) ?? null;
+            if (!data && !entry.placeholderData) {
+                throw new Error(`Session tensor ${entry.id} is missing bytes.`);
+            }
             this.insertTensor(entry.shape, data, {
                 id: entry.id,
                 name: entry.name,
                 offset: entry.offset,
                 dtype: entry.dtype,
                 axisLabels: entry.axisLabels,
+                displayMode: manifest.viewer.displayMode,
                 rebuild: false,
                 emit: false,
             });
@@ -1823,6 +1891,7 @@ export class TensorViewer {
         logEvent('file:save');
         if (!this.state.activeTensorId) throw new Error('No tensor loaded.');
         const tensor = this.requireTensor(this.state.activeTensorId);
+        if (!tensor.data) throw new Error(`Tensor ${tensor.name} has no backing data to save.`);
         return saveNpy(tensor.shape, tensor.data, tensor.dtype);
     }
 
@@ -1837,11 +1906,13 @@ export class TensorViewer {
         colorRange: { min: number; max: number } | null;
     } {
         const tensors = Array.from(this.tensors.values()).map((tensor) => ({ id: tensor.id, name: tensor.name }));
-        const colorRanges = Array.from(this.tensors.values()).map((tensor) => ({
-            id: tensor.id,
-            name: tensor.name,
-            ...tensor.valueRange,
-        }));
+        const colorRanges = Array.from(this.tensors.values())
+            .filter((tensor) => tensor.valueRange)
+            .map((tensor) => ({
+                id: tensor.id,
+                name: tensor.name,
+                ...tensor.valueRange!,
+            }));
         const activeTensorId = this.state.activeTensorId && this.tensors.has(this.state.activeTensorId)
             ? this.state.activeTensorId
             : this.tensors.keys().next().value ?? null;
@@ -1857,6 +1928,7 @@ export class TensorViewer {
                 shape: tensor.shape,
                 axisLabels: tensor.view.axisLabels,
                 dtype: tensor.dtype,
+                hasData: tensor.hasData,
             },
             tensors,
             colorRanges,

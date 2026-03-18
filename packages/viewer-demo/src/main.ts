@@ -16,6 +16,31 @@ import './styles.css';
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Missing app root.');
 
+function supportsWebGL(): boolean {
+    const canvas = document.createElement('canvas');
+    try {
+        return Boolean(
+            (typeof WebGL2RenderingContext !== 'undefined' && canvas.getContext('webgl2'))
+            || (typeof WebGLRenderingContext !== 'undefined'
+                && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))),
+        );
+    } catch {
+        return false;
+    }
+}
+
+function renderWebglUnavailable(): void {
+    app.innerHTML = `
+      <main class="startup-note">
+        <p>This viewer needs WebGL to render tensors, but WebGL appears disabled or unavailable in this browser.</p>
+        <p>Enable WebGL or hardware acceleration in your browser settings, then reload this page.</p>
+      </main>
+    `;
+}
+
+if (!supportsWebGL()) {
+    renderWebglUnavailable();
+} else {
 app.innerHTML = `
   <div class="ribbon">
     <div class="menu">
@@ -284,6 +309,7 @@ function setSidebarWidth(width: number): void {
     const maxWidth = Math.max(0, Math.min(MAX_SIDEBAR_WIDTH, app.clientWidth - MIN_VIEWPORT_WIDTH));
     const clamped = Math.max(0, Math.min(maxWidth, width));
     app.style.setProperty('--sidebar-width', `${clamped}px`);
+    viewer.resize();
 }
 
 function activeTab(): LoadedBundleDocument | undefined {
@@ -390,7 +416,7 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     inspectorWidget.classList.toggle('hidden', !snapshot.showInspectorPanel);
     advancedSettingsWidget.classList.toggle('hidden', !showAdvancedSettingsWidget);
     const model = viewer.getInspectorModel();
-    colorbarWidget.classList.toggle('hidden', !snapshot.heatmap || !model.colorRange);
+    colorbarWidget.classList.toggle('hidden', !snapshot.heatmap || model.colorRanges.length === 0);
 }
 
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
@@ -537,7 +563,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
     inspectorRefs.layoutCoordValue.innerHTML = hover ? formatAxisValues(hover.layoutCoord, snapshot.displayMode, dimensionMappingScheme) : '';
     inspectorRefs.tensorCoordValue.innerHTML = hover ? formatAxisValues(hover.tensorCoord, snapshot.displayMode, dimensionMappingScheme) : '';
-    inspectorRefs.valueField.textContent = hover ? String(hover.value) : '';
+    inspectorRefs.valueField.textContent = !hover ? '' : hover.value === null ? 'Unavailable' : String(hover.value);
     inspectorRefs.dtypeValue.textContent = model.handle.dtype;
     inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(model.handle.shape, snapshot.displayMode, dimensionMappingScheme);
     inspectorRefs.rankValue.textContent = String(model.handle.rank);
@@ -545,7 +571,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
 
 function renderColorbarWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
-    if (!snapshot.heatmap || !model.colorRange) {
+    if (!snapshot.heatmap || model.colorRanges.length === 0) {
         colorbarWidget.innerHTML = '';
         return;
     }
@@ -672,11 +698,15 @@ async function saveTensorToDisk(): Promise<void> {
 
 /** loads one tab's raw tensor payloads from the local python session server. */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
-    const entries = await Promise.all(tensors.map(async (tensor) => {
-        const response = await fetch(`/api/${tensor.dataFile}`, { cache: 'no-store' });
-        if (!response.ok) throw new Error(`Missing tensor payload ${tensor.dataFile}.`);
-        return [tensor.id, createTypedArray(tensor.dtype, await response.arrayBuffer())] as const;
-    }));
+    const entries = await Promise.all(tensors
+        .filter((tensor) => tensor.dataFile)
+        .map(async (tensor) => {
+            const dataFile = tensor.dataFile;
+            if (!dataFile) throw new Error(`Session tensor ${tensor.id} has no data file.`);
+            const response = await fetch(`/api/${dataFile}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`Missing tensor payload ${dataFile}.`);
+            return [tensor.id, createTypedArray(tensor.dtype, await response.arrayBuffer())] as const;
+        }));
     return new Map(entries);
 }
 
@@ -840,3 +870,4 @@ viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
 tryLoadSession().then((loaded) => {
     if (!loaded) seedDemoTensor();
 }).catch(() => seedDemoTensor());
+}

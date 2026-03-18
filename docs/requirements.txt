@@ -1,3 +1,4 @@
 myst-parser>=4,<6
 sphinx>=8.2,<10
+sphinx-design>=0.6,<1
 sphinx-rtd-theme>=3,<4

@@ -7,8 +7,7 @@
 :caption: Guide
 
 install
-python
-typescript
+usage
 ```
 
 ```{toctree}

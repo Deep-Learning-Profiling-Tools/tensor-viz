@@ -35,6 +35,7 @@ export type TensorHandle = {
     shape: readonly number[];
     axisLabels: readonly string[];
     dtype: DType;
+    hasData: boolean;
 };
 
 /** Persisted tensor-view string plus sliced indices for one tensor. */
@@ -51,7 +52,7 @@ export type HoverInfo = {
     viewCoord: number[];
     layoutCoord: number[];
     tensorCoord: number[];
-    value: number;
+    value: number | null;
     colorSource: 'base' | 'heatmap' | 'custom';
 };
 
@@ -78,7 +79,7 @@ export type ViewerSnapshot = {
     tensors: Array<{
         id: string;
         name: string;
-        offset: Vec3;
+        offset?: Vec3;
         view: TensorViewSnapshot;
     }>;
     activeTensorId: string | null;
@@ -144,8 +145,9 @@ export type BundleManifest = {
         shape: number[];
         axisLabels?: string[];
         byteOrder: 'little';
-        dataFile: string;
-        offset: Vec3;
+        dataFile?: string;
+        placeholderData?: boolean;
+        offset?: Vec3;
         view: TensorViewSnapshot;
         colorInstructions?: ColorInstruction[];
     }>;
@@ -176,8 +178,9 @@ export type TensorRecord = {
     name: string;
     shape: number[];
     dtype: DType;
-    data: NumericArray;
-    valueRange: { min: number; max: number };
+    data: NumericArray | null;
+    hasData: boolean;
+    valueRange: { min: number; max: number } | null;
     offset: Vec3;
     view: TensorViewSpec;
     customColors: Map<string, CustomColor>;

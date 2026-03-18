@@ -9,13 +9,38 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-TensorInput = np.ndarray | Sequence[np.ndarray] | Mapping[str, np.ndarray]
 AxisLabelSpec = str | Sequence[str]
 TensorLabels = (
     AxisLabelSpec
     | Sequence[AxisLabelSpec | None]
     | Mapping[str, AxisLabelSpec | None]
 )
+SupportedDType = str
+_SUPPORTED_DTYPES = {"float64", "float32", "int32", "uint8"}
+
+
+@dataclass(frozen=True)
+class TensorMeta:
+    """Metadata-only tensor description for shape-driven visualization.
+
+    Use this when you want tensor-viz to render layout, slicing, labels, and
+    tabs without shipping the full tensor payload to the browser.
+
+    Examples
+    --------
+    >>> import tensor_viz
+    >>> tensor_viz.TensorMeta((1024, 1024, 64), dtype="float32", labels="H W C")
+    TensorMeta(shape=(1024, 1024, 64), dtype='float32', labels='H W C', name=None)
+    """
+
+    shape: tuple[int, ...]
+    dtype: SupportedDType = "float32"
+    labels: AxisLabelSpec | None = None
+    name: str | None = None
+
+
+TensorValue = np.ndarray | TensorMeta
+TensorInput = TensorValue | Sequence[TensorValue] | Mapping[str, TensorValue]
 
 
 @dataclass(frozen=True)
@@ -24,13 +49,19 @@ class SessionTensor:
 
     tensor_id: str
     name: str
-    array: np.ndarray
+    shape: tuple[int, ...]
+    dtype: SupportedDType
     axis_labels: tuple[str, ...]
+    array: np.ndarray | None
 
 
 @dataclass(frozen=True)
 class SessionData:
-    """Raw session manifest plus tensor byte payloads."""
+    """Raw session manifest plus tensor byte payloads.
+
+    Usually built with :func:`create_session_data` and then passed to
+    :func:`tensor_viz.viz`.
+    """
 
     manifest_bytes: bytes
     tensor_bytes: dict[str, bytes]
@@ -38,7 +69,15 @@ class SessionData:
 
 @dataclass
 class Tab:
-    """A named viewer tab that can hold one or more tensors."""
+    """A named viewer tab that can hold one or more tensors.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import tensor_viz
+    >>> tab = tensor_viz.Tab("weights")
+    >>> tab.viz({"conv": np.random.randn(16, 3, 3, 3)}, labels={"conv": "O I K0 K1"})
+    """
 
     title: str
     _tensors: list[tuple[TensorInput, str | None, TensorLabels | None]]
@@ -54,7 +93,16 @@ class Tab:
         name: str | None = None,
         labels: TensorLabels | None = None,
     ) -> Tab:
-        """Append one tensor input to this tab."""
+        """Append one tensor input to this tab.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import tensor_viz
+        >>> tab = tensor_viz.Tab("activations")
+        >>> _ = tab.viz(np.random.randn(2, 64, 32, 32), name="x", labels="N C H W")
+        >>> _ = tab.viz(np.random.randn(2, 64, 32, 32), name="y", labels="N C H W")
+        """
 
         self._tensors.append((tensor, name, labels))
         return self
@@ -83,15 +131,67 @@ def _normalize_axis_labels(rank: int, labels: AxisLabelSpec | None) -> tuple[str
     else:
         raw_labels = [str(label).strip() for label in labels]
     if len(raw_labels) != rank:
-        raise ValueError(f"Expected {rank} axis labels, got {len(raw_labels)}.")
-    axis_labels = tuple(label.upper() for label in raw_labels)
-    if any(not re.fullmatch(r"[A-Z][^A-Z]*", label) for label in axis_labels):
         raise ValueError(
-            "Axis labels must start with a letter and may only use non-letters after it."
+            f"Expected {rank} axis labels, got {len(raw_labels)} (received {raw_labels!r})."
         )
-    if len(set(label.lower() for label in axis_labels)) != rank:
-        raise ValueError("Axis labels must be unique.")
+    axis_labels = tuple(label.upper() for label in raw_labels)
+    invalid_labels = [label for label in axis_labels if not re.fullmatch(r"[A-Z][^A-Z]*", label)]
+    if invalid_labels:
+        raise ValueError(
+            "Axis labels must start with a letter and may only use non-letters after it "
+            f"(received {invalid_labels[0]!r})."
+        )
+    seen: set[str] = set()
+    duplicate = next(
+        (label for label in axis_labels if (lower := label.lower()) in seen or seen.add(lower)),
+        None,
+    )
+    if duplicate is not None:
+        raise ValueError(f"Axis labels must be unique (received duplicate {duplicate!r}).")
     return axis_labels
+
+
+def _normalize_dtype(dtype: Any) -> SupportedDType:
+    """Normalize one viewer dtype string."""
+
+    normalized = np.dtype(dtype).name
+    if normalized not in _SUPPORTED_DTYPES:
+        raise ValueError(
+            f"Unsupported dtype {dtype!r}; expected one of {sorted(_SUPPORTED_DTYPES)!r}."
+        )
+    return normalized
+
+
+def _build_session_tensor(
+    tensor_id: str,
+    tensor: TensorValue,
+    *,
+    name: str,
+    labels: AxisLabelSpec | None,
+) -> SessionTensor:
+    """Normalize one tensor or metadata-only tensor into session form."""
+
+    if isinstance(tensor, np.ndarray):
+        array = np.ascontiguousarray(tensor)
+        if array.dtype not in (np.float64, np.float32, np.int32, np.uint8):
+            array = array.astype(np.float64, copy=False)
+        return SessionTensor(
+            tensor_id=tensor_id,
+            name=name,
+            shape=tuple(int(dim) for dim in array.shape),
+            dtype=_normalize_dtype(array.dtype),
+            axis_labels=_normalize_axis_labels(array.ndim, labels),
+            array=array,
+        )
+    shape = tuple(int(dim) for dim in tensor.shape)
+    return SessionTensor(
+        tensor_id=tensor_id,
+        name=tensor.name or name,
+        shape=shape,
+        dtype=_normalize_dtype(tensor.dtype),
+        axis_labels=_normalize_axis_labels(len(shape), labels or tensor.labels),
+        array=None,
+    )
 
 
 def _normalize_inputs(
@@ -101,22 +201,13 @@ def _normalize_inputs(
 ) -> list[SessionTensor]:
     """Normalize Python tensor inputs plus optional axis-label overrides."""
 
-    def normalize_array(array: np.ndarray) -> np.ndarray:
-        contiguous = np.ascontiguousarray(array)
-        if contiguous.dtype in (np.float64, np.float32, np.int32, np.uint8):
-            return contiguous
-        return contiguous.astype(np.float64, copy=False)
-
-    if isinstance(tensor, np.ndarray):
+    if isinstance(tensor, (np.ndarray, TensorMeta)):
         if labels is not None and isinstance(labels, Mapping):
-            raise TypeError("labels must be a string or label sequence when tensor is a single ndarray.")
-        return [
-            SessionTensor(
-                "tensor-1",
-                name or "Tensor 1",
-                normalize_array(tensor),
-                _normalize_axis_labels(tensor.ndim, labels),
+            raise TypeError(
+                "labels must be a string or label sequence when tensor is a single tensor."
             )
+        return [
+            _build_session_tensor("tensor-1", tensor, name=name or "Tensor 1", labels=labels)
         ]
     if isinstance(tensor, Mapping):
         if labels is None:
@@ -126,13 +217,13 @@ def _normalize_inputs(
         else:
             raise TypeError("labels must be a mapping when tensor is a mapping.")
         return [
-            SessionTensor(
+            _build_session_tensor(
                 f"tensor-{index}",
-                tensor_name,
-                normalize_array(array),
-                _normalize_axis_labels(array.ndim, label_map.get(tensor_name)),
+                value,
+                name=tensor_name,
+                labels=label_map.get(tensor_name),
             )
-            for index, (tensor_name, array) in enumerate(tensor.items(), start=1)
+            for index, (tensor_name, value) in enumerate(tensor.items(), start=1)
         ]
     if labels is None:
         label_values = [None] * len(tensor)
@@ -145,19 +236,26 @@ def _normalize_inputs(
             f"Expected {len(tensor)} label entries for the tensor sequence, got {len(label_values)}."
         )
     return [
-        SessionTensor(
+        _build_session_tensor(
             f"tensor-{index}",
-            f"Tensor {index}",
-            normalize_array(array),
-            _normalize_axis_labels(array.ndim, label_values[index - 1]),
+            value,
+            name=value.name if isinstance(value, TensorMeta) and value.name else f"Tensor {index}",
+            labels=label_values[index - 1],
         )
-        for index, array in enumerate(tensor, start=1)
+        for index, value in enumerate(tensor, start=1)
     ]
 
 
 def _normalize_tab(tab: Tab, index: int) -> dict[str, Any]:
     tensors = [
-        SessionTensor(f"tensor-{tensor_index}", tensor.name, tensor.array, tensor.axis_labels)
+        SessionTensor(
+            tensor_id=f"tensor-{tensor_index}",
+            name=tensor.name,
+            shape=tensor.shape,
+            dtype=tensor.dtype,
+            axis_labels=tensor.axis_labels,
+            array=tensor.array,
+        )
         for tensor_index, tensor in enumerate(
             [
                 normalized
@@ -192,13 +290,12 @@ def _build_viewer_manifest(tensors: list[SessionTensor]) -> dict[str, Any]:
             {
                 "id": entry.tensor_id,
                 "name": entry.name,
-                "offset": [0, 0, 0] if index == 0 else [index * 6, 0, 0],
                 "view": {
                     "view": " ".join(entry.axis_labels),
-                    "hiddenIndices": [0] * entry.array.ndim,
+                    "hiddenIndices": [0] * len(entry.shape),
                 },
             }
-            for index, entry in enumerate(tensors)
+            for entry in tensors
         ],
         "activeTensorId": tensors[0].tensor_id if tensors else None,
     }
@@ -214,19 +311,23 @@ def _build_tensor_manifest(
         {
             "id": entry.tensor_id,
             "name": entry.name,
-            "dtype": str(entry.array.dtype),
-            "shape": list(entry.array.shape),
+            "dtype": entry.dtype,
+            "shape": list(entry.shape),
             "axisLabels": list(entry.axis_labels),
             "byteOrder": "little",
-            "dataFile": f"{data_prefix}/{entry.tensor_id}.bin",
-            "offset": [0, 0, 0] if index == 0 else [index * 6, 0, 0],
+            "placeholderData": entry.array is None,
+            **(
+                {"dataFile": f"{data_prefix}/{entry.tensor_id}.bin"}
+                if entry.array is not None
+                else {}
+            ),
             "view": {
                 "view": " ".join(entry.axis_labels),
-                "hiddenIndices": [0] * entry.array.ndim,
+                "hiddenIndices": [0] * len(entry.shape),
             },
             "colorInstructions": (color_instructions or {}).get(entry.tensor_id),
         }
-        for index, entry in enumerate(tensors)
+        for entry in tensors
     ]
 
 
@@ -242,16 +343,88 @@ def create_session_data(
     Parameters
     ----------
     tensor:
-        One NumPy tensor, a sequence of tensors, a mapping of named tensors,
-        one :class:`Tab`, or a sequence of tabs.
+        One NumPy tensor, one :class:`TensorMeta`, a sequence or mapping of
+        either, one :class:`Tab`, or a sequence of tabs.
     name:
         Session title for non-tab inputs, or tensor name for a single ndarray.
     labels:
         Optional axis-label overrides. Single ndarrays accept one label spec,
         sequences accept one spec per tensor, and mappings accept a label map.
-        Tab inputs must attach labels through :meth:`Tab.viz`.
+        Tab inputs must attach labels through :meth:`Tab.viz`. When omitted,
+        axes use the default viewer labels ``A B C ... Z AA AB ...``.
     color_instructions:
-        Optional viewer color instructions keyed by generated tensor id.
+        Optional viewer color instructions keyed by generated tensor id such as
+        ``tensor-1`` and ``tensor-2`` in input order. Use ``kind="dense"``
+        for one color per element, ``kind="coords"`` for explicit coordinates,
+        and ``kind="region"`` for a strided block. ``mode="rgba"`` expects
+        ``[r, g, b, a]`` tuples, while ``mode="hs"`` expects
+        ``[hue, saturation]``.
+
+    Examples
+    --------
+    Build session data ahead of time:
+
+    >>> import numpy as np
+    >>> import tensor_viz
+    >>> tensor = np.arange(12, dtype=np.float32).reshape(3, 4)
+    >>> session_data = tensor_viz.create_session_data(tensor, labels="O I")
+    >>> len(session_data.tensor_bytes) > 0
+    True
+
+    Metadata-only session data:
+
+    >>> meta = tensor_viz.TensorMeta((1024, 1024, 64), dtype="float32", labels="H W C")
+    >>> session_data = tensor_viz.create_session_data(meta)
+    >>> session_data.tensor_bytes
+    {}
+
+    Dense RGBA colors:
+
+    >>> session_data = tensor_viz.create_session_data(
+    ...     {"weights": tensor},
+    ...     labels={"weights": "O I"},
+    ...     color_instructions={
+    ...         "tensor-1": [
+    ...             {"mode": "rgba", "kind": "dense", "values": [255, 0, 0, 255] * tensor.size}
+    ...         ]
+    ...     },
+    ... )
+
+    Coordinate RGBA colors:
+
+    >>> session_data = tensor_viz.create_session_data(
+    ...     {"weights": tensor},
+    ...     labels={"weights": "O I"},
+    ...     color_instructions={
+    ...         "tensor-1": [
+    ...             {"mode": "rgba", "kind": "coords", "coords": [[0, 0]], "color": [255, 0, 0, 255]}
+    ...         ]
+    ...     },
+    ... )
+
+    Region RGBA colors:
+
+    >>> session_data = tensor_viz.create_session_data(
+    ...     {"weights": tensor},
+    ...     labels={"weights": "O I"},
+    ...     color_instructions={
+    ...         "tensor-1": [
+    ...             {"mode": "rgba", "kind": "region", "base": [0, 0], "shape": [2, 2], "jumps": [1, 1], "color": [255, 0, 0, 255]}
+    ...         ]
+    ...     },
+    ... )
+
+    Coordinate HS colors:
+
+    >>> session_data = tensor_viz.create_session_data(
+    ...     {"weights": tensor},
+    ...     labels={"weights": "O I"},
+    ...     color_instructions={
+    ...         "tensor-1": [
+    ...             {"mode": "hs", "kind": "coords", "coords": [[0, 0]], "color": [240, 1]}
+    ...         ]
+    ...     },
+    ... )
     """
 
     if isinstance(tensor, Tab):
@@ -288,6 +461,8 @@ def create_session_data(
             }
         )
         for entry in tab["tensors"]:
+            if entry.array is None:
+                continue
             tensor_bytes[f"tabs/{tab['id']}/tensors/{entry.tensor_id}.bin"] = entry.array.tobytes(
                 order="C"
             )

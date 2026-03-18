@@ -20,14 +20,28 @@ function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): 
     const defaults = shape.map((_dim, axis) => axisLabel(axis));
     if (!axisLabelsInput) return { ok: true, axisLabels: defaults };
     if (axisLabelsInput.length !== shape.length) {
-        return { ok: false, errors: [`Expected ${shape.length} axis labels, got ${axisLabelsInput.length}.`] };
+        return {
+            ok: false,
+            errors: [`Expected ${shape.length} axis labels, got ${axisLabelsInput.length} (received ${JSON.stringify(axisLabelsInput)}).`],
+        };
     }
     const axisLabels = axisLabelsInput.map((label) => String(label).trim().toUpperCase());
-    if (axisLabels.some((label) => !/^[A-Z][^A-Z]*$/.test(label))) {
-        return { ok: false, errors: ['Axis labels must start with a letter and may only use non-letters after it.'] };
+    const invalidLabel = axisLabels.find((label) => !/^[A-Z][^A-Z]*$/.test(label));
+    if (invalidLabel) {
+        return {
+            ok: false,
+            errors: [`Axis labels must start with a letter and may only use non-letters after it (received ${JSON.stringify(invalidLabel)}).`],
+        };
     }
-    if (new Set(axisLabels.map((label) => label.toLowerCase())).size !== axisLabels.length) {
-        return { ok: false, errors: ['Axis labels must be unique.'] };
+    const seen = new Set<string>();
+    const duplicate = axisLabels.find((label) => {
+        const lower = label.toLowerCase();
+        if (seen.has(lower)) return true;
+        seen.add(lower);
+        return false;
+    });
+    if (duplicate) {
+        return { ok: false, errors: [`Axis labels must be unique (received duplicate ${JSON.stringify(duplicate)}).`] };
     }
     return { ok: true, axisLabels };
 }

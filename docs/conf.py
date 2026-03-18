@@ -16,6 +16,7 @@ author = "tensor-viz"
 root_doc = "index"
 extensions = [
     "myst_parser",
+    "sphinx_design",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
