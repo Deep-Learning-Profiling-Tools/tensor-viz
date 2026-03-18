@@ -1,98 +1,198 @@
 import numpy as np
-from tensor_viz import viz
-import tensor_viz
-from tensor_viz.bundle import create_session_data
 
-# TODO: allow letter+ N non-letters dims (e.g. T0T1T2)
-# TODO: advanced: add checkbox for morton vs contiguous dimension mapping
-# TODO: advanced: show slices same place
-# TODO: check embeddability
+from tensor_viz import Tab, create_session_data, viz
 
-DEMO = 1
+DEMO = 0
 
-if DEMO == 0: # basic
-    x = np.random.randn(2,3)
-    viz(x)
-if DEMO == 1: # linear layout
-    x = (
-        np.arange(2048)
-        .reshape(2,2,2,2,2,2,2,2,2,2,2)
-        #.transpose(7, 0, 1, 9, 2, 3, 4, 8, 5, 6, 10)
-        #.reshape(128, 16)
-        #.reshape(16, 8, 16)
+
+def demo_single_tensor() -> None:
+    """Launch a basic single-tensor session."""
+
+    tensor = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    viz(tensor, name="Single Tensor")
+
+
+def demo_custom_labels() -> None:
+    """Show custom multi-character axis labels on one tensor."""
+
+    tensor = np.arange(2**11).reshape((2,) * 11)
+    viz(
+        tensor,
+        labels="W0 W1 T0 T1 T2 T3 T4 R0 R1 R2 R3",
+        name="Custom Labels",
     )
-    #import matplotlib.pyplot as plt
-    #plt.imshow(x)
-    #plt.show()
-    viz(x, labels="W0 W1 T0 T1 T2 T3 T4 R0 R1 R2 R3")
-if DEMO == 2: # multi-tensor view
-    SHAPE = (3, 4)
-    BASE = np.arange(np.prod(SHAPE), dtype=np.float32).reshape(SHAPE)
-    BLUE_RGBA = [0, 90, 255, 255]
-    BLUE_HS = [240, 1]
-    HIGHLIGHTS = {(0, 1), (1, 2), (2, 0)}
 
 
-    def dense_rgba() -> list[float]:
-        values: list[float] = []
-        for row in range(SHAPE[0]):
-            for col in range(SHAPE[1]):
-                values.extend(BLUE_RGBA if (row, col) in HIGHLIGHTS else [144, 164, 174, 255])
-        return values
+def demo_sequence_inputs() -> None:
+    """Show a tensor sequence with per-tensor labels."""
+
+    tensors = [
+        np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4),
+        np.arange(3 * 5, dtype=np.int32).reshape(3, 5),
+        np.arange(2 * 4 * 4, dtype=np.uint8).reshape(2, 4, 4),
+    ]
+    viz(tensors, labels=["BCH", "T0 T1", "HWC"], name="Sequence Inputs")
 
 
-    def dense_hs() -> list[float]:
-        values: list[float] = []
-        for row in range(SHAPE[0]):
-            for col in range(SHAPE[1]):
-                values.extend(BLUE_HS if (row, col) in HIGHLIGHTS else [0, 0])
-        return values
-
+def demo_mapping_inputs() -> None:
+    """Show named tensors with a mapping-based label override."""
 
     tensors = {
-        "Dense RGBA": BASE,
-        "Coords RGBA": BASE + 100,
-        "Region RGBA": BASE + 200,
-        "Dense HS": BASE + 300,
-        "Coords HS": BASE + 400,
-        "Region HS": BASE + 500,
+        "activations": np.linspace(-1, 1, 32, dtype=np.float32).reshape(2, 4, 4),
+        "weights": np.arange(3 * 3 * 8 * 16, dtype=np.float32).reshape(
+            3, 3, 8, 16
+        ),
+        "mask": np.arange(6, dtype=np.uint8).reshape(2, 3),
     }
+    viz(
+        tensors,
+        labels={
+            "activations": "BHW",
+            "weights": "K0 K1 Cin Cout",
+            "mask": "RC",
+        },
+        name="Mapping Inputs",
+    )
 
+
+def demo_session_data() -> None:
+    """Show raw session data plus all color-instruction forms."""
+
+    shape = (3, 4)
+    base = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+    blue_rgba = [0, 90, 255, 255]
+    blue_hs = [240, 1]
+    highlights = {(0, 1), (1, 2), (2, 0)}
+
+    dense_rgba = [
+        value
+        for row in range(shape[0])
+        for col in range(shape[1])
+        for value in (blue_rgba if (row, col) in highlights else [144, 164, 174, 255])
+    ]
+    dense_hs = [
+        value
+        for row in range(shape[0])
+        for col in range(shape[1])
+        for value in (blue_hs if (row, col) in highlights else [0, 0])
+    ]
+    tensors = {
+        "Dense RGBA": base,
+        "Coords RGBA": base + 100,
+        "Region RGBA": base + 200,
+        "Dense HS": base + 300,
+        "Coords HS": base + 400,
+        "Region HS": base + 500,
+    }
     session_data = create_session_data(
         tensors,
         color_instructions={
-            "tensor-1": [{"mode": "rgba", "kind": "dense", "values": dense_rgba()}],
-            "tensor-2": [{"mode": "rgba", "kind": "coords", "coords": [list(coord) for coord in sorted(HIGHLIGHTS)], "color": BLUE_RGBA}],
-            "tensor-3": [{"mode": "rgba", "kind": "region", "base": [0, 0], "shape": [3, 2], "jumps": [1, 2], "color": BLUE_RGBA}],
-            "tensor-4": [{"mode": "hs", "kind": "dense", "values": dense_hs()}],
-            "tensor-5": [{"mode": "hs", "kind": "coords", "coords": [list(coord) for coord in sorted(HIGHLIGHTS)], "color": BLUE_HS}],
-            "tensor-6": [{"mode": "hs", "kind": "region", "base": [0, 0], "shape": [3, 2], "jumps": [1, 2], "color": BLUE_HS}],
+            "tensor-1": [{"mode": "rgba", "kind": "dense", "values": dense_rgba}],
+            "tensor-2": [
+                {
+                    "mode": "rgba",
+                    "kind": "coords",
+                    "coords": [list(coord) for coord in sorted(highlights)],
+                    "color": blue_rgba,
+                }
+            ],
+            "tensor-3": [
+                {
+                    "mode": "rgba",
+                    "kind": "region",
+                    "base": [0, 0],
+                    "shape": [3, 2],
+                    "jumps": [1, 2],
+                    "color": blue_rgba,
+                }
+            ],
+            "tensor-4": [{"mode": "hs", "kind": "dense", "values": dense_hs}],
+            "tensor-5": [
+                {
+                    "mode": "hs",
+                    "kind": "coords",
+                    "coords": [list(coord) for coord in sorted(highlights)],
+                    "color": blue_hs,
+                }
+            ],
+            "tensor-6": [
+                {
+                    "mode": "hs",
+                    "kind": "region",
+                    "base": [0, 0],
+                    "shape": [3, 2],
+                    "jumps": [1, 2],
+                    "color": blue_hs,
+                }
+            ],
         },
     )
-
-    viz(BASE, session_data=session_data)
-if DEMO == 3: # big boy
-    #x = np.random.randn(4096,4096)
-    x = np.random.randn(1024,1024)
-    #x = np.random.randn(*[4]*10)
-    viz(x)
-if DEMO == 4: # tabs
-    t1 = tensor_viz.Tab("t1")
-    x = np.random.randn(2,2)
-    t1.viz(x)
-
-    t2 = tensor_viz.Tab("t2")
-    x = np.random.randn(2,2,2,2,2,2,2,2,2)
-    t2.viz(x)
-    viz([t1, t2])
-if DEMO == 5: # plt
-    import time
-    from PIL import Image
-        
-    #import matplotlib.pyplot as plt
-    #plt.imshow(np.array(Image.open('/home/trtx/Projects/deer1024.jpg')))
-    #plt.show()
+    viz(base, session_data=session_data)
 
 
-    #viz(np.array(Image.open('/home/trtx/Projects/deer1024.jpg')), labels="HWC")
-    viz(np.array(Image.open('/home/trtx/Projects/turtle32.png')), labels="HWC")
+def demo_tabs() -> None:
+    """Show multi-tab sessions with labels attached at Tab.viz time."""
+
+    activations = Tab("Activations").viz(
+        np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4),
+        name="layer-0",
+        labels="BCH",
+    )
+    activations.viz(
+        np.arange(4 * 4 * 8, dtype=np.float32).reshape(4, 4, 8),
+        name="layer-1",
+        labels="HWC",
+    )
+
+    weights = Tab("Weights").viz(
+        np.arange(3 * 3 * 8 * 16, dtype=np.float32).reshape(3, 3, 8, 16),
+        name="conv",
+        labels="K0 K1 Cin Cout",
+    )
+    weights.viz(
+        np.arange(16 * 32, dtype=np.float32).reshape(16, 32),
+        name="proj",
+        labels="IO",
+    )
+    viz([activations, weights], name="Tabs")
+
+
+def demo_session_options() -> None:
+    """Show manual session control without opening a browser."""
+
+    session = viz(
+        np.arange(12, dtype=np.float32).reshape(3, 4),
+        name="Session Options",
+        open_browser=False,
+        host="127.0.0.1",
+        port=0,
+        keep_alive=False,
+    )
+    print(session.url)
+    session.close()
+
+
+def demo_image_like_tensor() -> None:
+    """Show an HWC uint8 tensor without external image files."""
+
+    image = np.zeros((128, 192, 3), dtype=np.uint8)
+    image[..., 0] = np.linspace(0, 255, image.shape[1], dtype=np.uint8)
+    image[..., 1] = np.linspace(255, 0, image.shape[0], dtype=np.uint8)[:, None]
+    image[..., 2] = 128
+    viz(image, labels="HWC", name="Image Like Tensor")
+
+
+DEMOS = {
+    0: demo_single_tensor,
+    1: demo_custom_labels,
+    2: demo_sequence_inputs,
+    3: demo_mapping_inputs,
+    4: demo_session_data,
+    5: demo_tabs,
+    6: demo_session_options,
+    7: demo_image_like_tensor,
+}
+
+
+if __name__ == "__main__":
+    DEMOS[DEMO]()

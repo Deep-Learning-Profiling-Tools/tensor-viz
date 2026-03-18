@@ -1,0 +1,18 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "packages/viewer-core/src/index.ts"
+  ],
+  "entryPointStrategy": "resolve",
+  "disableSources": true,
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "hideGenerator": true,
+  "out": "docs/_extra/_typedoc",
+  "readme": "none",
+  "sort": [
+    "source-order"
+  ],
+  "tsconfig": "packages/viewer-core/tsconfig.json"
+}

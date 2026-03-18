@@ -1,1 +1,6 @@
 numpy>=1.26
+
+[docs]
+myst-parser<6,>=4
+sphinx<10,>=8.2
+sphinx-rtd-theme<4,>=3

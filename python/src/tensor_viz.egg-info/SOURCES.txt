@@ -1,3 +1,4 @@
+README.md
 SPEC.md
 pyproject.toml
 python/src/tensor_viz/__init__.py
@@ -8,3 +9,6 @@ python/src/tensor_viz.egg-info/SOURCES.txt
 python/src/tensor_viz.egg-info/dependency_links.txt
 python/src/tensor_viz.egg-info/requires.txt
 python/src/tensor_viz.egg-info/top_level.txt
+python/src/tensor_viz/static/index.html
+python/src/tensor_viz/static/assets/index-0vt3ZrgD.css
+python/src/tensor_viz/static/assets/index-Cu-D2kFN.js

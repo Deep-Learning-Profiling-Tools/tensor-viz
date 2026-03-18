@@ -78,7 +78,8 @@ const BASE_COLOR = new Color('#90a4ae');
 const ACTIVE_COLOR = new Color('#1976d2');
 const HOVER_COLOR = new Color('#f59e0b');
 
-type ViewerOptions = {
+/** Construction-time viewer options that do not need full state persistence. */
+export type ViewerOptions = {
     background?: string;
 };
 
@@ -258,6 +259,7 @@ function parseCustomColor(value: number[]): CustomColor {
     throw new Error(`Expected color tuple of length 2 or 4, received ${value.length}.`);
 }
 
+/** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
     private readonly container: HTMLElement;
     private readonly scene = new Scene();
@@ -313,6 +315,7 @@ export class TensorViewer {
     private lastCanvasPointer = { x: 0, y: 0 };
     private lastHoverLogKey: string | null = null;
 
+    /** Create a viewer inside one host container element. */
     public constructor(container: HTMLElement, options: ViewerOptions = {}) {
         this.container = container;
         if (getComputedStyle(container).position === 'static') this.container.style.position = 'relative';
@@ -1482,6 +1485,7 @@ export class TensorViewer {
         this.emitHover();
     }
 
+    /** Add one tensor and immediately rebuild the rendered scene. */
     public addTensor(shape: number[], data: NumericArray, name?: string, offset?: Vec3, dtype?: DType): TensorHandle {
         logEvent('tensor:add', { shape, name, offset, dtype });
         return this.insertTensor(shape, data, {
@@ -1545,6 +1549,7 @@ export class TensorViewer {
         };
     }
 
+    /** Remove one tensor by id. */
     public removeTensor(tensorId: string): void {
         logEvent('tensor:remove', tensorId);
         this.tensors.delete(tensorId);
@@ -1555,6 +1560,7 @@ export class TensorViewer {
         this.rebuildAllMeshes();
     }
 
+    /** Remove every loaded tensor and reset hover and active state. */
     public clear(): void {
         logEvent('tensor:clear');
         this.resetLoadedState();
@@ -1563,6 +1569,7 @@ export class TensorViewer {
         this.emit();
     }
 
+    /** Capture the full serializable viewer snapshot. */
     public getSnapshot(): ViewerSnapshot {
         return {
             version: 1,
@@ -1595,30 +1602,35 @@ export class TensorViewer {
         };
     }
 
+    /** Restore a previously captured viewer snapshot. */
     public restoreSnapshot(snapshot: ViewerSnapshot): void {
         logEvent('snapshot:restore', snapshot);
         this.applySnapshot(snapshot);
         this.rebuildAllMeshes();
     }
 
+    /** Subscribe to snapshot updates and immediately receive the current state. */
     public subscribe(listener: (snapshot: ViewerSnapshot) => void): () => void {
         this.listeners.add(listener);
         listener(this.getSnapshot());
         return () => this.listeners.delete(listener);
     }
 
+    /** Subscribe to hover changes and immediately receive the current hover state. */
     public subscribeHover(listener: (hover: HoverInfo | null) => void): () => void {
         this.hoverListeners.add(listener);
         listener(this.getHover());
         return () => this.hoverListeners.delete(listener);
     }
 
+    /** Switch between 2D and 3D display modes. */
     public setDisplayMode(mode: '2d' | '3d'): void {
         logEvent('display:mode', mode);
         this.applyDisplayMode(mode);
         this.rebuildAllMeshes();
     }
 
+    /** Toggle grayscale heatmap coloring on or off. */
     public toggleHeatmap(force?: boolean): boolean {
         this.state.heatmap = force ?? !this.state.heatmap;
         logEvent('display:heatmap', this.state.heatmap);
@@ -1626,6 +1638,7 @@ export class TensorViewer {
         return this.state.heatmap;
     }
 
+    /** Set the multiplicative gap growth between higher-level dimension blocks. */
     public setDimensionBlockGapMultiple(value: number): number {
         const nextValue = Number.isFinite(value) ? Math.max(1, value) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
         if (nextValue === this.state.dimensionBlockGapMultiple) return nextValue;
@@ -1636,6 +1649,7 @@ export class TensorViewer {
         return nextValue;
     }
 
+    /** Toggle whether inter-block gaps are rendered at all. */
     public toggleDisplayGaps(force?: boolean): boolean {
         this.state.displayGaps = force ?? !this.state.displayGaps;
         logEvent('display:gaps', this.state.displayGaps);
@@ -1644,6 +1658,7 @@ export class TensorViewer {
         return this.state.displayGaps;
     }
 
+    /** Toggle the dimension-guide overlays. */
     public toggleDimensionLines(force?: boolean): boolean {
         this.state.showDimensionLines = force ?? !this.state.showDimensionLines;
         logEvent('display:dimension-lines', this.state.showDimensionLines);
@@ -1651,6 +1666,7 @@ export class TensorViewer {
         return this.state.showDimensionLines;
     }
 
+    /** Toggle signed-log heatmap normalization. */
     public toggleLogScale(force?: boolean): boolean {
         this.state.logScale = force ?? !this.state.logScale;
         logEvent('display:log-scale', this.state.logScale);
@@ -1658,6 +1674,7 @@ export class TensorViewer {
         return this.state.logScale;
     }
 
+    /** Toggle whether sliced axes collapse into the same rendered position. */
     public toggleCollapseHiddenAxes(force?: boolean): boolean {
         this.state.collapseHiddenAxes = force ?? !this.state.collapseHiddenAxes;
         logEvent('display:collapse-hidden-axes', this.state.collapseHiddenAxes);
@@ -1666,11 +1683,12 @@ export class TensorViewer {
         return this.state.collapseHiddenAxes;
     }
 
+    /** Backward-compatible alias for {@link toggleCollapseHiddenAxes}. */
     public toggleShowSlicesInSamePlace(force?: boolean): boolean {
         return this.toggleCollapseHiddenAxes(force);
     }
 
-    /** changes how dimensions are assigned to x/y/z layout families. */
+    /** Change how dimensions are assigned to the x, y, and z layout families. */
     public setDimensionMappingScheme(value: DimensionMappingScheme): DimensionMappingScheme {
         const nextValue = value === 'contiguous' ? 'contiguous' : 'z-order';
         if (nextValue === this.state.dimensionMappingScheme) return nextValue;
@@ -1681,6 +1699,7 @@ export class TensorViewer {
         return nextValue;
     }
 
+    /** Toggle whether the host UI should show an inspector panel. */
     public toggleInspectorPanel(force?: boolean): boolean {
         this.state.showInspectorPanel = force ?? !this.state.showInspectorPanel;
         logEvent('widget:inspector', this.state.showInspectorPanel);
@@ -1688,12 +1707,14 @@ export class TensorViewer {
         return this.state.showInspectorPanel;
     }
 
+    /** Toggle whether the host UI should show hover-detail widgets. */
     public toggleHoverDetailsPanel(force?: boolean): boolean {
         this.state.showHoverDetailsPanel = force ?? !this.state.showHoverDetailsPanel;
         this.emit();
         return this.state.showHoverDetailsPanel;
     }
 
+    /** Return the current rendered extent for one tensor in world units. */
     public getViewDims(tensorId: string): Vec3 {
         const tensor = this.tensors.get(tensorId);
         if (!tensor) throw new Error(`Unknown tensor ${tensorId}.`);
@@ -1701,6 +1722,7 @@ export class TensorViewer {
         return [extent.x, extent.y, extent.z];
     }
 
+    /** Return the current canonical view string and slice indices for one tensor. */
     public getTensorView(tensorId: string): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         return {
@@ -1709,6 +1731,7 @@ export class TensorViewer {
         };
     }
 
+    /** Apply a new tensor-view string and optional sliced indices to one tensor. */
     public setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         const previousView = tensor.view;
@@ -1722,6 +1745,7 @@ export class TensorViewer {
     public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
     public colorTensor(tensorId: string, coords: number[][], color: RGBA | HueSaturation): void;
     public colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGBA | HueSaturation): void;
+    /** Apply dense, coordinate, or region-based custom colors to one tensor. */
     public colorTensor(
         tensorId: string,
         arg1: Uint8ClampedArray | Float32Array | number[][] | number[],
@@ -1743,20 +1767,24 @@ export class TensorViewer {
         this.rebuildAllMeshes();
     }
 
+    /** Remove all custom colors from one tensor. */
     public clearTensorColors(tensorId: string): void {
         this.requireTensor(tensorId).customColors.clear();
         this.rebuildAllMeshes();
     }
 
+    /** Alias for {@link getSnapshot}. */
     public getState(): Readonly<ViewerSnapshot> {
         return this.getSnapshot();
     }
 
+    /** Return the current hover payload, or the last hover when the pointer just left. */
     public getHover(): HoverInfo | null {
         const hover = this.state.hover ?? this.state.lastHover;
         return hover ? { ...hover } : null;
     }
 
+    /** Load one `.npy` file into the viewer as the active tensor. */
     public async openFile(file: File): Promise<void> {
         logEvent('file:open', file.name);
         if (!(await isNpyFile(file))) throw new Error('Only .npy arrays are supported.');
@@ -1768,6 +1796,7 @@ export class TensorViewer {
         });
     }
 
+    /** Load a manifest plus decoded tensor buffers into the viewer. */
     public loadBundleData(manifest: BundleManifest, tensors: Map<string, NumericArray>): void {
         const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
         this.resetLoadedState();
@@ -1789,6 +1818,7 @@ export class TensorViewer {
         this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
     }
 
+    /** Save the active tensor back out as a `.npy` blob. */
     public async saveFile(): Promise<Blob> {
         logEvent('file:save');
         if (!this.state.activeTensorId) throw new Error('No tensor loaded.');
@@ -1796,6 +1826,7 @@ export class TensorViewer {
         return saveNpy(tensor.shape, tensor.data, tensor.dtype);
     }
 
+    /** Build the demo-side inspector model for the currently active tensor. */
     public getInspectorModel(): {
         handle: TensorHandle | null;
         tensors: Array<{ id: string; name: string }>;
@@ -1840,6 +1871,7 @@ export class TensorViewer {
         };
     }
 
+    /** Mark one tensor as active without changing its data or view. */
     public setActiveTensor(tensorId: string): void {
         this.requireTensor(tensorId);
         this.state.activeTensorId = tensorId;
@@ -1847,6 +1879,7 @@ export class TensorViewer {
         this.emit();
     }
 
+    /** Set the flattened value of one lowercased grouped slice token. */
     public setSliceTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         const sliceToken = tensor.view.sliceTokens.find((entry) => entry.token === token);
@@ -1867,10 +1900,12 @@ export class TensorViewer {
         return this.setTensorView(tensorId, tensor.view.canonical, nextHiddenIndices);
     }
 
+    /** Backward-compatible alias for {@link setSliceTokenValue}. */
     public setHiddenTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         return this.setSliceTokenValue(tensorId, token, value);
     }
 
+    /** Dispose the renderer, listeners, and DOM nodes created by this viewer. */
     public destroy(): void {
         window.removeEventListener('resize', this.resize);
         window.removeEventListener('keydown', this.onKeyDown);

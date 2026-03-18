@@ -3,6 +3,8 @@ import type { DimensionMappingScheme } from './types.js';
 
 const CELL_SIZE = 1;
 const GAP = 0.15;
+
+/** Default multiplier used when spacing nested dimension blocks apart. */
 export const DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE = 3;
 
 type Extent3 = {
@@ -16,7 +18,8 @@ type Extent2 = {
     y: number;
 };
 
-type CoordHit2D = {
+/** One 2D hit-test result containing the layout coordinate and world position. */
+export type CoordHit2D = {
     coord: number[];
     position: {
         x: number;
@@ -26,6 +29,7 @@ type CoordHit2D = {
 
 const CELL_HIT_EPSILON = 1e-6;
 
+/** Map one tensor axis to the x, y, or z family used by the layout engine. */
 export function axisWorldKeyForMode(
     displayMode: '2d' | '3d',
     rank: number,
@@ -445,6 +449,7 @@ function recursiveHit2D(
     };
 }
 
+/** Expand one flat index into per-axis coordinates for the provided shape. */
 export function unravelIndex(index: number, shapeInput: number[]): number[] {
     const shape = normalizeDisplayShape(shapeInput);
     const coord = new Array(shape.length).fill(0);
@@ -456,6 +461,7 @@ export function unravelIndex(index: number, shapeInput: number[]): number[] {
     return coord;
 }
 
+/** Position one 3D layout coordinate in world space. */
 export function displayPositionForCoord(
     coord: number[],
     shape: number[],
@@ -467,6 +473,7 @@ export function displayPositionForCoord(
     return recursivePosition3D(coord, shape, { x: CELL_SIZE, y: CELL_SIZE, z: CELL_SIZE }, 0, normalizedGapMultiple);
 }
 
+/** Compute the full 3D extent of one rendered tensor layout. */
 export function displayExtent(
     shape: number[],
     dimensionBlockGapMultiple = DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
@@ -479,6 +486,7 @@ export function displayExtent(
     return new Vector3(extent.x, extent.y, extent.z);
 }
 
+/** Position one 2D layout coordinate in world space. */
 export function displayPositionForCoord2D(
     coord: number[],
     shape: number[],
@@ -491,6 +499,7 @@ export function displayPositionForCoord2D(
     return recursivePosition2D(coord, shape, { x: CELL_SIZE, y: CELL_SIZE }, 0, false, normalized.length, 0, normalizedGapMultiple);
 }
 
+/** Compute the full 2D extent of one rendered tensor layout. */
 export function displayExtent2D(
     shape: number[],
     dimensionBlockGapMultiple = DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
@@ -503,6 +512,7 @@ export function displayExtent2D(
         : recursiveExtent2D(normalized, { x: CELL_SIZE, y: CELL_SIZE }, 0, false, normalized.length, 0, normalizedGapMultiple);
 }
 
+/** Hit-test a 2D world-space point against one rendered tensor layout. */
 export function displayHitForPoint2D(
     x: number,
     y: number,

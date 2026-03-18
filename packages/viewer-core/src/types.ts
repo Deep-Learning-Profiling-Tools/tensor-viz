@@ -1,18 +1,33 @@
+/** Supported dense tensor dtypes for viewer storage, `.npy` IO, and manifests. */
 export type DType = 'float64' | 'float32' | 'int32' | 'uint8';
+
+/** Strategy for assigning tensor axes to the x, y, and z layout families. */
 export type DimensionMappingScheme = 'z-order' | 'contiguous';
+
+/** Backing typed-array payload accepted by the viewer and bundle loaders. */
 export type NumericArray = Float64Array | Float32Array | Int32Array | Uint8Array;
+
+/** Fixed-length xyz tuple used for tensor offsets and camera values. */
 export type Vec3 = readonly [number, number, number];
+
+/** RGBA color tuple using 0-255 channels. */
 export type RGBA = readonly [number, number, number, number];
+
+/** Hue-saturation tuple used by the viewer's brightness-preserving color mode. */
 export type HueSaturation = readonly [number, number];
+
+/** One normalized custom color entry stored on a tensor cell. */
 export type CustomColor =
     | { kind: 'rgba'; value: RGBA }
     | { kind: 'hs'; value: HueSaturation };
 
+/** Serializable custom-color instructions persisted in bundle manifests. */
 export type ColorInstruction =
     | { mode: 'rgba' | 'hs'; kind: 'dense'; values: number[] }
     | { mode: 'rgba' | 'hs'; kind: 'coords'; coords: number[][]; color: number[] }
     | { mode: 'rgba' | 'hs'; kind: 'region'; base: number[]; shape: number[]; jumps: number[]; color: number[] };
 
+/** Lightweight metadata returned when a tensor is added to a viewer. */
 export type TensorHandle = {
     id: string;
     name: string;
@@ -22,12 +37,14 @@ export type TensorHandle = {
     dtype: DType;
 };
 
+/** Persisted tensor-view string plus sliced indices for one tensor. */
 export type TensorViewSnapshot = {
     view: string;
     hiddenIndices: number[];
     visible?: string;
 };
 
+/** Hover payload emitted for the currently pointed tensor cell. */
 export type HoverInfo = {
     tensorId: string;
     tensorName: string;
@@ -38,6 +55,7 @@ export type HoverInfo = {
     colorSource: 'base' | 'heatmap' | 'custom';
 };
 
+/** Serializable viewer state, camera, and per-tensor view configuration. */
 export type ViewerSnapshot = {
     version: 1;
     displayMode: '2d' | '3d';
@@ -66,11 +84,13 @@ export type ViewerSnapshot = {
     activeTensorId: string | null;
 };
 
+/** Minimal inspector entry used to populate the active-tensor selector. */
 export type InspectorTensorOption = {
     id: string;
     name: string;
 };
 
+/** Parsed hidden-axis token together with its current slice value. */
 export type SliceToken = {
     token: string;
     axes: number[];
@@ -78,6 +98,7 @@ export type SliceToken = {
     value: number;
 };
 
+/** One parsed token from a tensor-view string, either visible or sliced away. */
 export type ViewToken = {
     kind: 'axis_group' | 'singleton';
     visible: boolean;
@@ -86,6 +107,7 @@ export type ViewToken = {
     size: number;
 };
 
+/** Fully parsed tensor-view specification derived from one view string. */
 export type TensorViewSpec = {
     input: string;
     canonical: string;
@@ -100,6 +122,7 @@ export type TensorViewSpec = {
     layoutShape: number[];
 };
 
+/** Result of parsing a tensor-view string against one tensor shape. */
 export type ViewParseResult =
     | {
         ok: true;
@@ -110,6 +133,7 @@ export type ViewParseResult =
         errors: string[];
     };
 
+/** One in-memory viewer document plus its tensor payload metadata. */
 export type BundleManifest = {
     version: 1;
     viewer: ViewerSnapshot;
@@ -127,6 +151,7 @@ export type BundleManifest = {
     }>;
 };
 
+/** Multi-tab session document loaded by the demo app or Python server. */
 export type SessionBundleManifest = {
     version: 1;
     tabs: Array<{
@@ -137,6 +162,7 @@ export type SessionBundleManifest = {
     }>;
 };
 
+/** One loaded tab together with decoded tensor buffers. */
 export type LoadedBundleDocument = {
     id: string;
     title: string;
@@ -144,6 +170,7 @@ export type LoadedBundleDocument = {
     tensors: Map<string, NumericArray>;
 };
 
+/** Internal tensor record tracked by the live viewer scene. */
 export type TensorRecord = {
     id: string;
     name: string;
@@ -156,6 +183,7 @@ export type TensorRecord = {
     customColors: Map<string, CustomColor>;
 };
 
+/** Internal mutable viewer state mirrored into public snapshots. */
 export type ViewerState = {
     displayMode: '2d' | '3d';
     heatmap: boolean;

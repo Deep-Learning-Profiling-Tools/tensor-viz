@@ -80,16 +80,19 @@ function normalizeFortran(dtype: DType, shape: number[], data: NumericArray): Nu
     return normalized;
 }
 
+/** Construct the viewer's typed-array wrapper for one dtype and raw buffer. */
 export function createTypedArray(dtype: DType, buffer: ArrayBuffer): NumericArray {
     const ctor = DTYPE_TO_ARRAY[dtype];
     return new ctor(buffer);
 }
 
+/** Check whether a blob starts with the NumPy `.npy` file signature. */
 export async function isNpyFile(file: Blob): Promise<boolean> {
     const prefix = new Uint8Array(await file.slice(0, MAGIC.length).arrayBuffer());
     return MAGIC.every((byte, index) => prefix[index] === byte);
 }
 
+/** Load one `.npy` file into dtype, shape, and typed-array payload metadata. */
 export async function loadNpy(file: Blob): Promise<{ dtype: DType; shape: number[]; data: NumericArray }> {
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
@@ -111,6 +114,7 @@ export async function loadNpy(file: Blob): Promise<{ dtype: DType; shape: number
     };
 }
 
+/** Serialize one tensor payload into a little-endian `.npy` blob. */
 export function saveNpy(shape: number[], data: NumericArray, dtype: DType): Blob {
     const descr = DTYPE_TO_DESCR[dtype];
     const shapeText = shape.length === 0

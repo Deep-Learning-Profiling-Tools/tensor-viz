@@ -54,7 +54,7 @@ class Tab:
         name: str | None = None,
         labels: TensorLabels | None = None,
     ) -> Tab:
-        """Append tensors to this tab."""
+        """Append one tensor input to this tab."""
 
         self._tensors.append((tensor, name, labels))
         return self
@@ -237,7 +237,22 @@ def create_session_data(
     labels: TensorLabels | None = None,
     color_instructions: Mapping[str, list[dict[str, Any]]] | None = None,
 ) -> SessionData:
-    """Build raw session data for one or more NumPy arrays."""
+    """Build raw browser session data for tensors or tabs.
+
+    Parameters
+    ----------
+    tensor:
+        One NumPy tensor, a sequence of tensors, a mapping of named tensors,
+        one :class:`Tab`, or a sequence of tabs.
+    name:
+        Session title for non-tab inputs, or tensor name for a single ndarray.
+    labels:
+        Optional axis-label overrides. Single ndarrays accept one label spec,
+        sequences accept one spec per tensor, and mappings accept a label map.
+        Tab inputs must attach labels through :meth:`Tab.viz`.
+    color_instructions:
+        Optional viewer color instructions keyed by generated tensor id.
+    """
 
     if isinstance(tensor, Tab):
         if labels is not None:

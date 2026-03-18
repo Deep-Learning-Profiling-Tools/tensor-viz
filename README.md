@@ -1,15 +1,3 @@
-Metadata-Version: 2.4
-Name: tensor-viz
-Version: 0.1.0
-Summary: Standalone tensor viewer with a browser-based frontend.
-Requires-Python: >=3.10
-Description-Content-Type: text/markdown
-Requires-Dist: numpy>=1.26
-Provides-Extra: docs
-Requires-Dist: myst-parser<6,>=4; extra == "docs"
-Requires-Dist: sphinx<10,>=8.2; extra == "docs"
-Requires-Dist: sphinx-rtd-theme<4,>=3; extra == "docs"
-
 # tensor-viz
 
 `tensor-viz` is a local tensor viewer for NumPy arrays. The Python API starts a small HTTP server, serves a browser UI, and lets you inspect tensor layouts, slices, grouped dimensions, and custom color overlays.
@@ -84,7 +72,7 @@ npm install
 npm run docs
 ```
 
-The Sphinx site is written to `docs/_build/html`, and the TypeDoc site is embedded under `docs/_build/html/_typedoc`.
+The Sphinx site is written to `docs/_build/html`, and the embedded TypeDoc site is written to `docs/_build/html/_typedoc`.
 
 ## Quick Start
 
@@ -118,6 +106,8 @@ Generate the TypeScript API reference with:
 ```bash
 npm run docs:ts
 ```
+
+That command writes the standalone TypeDoc site to `docs/_extra/_typedoc`.
 
 ## Read the Docs
 

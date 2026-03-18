@@ -9,6 +9,12 @@
   "scripts": {
     "build": "npm run build --workspace @tensor-viz/viewer-core && npm run build --workspace @tensor-viz/viewer-demo && node tools/sync-demo-assets.mjs",
     "dev": "npm run dev --workspace @tensor-viz/viewer-demo",
+    "docs": "npm run docs:ts && npm run docs:py",
+    "docs:py": "python -m sphinx -b html docs docs/_build/html",
+    "docs:ts": "typedoc --options typedoc.json",
     "test": "npm run test --workspace @tensor-viz/viewer-core"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.17"
   }
 }

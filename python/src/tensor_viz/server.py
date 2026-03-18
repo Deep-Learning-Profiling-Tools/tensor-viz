@@ -58,7 +58,28 @@ def viz(
     port: int = 0,
     keep_alive: bool = True,
 ) -> ViewerSession:
-    """Launch the standalone viewer for one or more NumPy tensors."""
+    """Launch the standalone viewer for tensors or tabs.
+
+    Parameters
+    ----------
+    tensor:
+        One NumPy tensor, a sequence of tensors, a mapping of named tensors,
+        one :class:`tensor_viz.bundle.Tab`, or a sequence of tabs.
+    name:
+        Session title for non-tab inputs, or tensor name for a single ndarray.
+    labels:
+        Optional axis-label overrides for non-tab inputs.
+    session_data:
+        Prebuilt raw session payloads. When omitted, the payload is derived
+        from ``tensor``, ``name``, and ``labels``.
+    open_browser:
+        Open the local viewer URL in the default browser.
+    host, port:
+        Bind address for the local HTTP server.
+    keep_alive:
+        Keep the server thread non-daemon so short scripts stay alive after
+        calling :func:`viz`.
+    """
 
     session_data = session_data or create_session_data(tensor, name=name, labels=labels)
     static_root = _static_root()

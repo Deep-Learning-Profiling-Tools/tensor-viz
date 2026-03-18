@@ -32,10 +32,17 @@ function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): 
     return { ok: true, axisLabels };
 }
 
+/**
+ * Compute the element count for one shape after clamping degenerate extents to `1`.
+ *
+ * Used anywhere the viewer needs a stable linear size, such as `.npy` IO, reshapes,
+ * grouped-axis flattening, and instanced-mesh allocation.
+ */
 export function product(values: number[]): number {
     return values.reduce((acc, value) => acc * Math.max(1, value), 1);
 }
 
+/** Normalize one shape to positive integer extents before any view or layout math runs. */
 export function normalizeShape(shape: number[]): number[] {
     return shape.map((dim) => {
         const value = Number(dim);
@@ -43,6 +50,7 @@ export function normalizeShape(shape: number[]): number[] {
     });
 }
 
+/** Build the default canonical view string by exposing every tensor axis in order. */
 export function defaultTensorView(shape: number[], axisLabelsInput?: readonly string[]): string {
     const normalizedShape = normalizeShape(shape);
     const axisLabels = parseAxisLabels(normalizedShape, axisLabelsInput);
@@ -76,10 +84,12 @@ function unflattenAxesIndex(axes: number[], linearIndex: number, shape: number[]
     return out;
 }
 
+/** Expand one grouped view index back into the original per-axis tensor indices. */
 export function expandGroupedIndex(axes: number[], linearIndex: number, shape: number[]): number[] {
     return unflattenAxesIndex(axes, linearIndex, normalizeShape(shape));
 }
 
+/** Map one visible view coordinate into the original dense tensor coordinate. */
 export function mapViewCoordToTensorCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
     const tensorCoord = spec.hiddenIndices.slice();
     let viewAxis = 0;
@@ -119,11 +129,13 @@ function mapViewCoordToFullLayoutCoord(viewCoord: number[], spec: TensorViewSpec
     return layoutCoord;
 }
 
+/** Return the rendered layout shape, optionally collapsing hidden axes out of the scene. */
 export function layoutShape(spec: TensorViewSpec, collapseHiddenAxes = false): number[] {
     const shape = collapseHiddenAxes ? spec.viewShape : spec.layoutShape;
     return shape.length === 0 ? [1] : shape.slice();
 }
 
+/** Map one visible view coordinate into the layout coordinate space drawn on screen. */
 export function mapViewCoordToLayoutCoord(
     viewCoord: number[],
     spec: TensorViewSpec,
@@ -133,6 +145,7 @@ export function mapViewCoordToLayoutCoord(
     return mapViewCoordToFullLayoutCoord(viewCoord, spec);
 }
 
+/** Recover the visible view coordinate from one layout coordinate picked from the scene. */
 export function mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec, collapseHiddenAxes = false): number[] {
     if (collapseHiddenAxes) return spec.viewShape.length === 0 ? [] : layoutCoord.slice();
     const viewCoord: number[] = [];
@@ -160,15 +173,18 @@ export function layoutCoordMatchesSlice(layoutCoord: number[], spec: TensorViewS
     return true;
 }
 
+/** Test whether one layout coordinate belongs to the slice that is currently visible. */
 export function layoutCoordIsVisible(layoutCoord: number[], spec: TensorViewSpec, collapseHiddenAxes = false): boolean {
     return collapseHiddenAxes || layoutCoordMatchesSlice(layoutCoord, spec);
 }
 
+/** Return axis labels in the same order as the active rendered layout. */
 export function layoutAxisLabels(spec: TensorViewSpec, collapseHiddenAxes = false): string[] {
     const tokens = collapseHiddenAxes ? spec.tokens.filter((token) => token.visible) : spec.tokens;
     return tokens.map((token) => token.label.toUpperCase());
 }
 
+/** Build a readable summary of the permute, reshape, and slice implied by one view string. */
 export function buildPreviewExpression(spec: TensorViewSpec): string {
     const viewAxes = spec.tokens
         .filter((token) => token.kind === 'axis_group')
@@ -197,6 +213,7 @@ export function buildPreviewExpression(spec: TensorViewSpec): string {
     return expr;
 }
 
+/** Parse one tensor-view string into the grouped visible axes and hidden slice metadata the viewer renders. */
 export function parseTensorView(
     shapeInput: number[],
     input: string,

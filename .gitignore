@@ -4,5 +4,7 @@ package-lock.json
 python/src/tensor_viz/static/
 packages/*/dist/
 packages/*/node_modules/
+docs/_build/
+docs/_extra/
 __pycache__/
 *.pyc
