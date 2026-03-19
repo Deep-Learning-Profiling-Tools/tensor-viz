@@ -100,9 +100,33 @@ The main Python entrypoints are:
 
 `demo.py` contains runnable examples for single tensors, metadata-only tensors, sequences, mappings, tabs, labels, prebuilt sessions, and session lifecycle options.
 
-## TypeScript API
+## API Layers
 
-The TypeScript package lives in `packages/viewer-core`. It exports the browser viewer class plus layout, view-parsing, and NumPy helpers through `packages/viewer-core/src/index.ts`.
+`tensor-viz` is split into four API layers:
+
+- Python: session builder plus local-server convenience
+- TypeScript shared: session builder plus shared manifest/types layer
+- `viewer-demo`: mountable full-app API
+- `viewer-core`: imperative viewer engine
+
+## TypeScript Shared API
+
+The shared TypeScript session-builder layer lives in `packages/viewer-core`. It
+exports manifest builders such as `createBundleManifest(...)`,
+`createSessionBundleManifest(...)`, and the shared manifest/view/tensor types
+through `packages/viewer-core/src/index.ts`.
+
+## viewer-demo Mount API
+
+The full demo shell can be embedded through `@tensor-viz/viewer-demo` via
+`mountDemoApp(container, options)`. The current mount API is iframe-backed, so
+host apps can embed the whole demo page without directly managing the demo DOM.
+
+## viewer-core Engine API
+
+The same `packages/viewer-core` package also exports the imperative browser
+viewer engine: `TensorViewer`, tensor mutation methods, view APIs, hover
+subscriptions, and snapshot/state helpers.
 
 Generate the TypeScript API reference with:
 

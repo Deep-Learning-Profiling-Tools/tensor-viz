@@ -65,8 +65,10 @@ import type {
     HueSaturation,
     NumericArray,
     RGBA,
+    TensorDataRequestReason,
     TensorHandle,
     TensorRecord,
+    TensorStatus,
     TensorViewSpec,
     TensorViewSnapshot,
     Vec3,
@@ -81,6 +83,7 @@ const HOVER_COLOR = new Color('#f59e0b');
 /** Construction-time viewer options that do not need full state persistence. */
 export type ViewerOptions = {
     background?: string;
+    requestTensorData?: (tensor: TensorStatus, reason: TensorDataRequestReason) => Promise<NumericArray | null | undefined> | NumericArray | null | undefined;
 };
 
 type MeshMeta = {
@@ -315,10 +318,13 @@ export class TensorViewer {
     private isCanvasPanning = false;
     private lastCanvasPointer = { x: 0, y: 0 };
     private lastHoverLogKey: string | null = null;
+    private readonly requestTensorDataCallback?: ViewerOptions['requestTensorData'];
+    private readonly pendingTensorDataRequests = new Map<string, Promise<boolean>>();
 
     /** Create a viewer inside one host container element. */
     public constructor(container: HTMLElement, options: ViewerOptions = {}) {
         this.container = container;
+        this.requestTensorDataCallback = options.requestTensorData;
         if (getComputedStyle(container).position === 'static') this.container.style.position = 'relative';
         this.scene.background = new Color(options.background ?? '#e5e7eb');
         this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -1427,6 +1433,7 @@ export class TensorViewer {
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
         this.tensorMeshes.clear();
         this.pickMeshes.length = 0;
+        this.pendingTensorDataRequests.clear();
         this.tensors.clear();
         this.state.activeTensorId = null;
         this.state.hover = null;
@@ -1535,6 +1542,31 @@ export class TensorViewer {
         this.emitHover();
     }
 
+    /** Build the public metadata and dense-data status payload for one tensor. */
+    private tensorStatus(tensor: TensorRecord): TensorStatus {
+        return {
+            id: tensor.id,
+            name: tensor.name,
+            rank: tensor.shape.length,
+            shape: tensor.shape,
+            axisLabels: tensor.view.axisLabels,
+            dtype: tensor.dtype,
+            hasData: tensor.hasData,
+            valueRange: tensor.valueRange,
+        };
+    }
+
+    /** Replace or clear one tensor's dense payload while keeping its metadata stable. */
+    private assignTensorData(tensor: TensorRecord, data: NumericArray | null, dtype: DType = tensor.dtype): void {
+        if (data && product(tensor.shape) !== data.length) {
+            throw new Error(`Tensor data length ${data.length} does not match shape ${tensor.shape.join('x')}.`);
+        }
+        tensor.dtype = dtype;
+        tensor.data = data;
+        tensor.hasData = data !== null;
+        tensor.valueRange = data ? computeMinMax(data) : null;
+    }
+
     /** Add one tensor and immediately rebuild the rendered scene. */
     public addTensor(shape: number[], data: NumericArray, name?: string, offset?: Vec3, dtype?: DType): TensorHandle {
         logEvent('tensor:add', { shape, name, offset, dtype });
@@ -1571,10 +1603,6 @@ export class TensorViewer {
         } = {},
     ): TensorHandle {
         const normalizedShape = shape.map((dim) => Math.max(1, Math.floor(dim)));
-        if (data && product(normalizedShape) !== data.length) {
-            throw new Error(`Tensor data length ${data.length} does not match shape ${normalizedShape.join('x')}.`);
-        }
-
         const parsed = parseTensorView(
             normalizedShape,
             defaultTensorView(normalizedShape, options.axisLabels),
@@ -1583,18 +1611,20 @@ export class TensorViewer {
         );
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         const id = options.id ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tensor-${this.tensorCounter += 1}`);
+        const dtype = options.dtype ?? (data ? dtypeFromArray(data) : 'float32');
         const tensor: TensorRecord = {
             id,
             name: options.name ?? `Tensor ${this.tensors.size + 1}`,
             shape: normalizedShape,
-            dtype: options.dtype ?? (data ? dtypeFromArray(data) : 'float32'),
-            data,
-            hasData: data !== null,
-            valueRange: data ? computeMinMax(data) : null,
+            dtype,
+            data: null,
+            hasData: false,
+            valueRange: null,
             offset: [0, 0, 0],
             view: parsed.spec,
             customColors: new Map(),
         };
+        this.assignTensorData(tensor, data, dtype);
         tensor.offset = options.offset ?? this.autoTensorOffset(tensor, options.displayMode ?? this.state.displayMode);
         this.tensors.set(id, tensor);
         this.state.activeTensorId ??= id;
@@ -1603,15 +1633,7 @@ export class TensorViewer {
         } else {
             this.rebuildAllMeshes({ fitCamera: true });
         }
-        return {
-            id,
-            name: tensor.name,
-            rank: tensor.shape.length,
-            shape: tensor.shape,
-            axisLabels: tensor.view.axisLabels,
-            dtype: tensor.dtype,
-            hasData: tensor.hasData,
-        };
+        return this.tensorStatus(tensor);
     }
 
     /** Remove one tensor by id. */
@@ -1699,6 +1721,11 @@ export class TensorViewer {
     public toggleHeatmap(force?: boolean): boolean {
         this.state.heatmap = force ?? !this.state.heatmap;
         logEvent('display:heatmap', this.state.heatmap);
+        if (this.state.heatmap) {
+            this.tensors.forEach((tensor) => {
+                if (!tensor.hasData) void this.ensureTensorData(tensor.id, 'heatmap');
+            });
+        }
         this.rebuildAllMeshes();
         return this.state.heatmap;
     }
@@ -1787,6 +1814,11 @@ export class TensorViewer {
         return [extent.x, extent.y, extent.z];
     }
 
+    /** Return the current metadata and dense-data availability for one tensor. */
+    public getTensorStatus(tensorId: string): TensorStatus {
+        return this.tensorStatus(this.requireTensor(tensorId));
+    }
+
     /** Return the current canonical view string and slice indices for one tensor. */
     public getTensorView(tensorId: string): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
@@ -1805,6 +1837,45 @@ export class TensorViewer {
         if (this.updateSliceMesh(tensor, previousView)) return snapshot;
         this.rebuildAllMeshes();
         return snapshot;
+    }
+
+    /** Attach dense numeric data to one existing tensor without changing its shape or view. */
+    public setTensorData(tensorId: string, data: NumericArray, dtype?: DType): TensorStatus {
+        const tensor = this.requireTensor(tensorId);
+        this.assignTensorData(tensor, data, dtype ?? tensor.dtype);
+        logEvent('tensor:data:set', { tensorId, dtype: tensor.dtype, hasData: tensor.hasData });
+        if (this.state.hover?.tensorId === tensorId || this.state.lastHover?.tensorId === tensorId) this.clearHover();
+        this.rebuildAllMeshes();
+        return this.tensorStatus(tensor);
+    }
+
+    /** Drop the dense payload for one tensor and keep only its metadata, view, and colors. */
+    public clearTensorData(tensorId: string): TensorStatus {
+        const tensor = this.requireTensor(tensorId);
+        this.assignTensorData(tensor, null, tensor.dtype);
+        logEvent('tensor:data:clear', tensorId);
+        if (this.state.hover?.tensorId === tensorId || this.state.lastHover?.tensorId === tensorId) this.clearHover();
+        this.rebuildAllMeshes();
+        return this.tensorStatus(tensor);
+    }
+
+    /** Ask the host to hydrate a metadata-only tensor if a requester callback was provided. */
+    public async ensureTensorData(tensorId: string, reason: TensorDataRequestReason = 'explicit'): Promise<boolean> {
+        const tensor = this.requireTensor(tensorId);
+        if (tensor.hasData) return true;
+        if (!this.requestTensorDataCallback) return false;
+        const pending = this.pendingTensorDataRequests.get(tensorId);
+        if (pending) return pending;
+        const request = Promise.resolve(this.requestTensorDataCallback(this.tensorStatus(tensor), reason))
+            .then((data) => {
+                const current = this.tensors.get(tensorId);
+                if (!current) return false;
+                if (!current.hasData && data) this.setTensorData(tensorId, data);
+                return this.tensors.get(tensorId)?.hasData ?? false;
+            })
+            .finally(() => this.pendingTensorDataRequests.delete(tensorId));
+        this.pendingTensorDataRequests.set(tensorId, request);
+        return request;
     }
 
     public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
@@ -1890,7 +1961,9 @@ export class TensorViewer {
     public async saveFile(): Promise<Blob> {
         logEvent('file:save');
         if (!this.state.activeTensorId) throw new Error('No tensor loaded.');
-        const tensor = this.requireTensor(this.state.activeTensorId);
+        const activeTensorId = this.state.activeTensorId;
+        await this.ensureTensorData(activeTensorId, 'save');
+        const tensor = this.requireTensor(activeTensorId);
         if (!tensor.data) throw new Error(`Tensor ${tensor.name} has no backing data to save.`);
         return saveNpy(tensor.shape, tensor.data, tensor.dtype);
     }
@@ -1922,13 +1995,7 @@ export class TensorViewer {
         const tensor = this.requireTensor(activeTensorId);
         return {
             handle: {
-                id: tensor.id,
-                name: tensor.name,
-                rank: tensor.shape.length,
-                shape: tensor.shape,
-                axisLabels: tensor.view.axisLabels,
-                dtype: tensor.dtype,
-                hasData: tensor.hasData,
+                ...this.tensorStatus(tensor),
             },
             tensors,
             colorRanges,

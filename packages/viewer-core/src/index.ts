@@ -1,6 +1,8 @@
 export { createTypedArray, isNpyFile, loadNpy, saveNpy } from './npy.js';
 export { axisWorldKeyForMode, displayExtent, displayHitForPoint2D, displayPositionForCoord, displayPositionForCoord2D, unravelIndex } from './layout.js';
 export type { CoordHit2D } from './layout.js';
+export { createBundleManifest, createSessionBundleManifest, createViewerSnapshot } from './session.js';
+export type { BundleDocumentSpec, SessionTabSpec, SessionTensorSpec } from './session.js';
 export {
     buildPreviewExpression,
     defaultTensorView,
@@ -31,7 +33,9 @@ export type {
     RGBA,
     SessionBundleManifest,
     SliceToken,
+    TensorDataRequestReason,
     TensorHandle,
+    TensorStatus,
     TensorViewSnapshot,
     TensorViewSpec,
     Vec3,

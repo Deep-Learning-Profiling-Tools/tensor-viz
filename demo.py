@@ -2,7 +2,7 @@ import numpy as np
 
 from tensor_viz import Tab, TensorMeta, create_session_data, viz
 
-DEMO = 3
+DEMO = 9
 
 
 def demo_single_tensor() -> None:
@@ -194,6 +194,35 @@ def demo_metadata_only() -> None:
     )
 
 
+def demo_coloring() -> None:
+    """Show grouped token coloring with hue from T and saturation from W."""
+
+    shape = (2,) * 11
+    labels = "W0 W1 T0 T1 T2 T3 T4 R0 R1 R2 R3"
+    tensor = np.tile(np.arange(2**4, dtype=np.float32), 2**7).reshape(shape)
+    saturations = [0.25, 0.5, 0.75, 1.0]
+    color_instructions = {
+        "tensor-1": [
+            {
+                "mode": "hs",
+                "kind": "region",
+                "base": [((w_value >> 1) & 1), (w_value & 1), *[((token >> (4 - axis)) & 1) for axis in range(5)], 0, 0, 0, 0],
+                "shape": [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2],
+                "jumps": [1] * len(shape),
+                "color": [round((360 * token) / 32), saturations[w_value]],
+            }
+            for w_value in range(4)
+            for token in range(32)
+        ]
+    }
+    session_data = create_session_data(
+        tensor,
+        labels=labels,
+        color_instructions=color_instructions,
+    )
+    viz(tensor, session_data=session_data, name="Coloring")
+
+
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,
@@ -204,6 +233,7 @@ DEMOS = {
     6: demo_session_options,
     7: demo_image_like_tensor,
     8: demo_metadata_only,
+    9: demo_coloring,
 }
 
 

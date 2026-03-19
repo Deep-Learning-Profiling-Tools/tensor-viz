@@ -38,6 +38,14 @@ export type TensorHandle = {
     hasData: boolean;
 };
 
+/** Live tensor metadata together with current dense-data availability and value range. */
+export type TensorStatus = TensorHandle & {
+    valueRange: { min: number; max: number } | null;
+};
+
+/** Reason the viewer is asking the host to hydrate a metadata-only tensor. */
+export type TensorDataRequestReason = 'explicit' | 'heatmap' | 'save';
+
 /** Persisted tensor-view string plus sliced indices for one tensor. */
 export type TensorViewSnapshot = {
     view: string;
