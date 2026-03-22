@@ -52,6 +52,7 @@ export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): V
         collapseHiddenAxes: overrides.collapseHiddenAxes ?? overrides.showSlicesInSamePlace ?? false,
         dimensionMappingScheme: overrides.dimensionMappingScheme ?? 'z-order',
         showDimensionLines: overrides.showDimensionLines ?? true,
+        showTensorNames: overrides.showTensorNames ?? true,
         showInspectorPanel: overrides.showInspectorPanel ?? true,
         showHoverDetailsPanel: overrides.showHoverDetailsPanel ?? true,
         camera: {

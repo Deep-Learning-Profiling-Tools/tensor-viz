@@ -81,6 +81,7 @@ export type ViewerSnapshot = {
     showSlicesInSamePlace?: boolean;
     dimensionMappingScheme?: DimensionMappingScheme;
     showDimensionLines: boolean;
+    showTensorNames?: boolean;
     showInspectorPanel: boolean;
     showHoverDetailsPanel: boolean;
     camera: {
@@ -218,6 +219,7 @@ export type ViewerState = {
     collapseHiddenAxes: boolean;
     dimensionMappingScheme: DimensionMappingScheme;
     showDimensionLines: boolean;
+    showTensorNames: boolean;
     showInspectorPanel: boolean;
     showHoverDetailsPanel: boolean;
     activeTensorId: string | null;

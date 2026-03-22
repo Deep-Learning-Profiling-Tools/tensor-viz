@@ -57,6 +57,7 @@ app.innerHTML = `
         <button data-action="3d" type="button">Display as 3D <span>Ctrl+3</span></button>
         <button data-action="heatmap" type="button">Toggle Heatmap <span>Ctrl+H</span></button>
         <button data-action="dims" type="button">Toggle Dimension Lines <span>Ctrl+D</span></button>
+        <button data-action="tensor-names" type="button">Toggle Tensor Names <span></span></button>
       </div>
     </div>
     <div class="menu">
@@ -223,6 +224,7 @@ function commandActions(): CommandAction[] {
         { action: '3d', label: 'Display as 3D', shortcut: 'Ctrl+3', keywords: 'display 3d perspective' },
         { action: 'heatmap', label: 'Toggle Heatmap', shortcut: 'Ctrl+H', keywords: 'display heatmap colors' },
         { action: 'dims', label: 'Toggle Dimension Lines', shortcut: 'Ctrl+D', keywords: 'display dimensions guides labels' },
+        { action: 'tensor-names', label: 'Toggle Tensor Names', shortcut: '', keywords: 'display tensor names labels title' },
         { action: 'tensor-view', label: 'Toggle Tensor View', shortcut: 'Ctrl+V', keywords: 'widgets tensor view panel' },
         { action: 'inspector', label: 'Toggle Inspector', shortcut: '', keywords: 'widgets inspector panel' },
         { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
@@ -556,6 +558,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     }
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
+    const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
     inspectorRefs.hoveredTensor.classList.toggle('hidden', !hover);
     inspectorRefs.layoutCoord.classList.toggle('hidden', !hover);
     inspectorRefs.tensorCoord.classList.toggle('hidden', !hover);
@@ -565,8 +568,12 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.tensorCoordValue.innerHTML = hover ? formatAxisValues(hover.tensorCoord, snapshot.displayMode, dimensionMappingScheme) : '';
     inspectorRefs.valueField.textContent = !hover ? '' : hover.value === null ? 'Unavailable' : String(hover.value);
     inspectorRefs.dtypeValue.textContent = model.handle.dtype;
-    inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(model.handle.shape, snapshot.displayMode, dimensionMappingScheme);
-    inspectorRefs.rankValue.textContent = String(model.handle.rank);
+    inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(
+        hoveredStatus?.shape ?? model.handle.shape,
+        snapshot.displayMode,
+        dimensionMappingScheme,
+    );
+    inspectorRefs.rankValue.textContent = String(hoveredStatus?.rank ?? model.handle.rank);
 }
 
 function renderColorbarWidget(snapshot: ViewerSnapshot): void {
@@ -796,6 +803,9 @@ async function runAction(action: string): Promise<void> {
         }
         case 'dims':
             viewer.toggleDimensionLines();
+            return;
+        case 'tensor-names':
+            viewer.toggleTensorNames();
             return;
         case 'inspector':
             viewer.toggleInspectorPanel();

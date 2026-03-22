@@ -305,6 +305,7 @@ export class TensorViewer {
         collapseHiddenAxes: false,
         dimensionMappingScheme: 'z-order',
         showDimensionLines: true,
+        showTensorNames: true,
         showInspectorPanel: true,
         showHoverDetailsPanel: true,
         activeTensorId: null,
@@ -719,27 +720,16 @@ export class TensorViewer {
         };
     }
 
-    private fitCanvasView(): void {
-        if (this.tensors.size === 0) {
+    private fitCanvasView(bounds: Box3 | null = null): void {
+        if (!bounds) {
             this.canvasPan = { x: 0, y: 0 };
             this.canvasZoom = 1;
             return;
         }
-
-        let minX = Number.POSITIVE_INFINITY;
-        let maxX = Number.NEGATIVE_INFINITY;
-        let minY = Number.POSITIVE_INFINITY;
-        let maxY = Number.NEGATIVE_INFINITY;
-        this.tensors.forEach((tensor) => {
-            const extent = displayExtent2D(this.layoutShape(tensor.view), this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            minX = Math.min(minX, tensor.offset[0] - extent.x / 2);
-            maxX = Math.max(maxX, tensor.offset[0] + extent.x / 2);
-            minY = Math.min(minY, tensor.offset[1] - extent.y / 2);
-            maxY = Math.max(maxY, tensor.offset[1] + extent.y / 2);
-        });
-
-        const width = Math.max(1, (maxX - minX) * CANVAS_WORLD_SCALE);
-        const height = Math.max(1, (maxY - minY) * CANVAS_WORLD_SCALE);
+        const size = bounds.getSize(new Vector3());
+        const center = bounds.getCenter(new Vector3());
+        const width = Math.max(1, size.x * CANVAS_WORLD_SCALE);
+        const height = Math.max(1, size.y * CANVAS_WORLD_SCALE);
         const inset = Math.min(
             MAX_CANVAS_FIT_INSET,
             Math.max(MIN_CANVAS_FIT_INSET, Math.min(this.flatCanvas.width, this.flatCanvas.height) * 0.035),
@@ -750,11 +740,9 @@ export class TensorViewer {
                 (this.flatCanvas.height - inset * 2) / height,
             ) * AUTO_FIT_2D_SCALE,
         );
-        const centerX = (minX + maxX) / 2;
-        const centerY = (minY + maxY) / 2;
         this.canvasPan = {
-            x: -(centerX * CANVAS_WORLD_SCALE * this.canvasZoom),
-            y: centerY * CANVAS_WORLD_SCALE * this.canvasZoom,
+            x: -(center.x * CANVAS_WORLD_SCALE * this.canvasZoom),
+            y: center.y * CANVAS_WORLD_SCALE * this.canvasZoom,
         };
     }
 
@@ -879,14 +867,25 @@ export class TensorViewer {
         });
     }
 
+    private sceneBounds(): Box3 | null {
+        const groups = Array.from(this.tensorMeshes.values());
+        if (groups.length === 0) return null;
+        const bounds = new Box3();
+        groups.forEach((group) => {
+            group.updateWorldMatrix(true, true);
+            bounds.expandByObject(group);
+        });
+        return bounds;
+    }
+
     private fitCamera(): void {
+        const bounds = this.sceneBounds();
         if (this.state.displayMode === '2d') {
-            this.fitCanvasView();
+            this.fitCanvasView(bounds);
             this.requestRender();
             return;
         }
-        const groups = Array.from(this.tensorMeshes.values());
-        if (groups.length === 0) {
+        if (!bounds) {
             this.controls.target.set(0, 0, 0);
             this.perspectiveCamera.position.set(0, 0, 30);
             this.orthographicCamera.position.set(0, 0, 30);
@@ -894,15 +893,17 @@ export class TensorViewer {
             return;
         }
 
-        const bounds = new Box3();
-        groups.forEach((group) => bounds.expandByObject(group));
         const center = bounds.getCenter(new Vector3());
-        const size = bounds.getSize(new Vector3());
-        const radius = Math.max(size.x, size.y, size.z, 8) * AUTO_FIT_3D_DISTANCE_SCALE;
+        const sphere = bounds.getBoundingSphere(new Sphere());
+        const radius = Math.max(sphere.radius, 8);
+        const halfVerticalFov = (this.perspectiveCamera.fov * Math.PI) / 360;
+        const halfHorizontalFov = Math.atan(Math.tan(halfVerticalFov) * this.perspectiveCamera.aspect);
+        const fitDistance = (radius / Math.sin(Math.min(halfVerticalFov, halfHorizontalFov))) * AUTO_FIT_3D_DISTANCE_SCALE;
+        const viewDirection = new Vector3(1, 1, 1.5).normalize();
         this.controls.target.copy(center);
-        this.perspectiveCamera.position.set(center.x + radius, center.y + radius, center.z + radius * 1.5);
+        this.perspectiveCamera.position.copy(center.clone().add(viewDirection.multiplyScalar(fitDistance)));
         this.perspectiveCamera.lookAt(center);
-        this.orthographicCamera.position.set(center.x, center.y, center.z + radius * 2);
+        this.orthographicCamera.position.set(center.x, center.y, center.z + fitDistance * 1.5);
         this.orthographicCamera.lookAt(center);
         this.requestRender();
     }
@@ -1034,7 +1035,15 @@ export class TensorViewer {
         return outline;
     }
 
-    private buildDimensionGuides2D(shape: number[], offset: Vec3, labels: string[]): Group {
+    private buildDimensionGuides2D(
+        shape: number[],
+        offset: Vec3,
+        labels: string[],
+        guideOffset: number,
+        linearStep: number,
+        labelOffset: number,
+        labelScale: number,
+    ): Group {
         const group = new Group();
         const rank = shape.length;
         const families = new Map<number, number[]>();
@@ -1044,10 +1053,6 @@ export class TensorViewer {
             family.push(axis);
             families.set(key, family);
         }
-        const guideOffset = 1.15;
-        const linearStep = 0.75;
-        const labelOffset = 0.5;
-        const labelScale = 0.15;
 
         shape.forEach((size, axis) => {
             const familyKey = axisWorldKeyForMode('2d', rank, axis, this.state.dimensionMappingScheme) as 0 | 1;
@@ -1176,6 +1181,13 @@ export class TensorViewer {
         );
         mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
         const outlineExtent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+        const outlineSpan2D = Math.max(outlineExtent2D.x, outlineExtent2D.y);
+        const baseOutlineLabelScale2D = Math.max(1.25, Math.min(10, outlineSpan2D * 0.05));
+        const guideLabelScale2D = baseOutlineLabelScale2D / 5;
+        const guideStartOffset2D = Math.max(1.15, guideLabelScale2D * 2.5);
+        const guideLevelStep2D = Math.max(0.75, guideLabelScale2D * 3.5);
+        const guideLabelOffset2D = Math.max(0.3, guideLabelScale2D * 1.2);
+        const tensorNameScale2D = (baseOutlineLabelScale2D * 1.25) / 2;
         const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
         if (!this.populateFastMesh2D(tensor, mesh, instanceShape, heatmapRange)) {
             const matrix = new Matrix4();
@@ -1221,7 +1233,33 @@ export class TensorViewer {
         group.add(mesh);
         if (this.state.displayMode === '2d') {
             group.add(this.buildOutline2D(outlineExtent2D, tensor.offset));
-            if (this.state.showDimensionLines && labels.length > 0) group.add(this.buildDimensionGuides2D(shape, tensor.offset, labels));
+            const showDimensionGuides = this.state.showDimensionLines && labels.length > 0;
+            if (showDimensionGuides) {
+                group.add(this.buildDimensionGuides2D(
+                    shape,
+                    tensor.offset,
+                    labels,
+                    guideStartOffset2D,
+                    guideLevelStep2D,
+                    guideLabelOffset2D,
+                    guideLabelScale2D,
+                ));
+            }
+            if (this.state.showTensorNames) {
+                const topGuideCount = shape.reduce((count, _size, axis) => (
+                    count + Number(axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) === 0)
+                ), 0);
+                const nameLabel = createTextLabel(tensor.name, '#0f172a');
+                const guideClearance = showDimensionGuides
+                    ? guideStartOffset2D
+                        + Math.max(0, topGuideCount - 1) * guideLevelStep2D
+                        + guideLabelOffset2D
+                        + tensorNameScale2D * 1.5
+                    : tensorNameScale2D * 1.75;
+                nameLabel.position.set(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance, 0.02);
+                nameLabel.scale.setScalar(tensorNameScale2D);
+                group.add(nameLabel);
+            }
         } else {
             const outlineExtent = displayExtent(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
             group.add(this.buildOutline(outlineExtent, tensor.offset));
@@ -1480,6 +1518,7 @@ export class TensorViewer {
         this.state.collapseHiddenAxes = snapshot.collapseHiddenAxes ?? snapshot.showSlicesInSamePlace ?? false;
         this.state.dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
         this.state.showDimensionLines = snapshot.showDimensionLines;
+        this.state.showTensorNames = snapshot.showTensorNames ?? true;
         this.state.showInspectorPanel = snapshot.showInspectorPanel;
         this.state.showHoverDetailsPanel = snapshot.showHoverDetailsPanel;
         this.state.activeTensorId = snapshot.activeTensorId;
@@ -1668,6 +1707,7 @@ export class TensorViewer {
             collapseHiddenAxes: this.state.collapseHiddenAxes,
             dimensionMappingScheme: this.state.dimensionMappingScheme,
             showDimensionLines: this.state.showDimensionLines,
+            showTensorNames: this.state.showTensorNames,
             showInspectorPanel: this.state.showInspectorPanel,
             showHoverDetailsPanel: this.state.showHoverDetailsPanel,
             camera: {
@@ -1756,6 +1796,14 @@ export class TensorViewer {
         logEvent('display:dimension-lines', this.state.showDimensionLines);
         this.rebuildAllMeshes();
         return this.state.showDimensionLines;
+    }
+
+    /** Toggle the 2D tensor-name labels. */
+    public toggleTensorNames(force?: boolean): boolean {
+        this.state.showTensorNames = force ?? !this.state.showTensorNames;
+        logEvent('display:tensor-names', this.state.showTensorNames);
+        this.rebuildAllMeshes();
+        return this.state.showTensorNames;
     }
 
     /** Toggle signed-log heatmap normalization. */

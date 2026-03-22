@@ -2,8 +2,6 @@ import numpy as np
 
 from tensor_viz import Tab, TensorMeta, create_session_data, viz
 
-DEMO = 9
-
 
 def demo_single_tensor() -> None:
     """Launch a basic single-tensor session."""
@@ -223,6 +221,7 @@ def demo_coloring() -> None:
     viz(tensor, session_data=session_data, name="Coloring")
 
 
+DEMO = 9
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,

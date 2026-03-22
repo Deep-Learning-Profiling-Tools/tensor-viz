@@ -183,6 +183,5 @@ class DocsExamplesTest(unittest.TestCase):
         manifest = json.loads(session_data.manifest_bytes)
         self.assertEqual(manifest["tabs"][0]["tensors"][0]["axisLabels"], ["B0"])
 
-
 if __name__ == "__main__":
     unittest.main()

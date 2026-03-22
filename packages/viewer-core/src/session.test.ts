@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBundleManifest, createSessionBundleManifest } from './session.js';
+import { createBundleManifest, createSessionBundleManifest, createViewerSnapshot } from './session.js';
 
 describe('session builders', () => {
     it('builds a bundle manifest with default tensor views', () => {
@@ -13,6 +13,7 @@ describe('session builders', () => {
         expect(manifest.tensors[0]?.placeholderData).toBe(true);
         expect(manifest.tensors[0]?.view.view).toBe('O I');
         expect(manifest.viewer.activeTensorId).toBe('tensor-1');
+        expect(manifest.viewer.dimensionMappingScheme).toBe('z-order');
         expect(manifest.viewer.tensors[0]?.view.view).toBe('O I');
     });
 
@@ -36,4 +37,10 @@ describe('session builders', () => {
         expect(session.tabs.map((tab) => tab.title)).toEqual(['inputs', 'weights']);
         expect(session.tabs[1]?.viewer.tensors[0]?.view.view).toBe('O I K0 K1');
     });
+
+    it('defaults tensor names on and preserves explicit overrides', () => {
+        expect(createViewerSnapshot().showTensorNames).toBe(true);
+        expect(createViewerSnapshot({ showTensorNames: false }).showTensorNames).toBe(false);
+    });
+
 });
