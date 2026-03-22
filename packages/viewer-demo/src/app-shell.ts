@@ -3,6 +3,7 @@ export type AppShellRefs = {
     viewport: HTMLDivElement;
     tabStrip: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
+    linearLayoutWidget: HTMLElement;
     tensorViewWidget: HTMLElement;
     inspectorWidget: HTMLElement;
     selectionWidget: HTMLElement;
@@ -12,6 +13,7 @@ export type AppShellRefs = {
     commandPaletteBackdrop: HTMLDivElement;
     commandPaletteInput: HTMLInputElement;
     commandPaletteList: HTMLDivElement;
+    fileInput: HTMLInputElement;
 };
 
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
@@ -54,6 +56,8 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         <div class="menu">
           <button class="menu-trigger" type="button">File</button>
           <div class="menu-list">
+            <button data-action="open" type="button">Open Tensor <span>Ctrl+O</span></button>
+            <button data-action="save" type="button">Save Tensor <span>Ctrl+S</span></button>
           </div>
         </div>
         <div class="menu">
@@ -92,6 +96,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       </main>
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
+        <section class="widget" id="linear-layout-widget"></section>
         <section class="widget" id="tensor-view-widget"></section>
         <section class="widget" id="inspector-widget"></section>
         <section class="widget" id="selection-widget"></section>
@@ -105,6 +110,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
           <div class="command-palette-list" id="command-palette-list"></div>
         </div>
       </div>
+      <input class="hidden" id="file-input" type="file" accept=".npy" />
     `;
 
     return {
@@ -112,6 +118,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         viewport: requireElement(app, '#viewport', 'viewport'),
         tabStrip: requireElement(app, '#tab-strip', 'tab strip'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
+        linearLayoutWidget: requireElement(app, '#linear-layout-widget', 'linear layout widget'),
         tensorViewWidget: requireElement(app, '#tensor-view-widget', 'tensor view widget'),
         inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),
         selectionWidget: requireElement(app, '#selection-widget', 'selection widget'),
@@ -121,5 +128,6 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         commandPaletteBackdrop: requireElement(app, '#command-palette-backdrop', 'command palette backdrop'),
         commandPaletteInput: requireElement(app, '#command-palette-input', 'command palette input'),
         commandPaletteList: requireElement(app, '#command-palette-list', 'command palette list'),
+        fileInput: requireElement(app, '#file-input', 'file input'),
     };
 }

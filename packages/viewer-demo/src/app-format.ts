@@ -8,7 +8,7 @@ export function selectionEnabled(snapshot: ViewerSnapshot): boolean {
     return snapshot.displayMode === '2d' && (snapshot.dimensionMappingScheme ?? 'z-order') === 'contiguous';
 }
 
-function escapeInfo(text: string): string {
+export function escapeInfo(text: string): string {
     return text
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')

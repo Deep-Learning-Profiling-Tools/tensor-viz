@@ -11,6 +11,7 @@ import {
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import {
+    escapeInfo,
     formatAxisTokens,
     formatAxisValues,
     formatRangeValue,
@@ -19,6 +20,11 @@ import {
     selectionEnabled,
     titleWithInfo,
 } from './app-format.js';
+import {
+    createLinearLayoutDocument,
+    defaultLinearLayoutSpecText,
+    parseLinearLayoutSpec,
+} from './linear-layout.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
 
@@ -31,6 +37,7 @@ const {
     viewport,
     tabStrip,
     sidebarSplitter,
+    linearLayoutWidget,
     tensorViewWidget,
     inspectorWidget,
     selectionWidget,
@@ -40,6 +47,7 @@ const {
     commandPaletteBackdrop,
     commandPaletteInput,
     commandPaletteList,
+    fileInput,
 } = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
@@ -74,6 +82,14 @@ type InspectorRefs = {
 };
 
 let inspectorRefs: InspectorRefs | null = null;
+type LinearLayoutNotice = {
+    tone: 'error' | 'success';
+    text: string;
+};
+
+const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
+let linearLayoutText = loadLinearLayoutText();
+let linearLayoutNotice: LinearLayoutNotice | null = null;
 
 type CommandAction = {
     action: string;
@@ -98,9 +114,109 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
     return formatRangeValue(summary.stats[key]);
 }
 
+/** Load the persisted linear-layout JSON used by the static demo sidebar. */
+function loadLinearLayoutText(): string {
+    try {
+        return window.localStorage.getItem(LINEAR_LAYOUT_STORAGE_KEY) ?? defaultLinearLayoutSpecText();
+    } catch {
+        return defaultLinearLayoutSpecText();
+    }
+}
+
+/** Persist the current linear-layout JSON for the next browser session. */
+function storeLinearLayoutText(): void {
+    try {
+        window.localStorage.setItem(LINEAR_LAYOUT_STORAGE_KEY, linearLayoutText);
+    } catch {
+        // ignore storage failures in restricted browsers
+    }
+}
+
+/** Render the browser-side linear-layout editor that powers the Pages build. */
+function renderLinearLayoutWidget(): void {
+    const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
+    const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
+    linearLayoutWidget.innerHTML = `
+      ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser from a Triton-style JSON layout spec. This works on static GitHub Pages because no Python session server is required.')}
+      <div class="widget-body">
+        <p class="widget-copy">Use JSON matching <span class="inline-code">LinearLayout.from_bases(...)</span>. <span class="inline-code">bases</span> accepts <span class="inline-code">[name, basisVectors]</span> pairs, and <span class="inline-code">out_dims</span> can be output names or <span class="inline-code">[name, size]</span> pairs.</p>
+        <div class="field">
+          ${labelWithInfo('Layout JSON', 'Edit a Triton-style linear layout. Input sizes are inferred as 2^len(bases), and omitted output sizes are inferred from the generated coordinates.', 'linear-layout-input')}
+          <textarea id="linear-layout-input" rows="18" spellcheck="false">${escapeInfo(linearLayoutText)}</textarea>
+        </div>
+        <div class="button-row">
+          <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
+          <button class="secondary-button" id="linear-layout-reset" type="button">Reset Example</button>
+        </div>
+        ${status}
+      </div>
+    `;
+
+    const input = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-input');
+    const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
+    const reset = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-reset');
+    input?.addEventListener('input', () => {
+        linearLayoutText = input.value;
+    });
+    input?.addEventListener('keydown', async (event) => {
+        if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
+        event.preventDefault();
+        linearLayoutText = input.value;
+        await applyLinearLayoutSpec();
+    });
+    apply?.addEventListener('click', async () => {
+        linearLayoutText = input?.value ?? linearLayoutText;
+        await applyLinearLayoutSpec();
+    });
+    reset?.addEventListener('click', () => {
+        linearLayoutText = defaultLinearLayoutSpecText();
+        linearLayoutNotice = null;
+        renderLinearLayoutWidget();
+    });
+}
+
+/** Add or replace the custom linear-layout tab and switch the viewer to it. */
+async function upsertLinearLayoutTab(document: LoadedBundleDocument, replaceTabs = false): Promise<void> {
+    if (replaceTabs || sessionTabs.length === 0) {
+        sessionTabs = [document];
+    } else {
+        const index = sessionTabs.findIndex((tab) => tab.id === document.id);
+        sessionTabs = index === -1
+            ? [...sessionTabs, document]
+            : sessionTabs.map((tab, tabIndex) => tabIndex === index ? document : tab);
+    }
+    await loadTab(document.id);
+}
+
+/** Parse the sidebar JSON, rebuild the layout tensors, and load them into the viewer. */
+async function applyLinearLayoutSpec(
+    options: { replaceTabs?: boolean; silent?: boolean } = {},
+): Promise<boolean> {
+    try {
+        const document = createLinearLayoutDocument(
+            parseLinearLayoutSpec(linearLayoutText),
+            viewer.getSnapshot(),
+        );
+        storeLinearLayoutText();
+        await upsertLinearLayoutTab(document, options.replaceTabs);
+        linearLayoutNotice = options.silent ? null : { tone: 'success', text: `Rendered ${document.title}.` };
+        renderLinearLayoutWidget();
+        return true;
+    } catch (error) {
+        linearLayoutNotice = {
+            tone: 'error',
+            text: error instanceof Error ? error.message : String(error),
+        };
+        renderLinearLayoutWidget();
+        return false;
+    }
+}
+
 function commandActions(): CommandAction[] {
     return [
         { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
+        { action: 'open', label: 'Open Tensor', shortcut: 'Ctrl+O', keywords: 'file open load tensor npy' },
+        { action: 'save', label: 'Save Tensor', shortcut: 'Ctrl+S', keywords: 'file save export tensor npy' },
         { action: '2d', label: 'Display as 2D', shortcut: 'Ctrl+2', keywords: 'display 2d orthographic' },
         { action: '3d', label: 'Display as 3D', shortcut: 'Ctrl+3', keywords: 'display 3d perspective' },
         { action: 'mapping-contiguous', label: 'Set Contiguous Axis Family Mapping', shortcut: '', keywords: 'display axis family mapping contiguous layout' },
@@ -631,6 +747,20 @@ function render(snapshot: ViewerSnapshot): void {
     renderColorbarWidget(snapshot);
 }
 
+function sanitizeFilename(name: string): string {
+    return name.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'tensor';
+}
+
+async function saveTensorToDisk(): Promise<void> {
+    const blob = await viewer.saveFile();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${sanitizeFilename(viewer.getInspectorModel().handle?.name ?? 'tensor')}.npy`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
+
 /** loads one tab's raw tensor payloads from the local python session server. */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
     const entries = await Promise.all(tensors
@@ -681,6 +811,13 @@ function seedDemoTensor(): void {
     viewer.addTensor(shape, data, 'Sample');
 }
 
+async function openLocalFile(file: File): Promise<void> {
+    sessionTabs = [];
+    activeTabId = null;
+    renderTabStrip();
+    await viewer.openFile(file);
+}
+
 async function runAction(action: string): Promise<void> {
     logUi('action', action);
     closeCommandPalette();
@@ -691,6 +828,12 @@ async function runAction(action: string): Promise<void> {
     switch (action) {
         case 'command-palette':
             openCommandPalette();
+            return;
+        case 'open':
+            fileInput.click();
+            return;
+        case 'save':
+            await saveTensorToDisk();
             return;
         case '2d':
             viewer.setDisplayMode('2d');
@@ -754,6 +897,14 @@ document.querySelectorAll<HTMLButtonElement>('.menu-list button').forEach((butto
     });
 });
 
+fileInput.addEventListener('change', async () => {
+    const [file] = Array.from(fileInput.files ?? []);
+    if (!file) return;
+    logUi('file:input', file.name);
+    await openLocalFile(file);
+    fileInput.value = '';
+});
+
 window.addEventListener('keydown', async (event) => {
     const target = event.target as HTMLElement | null;
     const isEditing = target && ['INPUT', 'TEXTAREA'].includes(target.tagName);
@@ -763,9 +914,15 @@ window.addEventListener('keydown', async (event) => {
         closeCommandPalette();
         return;
     }
-    if (isEditing && !isPaletteInput) return;
+    if (isEditing && !isPaletteInput && !(event.ctrlKey && event.key.toLowerCase() === 's')) return;
 
-    if (event.ctrlKey && event.key === '2') {
+    if (event.ctrlKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault();
+        await runAction('open');
+    } else if (event.ctrlKey && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        await runAction('save');
+    } else if (event.ctrlKey && event.key === '2') {
         event.preventDefault();
         await runAction('2d');
     } else if (event.ctrlKey && event.key === '3') {
@@ -796,8 +953,18 @@ window.addEventListener('keydown', async (event) => {
 viewer.subscribe(render);
 viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
 viewer.subscribeSelection(() => renderSelectionWidget(viewer.getSnapshot()));
+renderLinearLayoutWidget();
 
-tryLoadSession().then((loaded) => {
-    if (!loaded) seedDemoTensor();
-}).catch(() => seedDemoTensor());
+tryLoadSession().then(async (loaded) => {
+    if (loaded) return;
+    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
+    linearLayoutText = defaultLinearLayoutSpecText();
+    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
+    seedDemoTensor();
+}).catch(async () => {
+    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
+    linearLayoutText = defaultLinearLayoutSpecText();
+    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
+    seedDemoTensor();
+});
 }
