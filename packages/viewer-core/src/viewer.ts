@@ -1828,7 +1828,13 @@ export class TensorViewer {
         };
     }
 
-    /** Apply a new tensor-view string and optional sliced indices to one tensor. */
+    /** Apply a new tensor-view string and optional sliced indices to one tensor.
+     *
+     * This is a virtual view transform. The viewer does not transpose or rewrite
+     * the stored tensor buffer; it reparses the axis order and remaps displayed
+     * coordinates back to the original tensor coordinates during render, hover,
+     * and value lookup.
+     */
     public setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         const previousView = tensor.view;

@@ -1,13 +1,9 @@
 import type { SliceToken, TensorViewSpec, ViewParseResult, ViewToken } from './types.js';
 
 function axisLabel(index: number): string {
-    let value = index;
-    let out = '';
-    do {
-        out = String.fromCharCode(65 + (value % 26)) + out;
-        value = Math.floor(value / 26) - 1;
-    } while (value >= 0);
-    return out;
+    if (index < 26) return String.fromCharCode(65 + index);
+    const suffix = Math.floor((index - 26) / 26);
+    return `${String.fromCharCode(65 + ((index - 26) % 26))}${suffix}`;
 }
 
 function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): {

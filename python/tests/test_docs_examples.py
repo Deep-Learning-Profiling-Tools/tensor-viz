@@ -97,6 +97,92 @@ class DocsExamplesTest(unittest.TestCase):
             ["O", "I", "K0", "K1"],
         )
 
+    def test_usage_prebuilt_session_data_python_examples(self) -> None:
+        x = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+        session_data = tensor_viz.create_session_data(x, labels="C H W")
+        manifest = json.loads(session_data.manifest_bytes)
+
+        self.assertEqual(
+            manifest["tabs"][0]["tensors"][0]["axisLabels"],
+            ["C", "H", "W"],
+        )
+        self.assertEqual(
+            sorted(session_data.tensor_bytes),
+            ["tabs/tab-1/tensors/tensor-1.bin"],
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            static_root = Path(tmpdir)
+            (static_root / "index.html").write_text("<!doctype html><title>tensor-viz</title>")
+            session = None
+            try:
+                with patch("tensor_viz.server._static_root", return_value=static_root):
+                    session = tensor_viz.viz(
+                        x,
+                        session_data=session_data,
+                        open_browser=False,
+                        keep_alive=False,
+                    )
+                    with urlopen(f"{session.url}/api/session.json") as response:
+                        served = json.load(response)
+                self.assertEqual(
+                    served["tabs"][0]["tensors"][0]["axisLabels"],
+                    ["C", "H", "W"],
+                )
+            finally:
+                if session is not None:
+                    session.close()
+
+    def test_default_axis_labels_are_unambiguous(self) -> None:
+        session_data = tensor_viz.create_session_data(tensor_viz.TensorMeta((1,) * 28))
+        manifest = json.loads(session_data.manifest_bytes)
+        axis_labels = manifest["tabs"][0]["tensors"][0]["axisLabels"]
+
+        self.assertEqual(
+            axis_labels,
+            [
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G",
+                "H",
+                "I",
+                "J",
+                "K",
+                "L",
+                "M",
+                "N",
+                "O",
+                "P",
+                "Q",
+                "R",
+                "S",
+                "T",
+                "U",
+                "V",
+                "W",
+                "X",
+                "Y",
+                "Z",
+                "A0",
+                "B0",
+            ],
+        )
+
+    def test_multi_character_python_labels_must_be_space_separated_or_sequences(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Expected 1 axis labels, got 2"):
+            tensor_viz.create_session_data(np.zeros((1,), dtype=np.float32), labels="B0")
+
+        session_data = tensor_viz.create_session_data(
+            np.zeros((1,), dtype=np.float32),
+            labels=["B0"],
+        )
+        manifest = json.loads(session_data.manifest_bytes)
+        self.assertEqual(manifest["tabs"][0]["tensors"][0]["axisLabels"], ["B0"])
+
 
 if __name__ == "__main__":
     unittest.main()

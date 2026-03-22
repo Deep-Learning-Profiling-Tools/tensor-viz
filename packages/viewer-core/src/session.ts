@@ -36,7 +36,11 @@ export type SessionTabSpec = BundleDocumentSpec & {
     title: string;
 };
 
-/** Build the default viewer snapshot used by bundle/session builders. */
+/** Build the default viewer snapshot used by bundle/session builders.
+ *
+ * This returns viewer state only. Tensor metadata and payload references live
+ * in bundle or session manifests.
+ */
 export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): ViewerSnapshot {
     return {
         version: 1,
@@ -68,7 +72,11 @@ function tensorView(shape: number[], axisLabels: string[] | undefined, view?: Te
     };
 }
 
-/** Build one bundle manifest from lightweight tensor specs plus optional viewer overrides. */
+/** Build one bundle manifest from lightweight tensor specs plus optional viewer overrides.
+ *
+ * A bundle manifest is one viewer document: one viewer snapshot plus one or
+ * more tensor declarations for a single tab/load unit.
+ */
 export function createBundleManifest(spec: BundleDocumentSpec): BundleManifest {
     const tensors = spec.tensors.map((tensor, index) => {
         const id = tensor.id ?? `tensor-${index + 1}`;
@@ -102,7 +110,11 @@ export function createBundleManifest(spec: BundleDocumentSpec): BundleManifest {
     };
 }
 
-/** Build a multi-tab session manifest from lightweight tab specs. */
+/** Build a multi-tab session manifest from lightweight tab specs.
+ *
+ * Each tab wraps the bundle-level `viewer` plus `tensors` pair with a tab id
+ * and title.
+ */
 export function createSessionBundleManifest(tabs: SessionTabSpec[]): SessionBundleManifest {
     return {
         version: 1,

@@ -27,6 +27,12 @@ describe('parseTensorView', () => {
         expect(result.spec.canonical).toBe(defaultTensorView([2, 3, 4]));
     });
 
+    it('uses unambiguous default labels beyond Z', () => {
+        expect(defaultTensorView(new Array(28).fill(1))).toBe(
+            'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z A0 B0',
+        );
+    });
+
     it('rejects mixed case grouped tokens', () => {
         const result = parseTensorView([2, 3, 4], 'A bC');
         expect(result.ok).toBe(false);

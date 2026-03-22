@@ -111,13 +111,10 @@ class Tab:
 def _axis_label(index: int) -> str:
     """Return the default viewer label for one axis."""
 
-    value = index
-    out = ""
-    while True:
-        out = chr(65 + (value % 26)) + out
-        value = (value // 26) - 1
-        if value < 0:
-            return out
+    if index < 26:
+        return chr(65 + index)
+    suffix = (index - 26) // 26
+    return f"{chr(65 + ((index - 26) % 26))}{suffix}"
 
 
 def _normalize_axis_labels(rank: int, labels: AxisLabelSpec | None) -> tuple[str, ...]:
@@ -351,7 +348,10 @@ def create_session_data(
         Optional axis-label overrides. Single ndarrays accept one label spec,
         sequences accept one spec per tensor, and mappings accept a label map.
         Tab inputs must attach labels through :meth:`Tab.viz`. When omitted,
-        axes use the default viewer labels ``A B C ... Z AA AB ...``.
+        axes use the default viewer labels ``A B C ... Z A0 B0 ...``. Custom
+        labels must start with one letter and may only use non-letters after
+        it. In Python string form, separate multi-character labels with spaces,
+        such as ``"B0 T11"``.
     color_instructions:
         Optional viewer color instructions keyed by generated tensor id such as
         ``tensor-1`` and ``tensor-2`` in input order. Use ``kind="dense"``

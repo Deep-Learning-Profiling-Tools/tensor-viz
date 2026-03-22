@@ -86,7 +86,9 @@ print(session.url)
 session.wait()
 ```
 
-`labels=` is optional. When omitted, axes default to `A B C ... Z AA AB ...`.
+`labels=` is optional. When omitted, axes default to `A B C ... Z A0 B0 ...`.
+Custom labels must start with one letter and may only use non-letters after it,
+so `C`, `B0`, and `T11` are valid while `Batch` is not.
 
 ## Python API
 
@@ -108,6 +110,14 @@ The main Python entrypoints are:
 - TypeScript shared: session builder plus shared manifest/types layer
 - `viewer-demo`: mountable full-app API
 - `viewer-core`: imperative viewer engine
+
+The Python and TypeScript session-builder surfaces target the same session
+model, but they are intentionally different:
+
+- Python is ergonomic and workflow-oriented: pass tensors, `TensorMeta`, or
+  `Tab` inputs and call `viz(...)` or `create_session_data(...)`.
+- TypeScript is explicit and manifest-oriented: build `ViewerSnapshot`,
+  `BundleManifest`, or `SessionBundleManifest` objects directly.
 
 ## TypeScript Shared API
 

@@ -6,9 +6,10 @@
 :maxdepth: 2
 :caption: Guide
 
-architecture
 install
-usage
+python
+typescript
+architecture
 ```
 
 ```{toctree}

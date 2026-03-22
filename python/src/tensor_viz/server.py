@@ -78,7 +78,10 @@ def viz(
         Session title for non-tab inputs, or tensor name for a single ndarray.
     labels:
         Optional axis-label overrides for non-tab inputs. When omitted, axes
-        use the default viewer labels ``A B C ... Z AA AB ...``.
+        use the default viewer labels ``A B C ... Z A0 B0 ...``. Custom labels
+        must start with one letter and may only use non-letters after it. In
+        Python string form, separate multi-character labels with spaces, such as
+        ``"B0 T11"``.
     session_data:
         Prebuilt raw session payloads. When omitted, the payload is derived
         from ``tensor``, ``name``, and ``labels``.

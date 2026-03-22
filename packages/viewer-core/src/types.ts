@@ -64,7 +64,12 @@ export type HoverInfo = {
     colorSource: 'base' | 'heatmap' | 'custom';
 };
 
-/** Serializable viewer state, camera, and per-tensor view configuration. */
+/** Serializable viewer state for one loaded document.
+ *
+ * This captures how the viewer should look after tensors are present:
+ * display mode, camera, panel toggles, the active tensor, and each tensor's
+ * current offset and tensor-view state.
+ */
 export type ViewerSnapshot = {
     version: 1;
     displayMode: '2d' | '3d';
@@ -142,7 +147,12 @@ export type ViewParseResult =
         errors: string[];
     };
 
-/** One in-memory viewer document plus its tensor payload metadata. */
+/** One complete viewer document, typically one tab.
+ *
+ * A bundle manifest combines one viewer snapshot with one or more tensor
+ * declarations. Each tensor entry describes the tensor's metadata plus where
+ * its bytes live, whether it is metadata-only, and any manifest-driven colors.
+ */
 export type BundleManifest = {
     version: 1;
     viewer: ViewerSnapshot;
@@ -161,7 +171,11 @@ export type BundleManifest = {
     }>;
 };
 
-/** Multi-tab session document loaded by the demo app or Python server. */
+/** Multi-tab session document loaded by the demo app or Python server.
+ *
+ * Each tab embeds the same `viewer` plus `tensors` pair used by a bundle
+ * manifest, with an added tab id and title.
+ */
 export type SessionBundleManifest = {
     version: 1;
     tabs: Array<{
