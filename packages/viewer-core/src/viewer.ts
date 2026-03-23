@@ -15,6 +15,7 @@ import {
     Matrix4,
     Mesh,
     MeshBasicMaterial,
+    MOUSE,
     NoToneMapping,
     OrthographicCamera,
     PlaneGeometry,
@@ -54,6 +55,7 @@ import {
     mapViewCoordToTensorCoord,
     parseTensorView,
     product,
+    supportsContiguousSelectionFastPath2D,
 } from './view.js';
 import type {
     BundleManifest,
@@ -101,6 +103,16 @@ type PickMesh = {
         minY: number;
         maxY: number;
     };
+};
+
+type SelectionDragState = {
+    source: '2d' | '3d';
+    additive: boolean;
+    tensorId: string | null;
+    startClient: { x: number; y: number };
+    currentClient: { x: number; y: number };
+    baseSelections: Map<string, Set<string>>;
+    previewSelections: Map<string, Set<string>>;
 };
 
 const CANVAS_WORLD_SCALE = 4;
@@ -222,6 +234,31 @@ function coordKey(coord: number[]): string {
     return coord.join(',');
 }
 
+function coordFromKey(key: string): number[] {
+    return key === '' ? [] : key.split(',').map((value) => Number(value));
+}
+
+function quantile(sortedValues: number[], percentile: number): number {
+    if (sortedValues.length === 1) return sortedValues[0] ?? 0;
+    const position = (sortedValues.length - 1) * percentile;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    const lowerValue = sortedValues[lower] ?? 0;
+    const upperValue = sortedValues[upper] ?? lowerValue;
+    if (lower === upper) return lowerValue;
+    return lowerValue + (upperValue - lowerValue) * (position - lower);
+}
+
+function boxesIntersect(
+    left: { left: number; right: number; top: number; bottom: number },
+    right: { left: number; right: number; top: number; bottom: number },
+): boolean {
+    return left.left <= right.right
+        && left.right >= right.left
+        && left.top <= right.bottom
+        && left.bottom >= right.top;
+}
+
 function colorFromRgba(rgba: RGBA): Color {
     return new Color(rgba[0] / 255, rgba[1] / 255, rgba[2] / 255);
 }
@@ -271,6 +308,7 @@ export class TensorViewer {
     private readonly flatCanvas: HTMLCanvasElement;
     private readonly flatContext: CanvasRenderingContext2D;
     private readonly flatOverlay: SVGSVGElement;
+    private readonly selectionBox: SVGRectElement;
     private readonly perspectiveCamera: PerspectiveCamera;
     private readonly orthographicCamera: OrthographicCamera;
     private camera: PerspectiveCamera | OrthographicCamera;
@@ -307,6 +345,7 @@ export class TensorViewer {
         showDimensionLines: true,
         showTensorNames: true,
         showInspectorPanel: true,
+        showSelectionPanel: true,
         showHoverDetailsPanel: true,
         activeTensorId: null,
         hover: null,
@@ -319,6 +358,8 @@ export class TensorViewer {
     private isCanvasPanning = false;
     private lastCanvasPointer = { x: 0, y: 0 };
     private lastHoverLogKey: string | null = null;
+    private readonly selectedCells = new Map<string, Set<string>>();
+    private selectionDrag: SelectionDragState | null = null;
     private readonly requestTensorDataCallback?: ViewerOptions['requestTensorData'];
     private readonly pendingTensorDataRequests = new Map<string, Promise<boolean>>();
 
@@ -348,6 +389,13 @@ export class TensorViewer {
         this.flatOverlay.style.height = '100%';
         this.flatOverlay.style.pointerEvents = 'none';
         this.flatOverlay.style.display = 'none';
+        this.selectionBox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        this.selectionBox.setAttribute('fill', '#1976d220');
+        this.selectionBox.setAttribute('stroke', '#1976d2');
+        this.selectionBox.setAttribute('stroke-width', '2');
+        this.selectionBox.setAttribute('stroke-dasharray', '8 6');
+        this.selectionBox.setAttribute('display', 'none');
+        this.flatOverlay.appendChild(this.selectionBox);
         this.perspectiveCamera = new PerspectiveCamera(45, 1, 0.1, 2000);
         this.orthographicCamera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 2000);
         this.camera = this.perspectiveCamera;
@@ -379,8 +427,8 @@ export class TensorViewer {
         controls.enablePan = true;
         controls.enableZoom = true;
         controls.screenSpacePanning = true;
-        controls.mouseButtons.LEFT = 2;
-        controls.mouseButtons.RIGHT = 0;
+        controls.mouseButtons.LEFT = MOUSE.ROTATE;
+        controls.mouseButtons.RIGHT = MOUSE.PAN;
         if ('zoomToCursor' in controls) {
             (controls as OrbitControls & { zoomToCursor: boolean }).zoomToCursor = true;
         }
@@ -390,8 +438,10 @@ export class TensorViewer {
 
     private bindEvents(): void {
         window.addEventListener('resize', this.resize);
+        this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown, { capture: true });
         this.renderer.domElement.addEventListener('pointermove', this.onPointerMove);
         this.renderer.domElement.addEventListener('pointerleave', this.onPointerLeave);
+        this.renderer.domElement.addEventListener('pointerup', this.onPointerUp);
         this.renderer.domElement.addEventListener('click', this.onClick);
         this.renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
         this.flatCanvas.addEventListener('pointermove', this.onCanvasPointerMove);
@@ -632,6 +682,373 @@ export class TensorViewer {
             && left.tensorCoord.every((value, index) => value === right.tensorCoord[index]);
     }
 
+    private selectionCount(): number {
+        let count = 0;
+        this.selectionEntries().forEach((entries) => {
+            count += entries.size;
+        });
+        return count;
+    }
+
+    private selectionEntries(): Map<string, Set<string>> {
+        return this.selectionDrag?.previewSelections ?? this.selectedCells;
+    }
+
+    private selectionEnabled(
+        displayMode: '2d' | '3d' = this.state.displayMode,
+        dimensionMappingScheme: DimensionMappingScheme = this.state.dimensionMappingScheme,
+    ): boolean {
+        return displayMode === '2d' && dimensionMappingScheme === 'contiguous';
+    }
+
+    private isSelectedCell(tensorId: string, tensorCoord: number[]): boolean {
+        return this.selectionEntries().get(tensorId)?.has(coordKey(tensorCoord)) ?? false;
+    }
+
+    private selectedColor(baseColor: Color): Color {
+        return baseColor.clone().lerp(ACTIVE_COLOR, 0.7);
+    }
+
+    private cloneSelectionEntries(entries: Map<string, Set<string>>): Map<string, Set<string>> {
+        return new Map(Array.from(entries.entries(), ([tensorId, coords]) => [tensorId, new Set(coords)]));
+    }
+
+    private selectionBoxBounds(drag: SelectionDragState): { left: number; right: number; top: number; bottom: number } {
+        const start = this.overlayPoint(drag.startClient.x, drag.startClient.y);
+        const current = this.overlayPoint(drag.currentClient.x, drag.currentClient.y);
+        return {
+            left: Math.min(start.x, current.x),
+            right: Math.max(start.x, current.x),
+            top: Math.min(start.y, current.y),
+            bottom: Math.max(start.y, current.y),
+        };
+    }
+
+    private canvasPixelToWorld(x: number, y: number): { x: number; y: number } {
+        return {
+            x: (x - this.flatCanvas.width / 2 - this.canvasPan.x) / (CANVAS_WORLD_SCALE * this.canvasZoom),
+            y: -((y - this.flatCanvas.height / 2 - this.canvasPan.y) / (CANVAS_WORLD_SCALE * this.canvasZoom)),
+        };
+    }
+
+    private decodeSelectionIndex(index: number, shape: number[]): number[] {
+        return shape.length === 0 ? [] : unravelIndex(index, shape);
+    }
+
+    private monotonicIndexRange(
+        length: number,
+        valueAt: (index: number) => number,
+        lower: number,
+        upper: number,
+    ): { start: number; end: number } | null {
+        if (length <= 0 || lower > upper) return null;
+        let start = 0;
+        let end = length;
+        while (start < end) {
+            const middle = Math.floor((start + end) / 2);
+            if (valueAt(middle) < lower) start = middle + 1;
+            else end = middle;
+        }
+        const first = start;
+        start = 0;
+        end = length;
+        while (start < end) {
+            const middle = Math.floor((start + end) / 2);
+            if (valueAt(middle) <= upper) start = middle + 1;
+            else end = middle;
+        }
+        const last = start - 1;
+        return first <= last ? { start: first, end: last } : null;
+    }
+
+    private fastBoxSelectionEntries2D(
+        tensor: TensorRecord,
+        box: { left: number; right: number; top: number; bottom: number },
+    ): Set<string> | null {
+        if (!supportsContiguousSelectionFastPath2D(tensor.view, this.state.collapseHiddenAxes)) return null;
+        const split = Math.floor(tensor.view.tokens.length / 2);
+        const ySizes = tensor.view.tokens.slice(0, split).filter((token) => token.visible).map((token) => token.size);
+        const xSizes = tensor.view.tokens.slice(split).filter((token) => token.visible).map((token) => token.size);
+        const yCount = ySizes.length === 0 ? 1 : product(ySizes);
+        const xCount = xSizes.length === 0 ? 1 : product(xSizes);
+        const yZero = new Array(ySizes.length).fill(0);
+        const xZero = new Array(xSizes.length).fill(0);
+        const shape = this.layoutShape(tensor.view);
+        const worldLeft = this.canvasPixelToWorld(box.left, 0).x - tensor.offset[0] - 0.5;
+        const worldRight = this.canvasPixelToWorld(box.right, 0).x - tensor.offset[0] + 0.5;
+        const worldTop = this.canvasPixelToWorld(0, box.top).y - tensor.offset[1] + 0.5;
+        const worldBottom = this.canvasPixelToWorld(0, box.bottom).y - tensor.offset[1] - 0.5;
+        const xRange = this.monotonicIndexRange(
+            xCount,
+            (xIndex) => displayPositionForCoord2D(
+                this.mapViewCoordToLayoutCoord([...yZero, ...this.decodeSelectionIndex(xIndex, xSizes)], tensor.view),
+                shape,
+                this.layoutGapMultiple(),
+                this.state.dimensionMappingScheme,
+            ).x,
+            worldLeft,
+            worldRight,
+        );
+        const yRange = this.monotonicIndexRange(
+            yCount,
+            (yIndex) => -displayPositionForCoord2D(
+                this.mapViewCoordToLayoutCoord([...this.decodeSelectionIndex(yIndex, ySizes), ...xZero], tensor.view),
+                shape,
+                this.layoutGapMultiple(),
+                this.state.dimensionMappingScheme,
+            ).y,
+            -worldTop,
+            -worldBottom,
+        );
+        if (!xRange || !yRange) return new Set<string>();
+        const selected = new Set<string>();
+        for (let yIndex = yRange.start; yIndex <= yRange.end; yIndex += 1) {
+            const yCoord = this.decodeSelectionIndex(yIndex, ySizes);
+            for (let xIndex = xRange.start; xIndex <= xRange.end; xIndex += 1) {
+                selected.add(coordKey(mapViewCoordToTensorCoord([...yCoord, ...this.decodeSelectionIndex(xIndex, xSizes)], tensor.view)));
+            }
+        }
+        return selected;
+    }
+
+    private projectScenePoint(point: Vector3): { x: number; y: number } | null {
+        const projected = point.clone().project(this.camera);
+        if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) return null;
+        return {
+            x: ((projected.x + 1) * this.flatCanvas.width) / 2,
+            y: ((1 - projected.y) * this.flatCanvas.height) / 2,
+        };
+    }
+
+    private canvasCellBounds(
+        tensor: TensorRecord,
+        layoutCoord: number[],
+    ): { left: number; right: number; top: number; bottom: number } {
+        const shape = this.layoutShape(tensor.view);
+        const position = displayPositionForCoord2D(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+        const topLeft = this.projectCanvasPoint(tensor.offset[0] + position.x - 0.5, tensor.offset[1] + position.y + 0.5);
+        const bottomRight = this.projectCanvasPoint(tensor.offset[0] + position.x + 0.5, tensor.offset[1] + position.y - 0.5);
+        return {
+            left: Math.min(topLeft.x, bottomRight.x),
+            right: Math.max(topLeft.x, bottomRight.x),
+            top: Math.min(topLeft.y, bottomRight.y),
+            bottom: Math.max(topLeft.y, bottomRight.y),
+        };
+    }
+
+    private sceneCellBounds(
+        tensor: TensorRecord,
+        layoutCoord: number[],
+    ): { left: number; right: number; top: number; bottom: number } | null {
+        const shape = this.layoutShape(tensor.view);
+        const center = displayPositionForCoord(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme)
+            .add(vectorFromTuple(tensor.offset));
+        let left = Number.POSITIVE_INFINITY;
+        let right = Number.NEGATIVE_INFINITY;
+        let top = Number.POSITIVE_INFINITY;
+        let bottom = Number.NEGATIVE_INFINITY;
+        for (const x of [-0.5, 0.5]) {
+            for (const y of [-0.5, 0.5]) {
+                for (const z of [-0.5, 0.5]) {
+                    const point = this.projectScenePoint(center.clone().add(new Vector3(x, y, z)));
+                    if (!point) return null;
+                    left = Math.min(left, point.x);
+                    right = Math.max(right, point.x);
+                    top = Math.min(top, point.y);
+                    bottom = Math.max(bottom, point.y);
+                }
+            }
+        }
+        return { left, right, top, bottom };
+    }
+
+    private boxSelectionEntries(drag: SelectionDragState): Map<string, Set<string>> {
+        if (!this.selectionEnabled()) return new Map();
+        const entries = new Map<string, Set<string>>();
+        const box = this.selectionBoxBounds(drag);
+        this.tensors.forEach((tensor) => {
+            const fastSelected = this.state.displayMode === '2d' ? this.fastBoxSelectionEntries2D(tensor, box) : null;
+            if (fastSelected) {
+                if (fastSelected.size !== 0) entries.set(tensor.id, fastSelected);
+                return;
+            }
+            const instanceShape = this.instanceShape(tensor.view);
+            const count = product(instanceShape);
+            for (let index = 0; index < count; index += 1) {
+                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
+                const cellBounds = this.state.displayMode === '2d'
+                    ? this.canvasCellBounds(tensor, layoutCoord)
+                    : this.sceneCellBounds(tensor, layoutCoord);
+                if (!cellBounds || !boxesIntersect(box, cellBounds)) continue;
+                const selected = entries.get(tensor.id) ?? new Set<string>();
+                selected.add(coordKey(tensorCoord));
+                entries.set(tensor.id, selected);
+            }
+        });
+        return entries;
+    }
+
+    private updateSelectionPreview(drag: SelectionDragState): void {
+        const selected = this.boxSelectionEntries(drag);
+        if (!drag.additive) {
+            drag.previewSelections = selected;
+            return;
+        }
+        drag.previewSelections = this.cloneSelectionEntries(drag.baseSelections);
+        selected.forEach((coords, tensorId) => {
+            const preview = drag.previewSelections.get(tensorId) ?? new Set<string>();
+            coords.forEach((coord) => {
+                if (preview.has(coord)) preview.delete(coord);
+                else preview.add(coord);
+            });
+            if (preview.size === 0) drag.previewSelections.delete(tensorId);
+            else drag.previewSelections.set(tensorId, preview);
+        });
+    }
+
+    private refreshTensorColors(tensorId: string): void {
+        const tensor = this.tensors.get(tensorId);
+        const group = this.tensorMeshes.get(tensorId);
+        const mesh = group?.children[0];
+        const colorArray = mesh instanceof InstancedMesh ? mesh.instanceColor?.array as Float32Array | undefined : undefined;
+        if (!tensor || !colorArray || !(mesh instanceof InstancedMesh)) return;
+        const instanceShape = this.instanceShape(tensor.view);
+        const count = product(instanceShape);
+        const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
+        for (let index = 0; index < count; index += 1) {
+            const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+            const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+            const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
+            const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
+            const offset = index * 3;
+            colorArray[offset] = color.r;
+            colorArray[offset + 1] = color.g;
+            colorArray[offset + 2] = color.b;
+        }
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.material.needsUpdate = true;
+    }
+
+    private refreshSelectionVisuals(...tensorIds: string[]): void {
+        const ids = new Set(tensorIds);
+        ids.forEach((tensorId) => this.refreshTensorColors(tensorId));
+        this.requestRender();
+    }
+
+    private clearSelection(emit = true): void {
+        if (!this.selectionDrag && this.selectedCells.size === 0) return;
+        const tensorIds = new Set(this.selectedCells.keys());
+        this.selectionDrag?.baseSelections.forEach((_coords, tensorId) => tensorIds.add(tensorId));
+        this.selectionDrag?.previewSelections.forEach((_coords, tensorId) => tensorIds.add(tensorId));
+        this.selectedCells.clear();
+        this.selectionDrag = null;
+        this.syncSelectionBox();
+        if (tensorIds.size !== 0) this.refreshSelectionVisuals(...tensorIds);
+        if (emit) this.emit();
+    }
+
+    private beginSelectionDrag(
+        source: '2d' | '3d',
+        hover: HoverInfo | null,
+        additive: boolean,
+        clientX: number,
+        clientY: number,
+    ): void {
+        if (!this.selectionEnabled()) return;
+        const clearSelectionOnStart = !additive && hover === null;
+        const previousSelectionIds = clearSelectionOnStart ? Array.from(this.selectedCells.keys()) : [];
+        this.selectionDrag = {
+            source,
+            additive,
+            tensorId: hover?.tensorId ?? null,
+            startClient: { x: clientX, y: clientY },
+            currentClient: { x: clientX, y: clientY },
+            baseSelections: this.cloneSelectionEntries(this.selectedCells),
+            previewSelections: new Map(),
+        };
+        this.updateSelectionPreview(this.selectionDrag);
+        if (clearSelectionOnStart) this.selectedCells.clear();
+        if (hover) {
+            this.state.activeTensorId = hover.tensorId;
+            this.state.hover = hover;
+            this.state.lastHover = hover;
+        }
+        this.refreshSelectionVisuals(...new Set([
+            ...previousSelectionIds,
+            ...this.selectedCells.keys(),
+            ...this.selectionDrag.previewSelections.keys(),
+        ]));
+        this.emit();
+    }
+
+    private updateSelectionDrag(
+        source: '2d' | '3d',
+        hit: { hover: HoverInfo; position: Vector3 } | null,
+        clientX: number,
+        clientY: number,
+    ): void {
+        const drag = this.selectionDrag;
+        if (!drag || drag.source !== source) return;
+        drag.currentClient = { x: clientX, y: clientY };
+        this.updateSelectionPreview(drag);
+        this.refreshSelectionVisuals(...new Set([
+            ...drag.baseSelections.keys(),
+            ...drag.previewSelections.keys(),
+        ]));
+        this.updateHover(hit?.hover ?? null, source, hit?.position);
+        this.emit();
+    }
+
+    private finalizeSelectionDrag(): void {
+        const drag = this.selectionDrag;
+        if (!drag) return;
+        this.selectionDrag = null;
+        this.selectedCells.clear();
+        drag.previewSelections.forEach((coords, tensorId) => {
+            if (coords.size !== 0) this.selectedCells.set(tensorId, new Set(coords));
+        });
+        this.state.activeTensorId = drag.tensorId ?? this.selectedCells.keys().next().value ?? this.state.activeTensorId;
+        logEvent('selection:update', {
+            tensorId: drag.tensorId ?? 'box',
+            additive: drag.additive,
+            count: this.selectionCount(),
+        });
+        this.refreshSelectionVisuals(...new Set([
+            ...drag.baseSelections.keys(),
+            ...this.selectedCells.keys(),
+        ]));
+        this.emit();
+    }
+
+    private overlayPoint(clientX: number, clientY: number): { x: number; y: number } {
+        const rect = this.container.getBoundingClientRect();
+        const scaleX = this.flatCanvas.width / Math.max(1, rect.width);
+        const scaleY = this.flatCanvas.height / Math.max(1, rect.height);
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY,
+        };
+    }
+
+    private syncSelectionBox(): void {
+        const drag = this.selectionDrag;
+        if (!drag) {
+            this.selectionBox.setAttribute('display', 'none');
+            this.flatOverlay.style.display = 'none';
+            return;
+        }
+        const start = this.overlayPoint(drag.startClient.x, drag.startClient.y);
+        const current = this.overlayPoint(drag.currentClient.x, drag.currentClient.y);
+        this.selectionBox.setAttribute('x', String(Math.min(start.x, current.x)));
+        this.selectionBox.setAttribute('y', String(Math.min(start.y, current.y)));
+        this.selectionBox.setAttribute('width', String(Math.abs(current.x - start.x)));
+        this.selectionBox.setAttribute('height', String(Math.abs(current.y - start.y)));
+        this.selectionBox.removeAttribute('display');
+        this.flatOverlay.style.display = 'block';
+    }
+
     private hoverPosition(hover: HoverInfo): Vector3 | null {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return null;
@@ -747,13 +1164,29 @@ export class TensorViewer {
     }
 
     private readonly onCanvasPointerDown = (event: PointerEvent): void => {
-        if (event.button !== 0) return;
+        const hit = this.hoveredCellContainsPointer(event.clientX, event.clientY, this.state.hover)
+            && this.state.hover
+            ? { hover: this.state.hover, position: this.hoverPosition(this.state.hover) ?? new Vector3() }
+            : this.canvasPointerToHover(event.clientX, event.clientY);
+        if (event.button === 0) {
+            if (!this.selectionEnabled()) return;
+            this.flatCanvas.setPointerCapture(event.pointerId);
+            this.beginSelectionDrag('2d', hit?.hover ?? null, event.shiftKey, event.clientX, event.clientY);
+            return;
+        }
+        if (event.button !== 2) return;
+        this.flatCanvas.setPointerCapture(event.pointerId);
         this.isCanvasPanning = true;
         this.lastCanvasPointer = { x: event.clientX, y: event.clientY };
         logEvent('2d:pointerdown', { x: event.clientX, y: event.clientY, button: event.button });
     };
 
-    private readonly onCanvasPointerUp = (): void => {
+    private readonly onCanvasPointerUp = (event: PointerEvent): void => {
+        if (this.flatCanvas.hasPointerCapture(event.pointerId)) this.flatCanvas.releasePointerCapture(event.pointerId);
+        if (event.button === 0 && this.selectionDrag?.source === '2d') {
+            this.finalizeSelectionDrag();
+            return;
+        }
         this.isCanvasPanning = false;
         logEvent('2d:pointerup');
     };
@@ -774,6 +1207,14 @@ export class TensorViewer {
     };
 
     private readonly onCanvasPointerMove = (event: PointerEvent): void => {
+        if (this.selectionDrag?.source === '2d') {
+            const hit = this.hoveredCellContainsPointer(event.clientX, event.clientY, this.state.hover)
+                && this.state.hover?.tensorId === this.selectionDrag.tensorId
+                ? { hover: this.state.hover, position: this.hoverPosition(this.state.hover) ?? new Vector3() }
+                : this.canvasPointerToHover(event.clientX, event.clientY);
+            this.updateSelectionDrag('2d', hit, event.clientX, event.clientY);
+            return;
+        }
         if (this.isCanvasPanning) {
             this.canvasPan.x += (event.clientX - this.lastCanvasPointer.x) * (this.flatCanvas.width / this.flatCanvas.getBoundingClientRect().width);
             this.canvasPan.y += (event.clientY - this.lastCanvasPointer.y) * (this.flatCanvas.height / this.flatCanvas.getBoundingClientRect().height);
@@ -791,6 +1232,7 @@ export class TensorViewer {
     };
 
     private readonly onCanvasPointerLeave = (): void => {
+        if (this.selectionDrag?.source === '2d') return;
         this.updateHover(null, '2d');
     };
 
@@ -806,7 +1248,27 @@ export class TensorViewer {
         this.emit();
     };
 
+    private readonly onPointerDown = (event: PointerEvent): void => {
+        const hit = this.hoveredCellContainsPointer(event.clientX, event.clientY, this.state.hover)
+            && this.state.hover
+            ? { hover: this.state.hover, position: this.hoverPosition(this.state.hover) ?? new Vector3() }
+            : this.scenePointerToHover(event.clientX, event.clientY);
+        if (event.button !== 2) return;
+        if (!this.selectionEnabled()) return;
+        this.renderer.domElement.setPointerCapture(event.pointerId);
+        this.controls.enabled = false;
+        this.beginSelectionDrag('3d', hit?.hover ?? null, event.shiftKey, event.clientX, event.clientY);
+    };
+
     private readonly onPointerMove = (event: PointerEvent): void => {
+        if (this.selectionDrag?.source === '3d') {
+            const hit = this.hoveredCellContainsPointer(event.clientX, event.clientY, this.state.hover)
+                && this.state.hover?.tensorId === this.selectionDrag.tensorId
+                ? { hover: this.state.hover, position: this.hoverPosition(this.state.hover) ?? new Vector3() }
+                : this.scenePointerToHover(event.clientX, event.clientY);
+            this.updateSelectionDrag('3d', hit, event.clientX, event.clientY);
+            return;
+        }
         const currentHover = this.state.hover;
         if (currentHover && this.hoveredCellContainsPointer(event.clientX, event.clientY, currentHover)) {
             if (this.syncHoverOutline(currentHover, '3d')) this.requestRender();
@@ -821,7 +1283,15 @@ export class TensorViewer {
     };
 
     private readonly onPointerLeave = (): void => {
+        if (this.selectionDrag?.source === '3d') return;
         this.updateHover(null, '3d');
+    };
+
+    private readonly onPointerUp = (event: PointerEvent): void => {
+        if (event.button !== 2 || this.selectionDrag?.source !== '3d') return;
+        if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
+        this.controls.enabled = true;
+        this.finalizeSelectionDrag();
     };
 
     private readonly onClick = (): void => {
@@ -860,10 +1330,11 @@ export class TensorViewer {
             this.renderPending = false;
             if (this.state.displayMode === '2d') {
                 this.render2D();
-                return;
+            } else {
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
             }
-            this.controls.update();
-            this.renderer.render(this.scene, this.camera);
+            this.syncSelectionBox();
         });
     }
 
@@ -955,7 +1426,7 @@ export class TensorViewer {
                 && token.visible
                 && token.axes.length === 1
                 && token.axes[0] === index);
-        if (!isIdentityView || tensor.customColors.size !== 0 || !colorArray) return false;
+        if (!isIdentityView || tensor.customColors.size !== 0 || !colorArray || (this.selectedCells.get(tensor.id)?.size ?? 0) !== 0) return false;
 
         // default 1d/2d views are affine grids, so write instance buffers directly.
         const matrixArray = mesh.instanceMatrix.array as Float32Array;
@@ -1367,16 +1838,24 @@ export class TensorViewer {
         heatmapRange: { min: number; max: number } | null,
     ): Color {
         const customColor = tensor.customColors.get(coordKey(tensorCoord));
-        if (customColor?.kind === 'rgba') return colorFromRgba(customColor.value);
+        let color: Color;
+        if (customColor?.kind === 'rgba') {
+            color = colorFromRgba(customColor.value);
+            return this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
+        }
         if (customColor?.kind === 'hs') {
-            return colorFromHueSaturation(
+            color = colorFromHueSaturation(
                 customColor.value,
                 heatmapRange ? this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max) : 1,
             );
+            return this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
         }
-        if (!heatmapRange) return BASE_COLOR.clone();
-        const gray = this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max);
-        return new Color().setRGB(gray, gray, gray);
+        if (!heatmapRange) color = BASE_COLOR.clone();
+        else {
+            const gray = this.heatmapNormalizedValue(value, heatmapRange.min, heatmapRange.max);
+            color = new Color().setRGB(gray, gray, gray);
+        }
+        return this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
     }
 
     private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
@@ -1472,6 +1951,9 @@ export class TensorViewer {
         this.tensorMeshes.clear();
         this.pickMeshes.length = 0;
         this.pendingTensorDataRequests.clear();
+        this.selectedCells.clear();
+        this.selectionDrag = null;
+        this.syncSelectionBox();
         this.tensors.clear();
         this.state.activeTensorId = null;
         this.state.hover = null;
@@ -1484,6 +1966,7 @@ export class TensorViewer {
     private applyDisplayMode(mode: '2d' | '3d'): void {
         const previousTarget = this.controls.target.clone();
         this.state.displayMode = mode;
+        if (!this.selectionEnabled()) this.clearSelection(false);
         this.controls.dispose();
         this.camera = mode === '2d' ? this.orthographicCamera : this.perspectiveCamera;
         this.controls = this.createControls(this.camera);
@@ -1511,6 +1994,7 @@ export class TensorViewer {
     }
 
     private applySnapshot(snapshot: ViewerSnapshot): void {
+        this.clearSelection(false);
         this.state.heatmap = snapshot.heatmap;
         this.state.dimensionBlockGapMultiple = snapshot.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
         this.state.displayGaps = snapshot.displayGaps ?? true;
@@ -1520,6 +2004,7 @@ export class TensorViewer {
         this.state.showDimensionLines = snapshot.showDimensionLines;
         this.state.showTensorNames = snapshot.showTensorNames ?? true;
         this.state.showInspectorPanel = snapshot.showInspectorPanel;
+        this.state.showSelectionPanel = snapshot.showSelectionPanel ?? true;
         this.state.showHoverDetailsPanel = snapshot.showHoverDetailsPanel;
         this.state.activeTensorId = snapshot.activeTensorId;
         this.applyDisplayMode(snapshot.displayMode);
@@ -1679,6 +2164,7 @@ export class TensorViewer {
     public removeTensor(tensorId: string): void {
         logEvent('tensor:remove', tensorId);
         this.tensors.delete(tensorId);
+        this.selectedCells.delete(tensorId);
         if (this.state.activeTensorId === tensorId) {
             this.state.activeTensorId = this.tensors.keys().next().value ?? null;
         }
@@ -1709,6 +2195,7 @@ export class TensorViewer {
             showDimensionLines: this.state.showDimensionLines,
             showTensorNames: this.state.showTensorNames,
             showInspectorPanel: this.state.showInspectorPanel,
+            showSelectionPanel: this.state.showSelectionPanel,
             showHoverDetailsPanel: this.state.showHoverDetailsPanel,
             camera: {
                 position: tupleFromVector(this.camera.position),
@@ -1833,6 +2320,7 @@ export class TensorViewer {
         const nextValue = value === 'contiguous' ? 'contiguous' : 'z-order';
         if (nextValue === this.state.dimensionMappingScheme) return nextValue;
         this.state.dimensionMappingScheme = nextValue;
+        if (!this.selectionEnabled()) this.clearSelection(false);
         logEvent('display:dimension-mapping-scheme', nextValue);
         if (this.state.hover) this.clearHover();
         this.rebuildAllMeshes();
@@ -1845,6 +2333,14 @@ export class TensorViewer {
         logEvent('widget:inspector', this.state.showInspectorPanel);
         this.emit();
         return this.state.showInspectorPanel;
+    }
+
+    /** Toggle whether the host UI should show a selection-summary panel. */
+    public toggleSelectionPanel(force?: boolean): boolean {
+        this.state.showSelectionPanel = force ?? !this.state.showSelectionPanel;
+        logEvent('widget:selection', this.state.showSelectionPanel);
+        this.emit();
+        return this.state.showSelectionPanel;
     }
 
     /** Toggle whether the host UI should show hover-detail widgets. */
@@ -1972,6 +2468,49 @@ export class TensorViewer {
     public getHover(): HoverInfo | null {
         const hover = this.state.hover ?? this.state.lastHover;
         return hover ? { ...hover } : null;
+    }
+
+    /** Return selection count plus summary stats across selected cells with loaded values. */
+    public getSelectionSummary(): {
+        count: number;
+        availableCount: number;
+        stats: null | {
+            min: number;
+            p25: number;
+            p50: number;
+            p75: number;
+            max: number;
+            mean: number;
+            std: number;
+        };
+    } {
+        if (!this.selectionEnabled()) return { count: 0, availableCount: 0, stats: null };
+        const count = this.selectionCount();
+        const values: number[] = [];
+        this.selectionEntries().forEach((coords, tensorId) => {
+            const tensor = this.tensors.get(tensorId);
+            if (!tensor?.data) return;
+            coords.forEach((key) => {
+                values.push(numericValue(tensor.data, this.linearIndex(coordFromKey(key), tensor.shape)));
+            });
+        });
+        if (values.length === 0) return { count, availableCount: 0, stats: null };
+        const sorted = values.slice().sort((left, right) => left - right);
+        const mean = values.reduce((total, value) => total + value, 0) / values.length;
+        const variance = values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length;
+        return {
+            count,
+            availableCount: values.length,
+            stats: {
+                min: sorted[0] ?? 0,
+                p25: quantile(sorted, 0.25),
+                p50: quantile(sorted, 0.5),
+                p75: quantile(sorted, 0.75),
+                max: sorted[sorted.length - 1] ?? 0,
+                mean,
+                std: Math.sqrt(variance),
+            },
+        };
     }
 
     /** Load one `.npy` file into the viewer as the active tensor. */

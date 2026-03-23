@@ -83,6 +83,7 @@ export type ViewerSnapshot = {
     showDimensionLines: boolean;
     showTensorNames?: boolean;
     showInspectorPanel: boolean;
+    showSelectionPanel?: boolean;
     showHoverDetailsPanel: boolean;
     camera: {
         position: Vec3;
@@ -221,6 +222,7 @@ export type ViewerState = {
     showDimensionLines: boolean;
     showTensorNames: boolean;
     showInspectorPanel: boolean;
+    showSelectionPanel: boolean;
     showHoverDetailsPanel: boolean;
     activeTensorId: string | null;
     hover: HoverInfo | null;

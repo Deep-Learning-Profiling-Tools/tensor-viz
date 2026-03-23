@@ -65,6 +65,7 @@ app.innerHTML = `
       <div class="menu-list">
         <button data-action="tensor-view" type="button">Toggle Tensor View <span>Ctrl+V</span></button>
         <button data-action="inspector" type="button">Toggle Inspector <span></span></button>
+        <button data-action="selection" type="button">Toggle Selection <span></span></button>
         <button data-action="advanced-settings" type="button">Toggle Advanced Settings <span></span></button>
       </div>
     </div>
@@ -77,6 +78,7 @@ app.innerHTML = `
   <aside class="sidebar" id="sidebar">
     <section class="widget" id="tensor-view-widget"></section>
     <section class="widget" id="inspector-widget"></section>
+    <section class="widget" id="selection-widget"></section>
     <section class="widget" id="advanced-settings-widget"></section>
     <section class="widget" id="colorbar-widget"></section>
   </aside>
@@ -95,6 +97,7 @@ const tabStrip = document.querySelector<HTMLDivElement>('#tab-strip');
 const sidebarSplitter = document.querySelector<HTMLDivElement>('#sidebar-splitter');
 const tensorViewWidget = document.querySelector<HTMLElement>('#tensor-view-widget');
 const inspectorWidget = document.querySelector<HTMLElement>('#inspector-widget');
+const selectionWidget = document.querySelector<HTMLElement>('#selection-widget');
 const advancedSettingsWidget = document.querySelector<HTMLElement>('#advanced-settings-widget');
 const colorbarWidget = document.querySelector<HTMLElement>('#colorbar-widget');
 const commandPalette = document.querySelector<HTMLDivElement>('#command-palette');
@@ -108,6 +111,7 @@ if (
     || !sidebarSplitter
     || !tensorViewWidget
     || !inspectorWidget
+    || !selectionWidget
     || !advancedSettingsWidget
     || !colorbarWidget
     || !commandPalette
@@ -164,6 +168,21 @@ function logUi(event: string, details?: unknown): void {
 
 function formatRangeValue(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toPrecision(6);
+}
+
+function selectionEnabled(snapshot: ViewerSnapshot): boolean {
+    return snapshot.displayMode === '2d' && (snapshot.dimensionMappingScheme ?? 'z-order') === 'contiguous';
+}
+
+function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
+    if (!enabled) return 'Unavailable';
+    if (summary.count === 0) return '0';
+    return summary.availableCount === summary.count ? String(summary.count) : `${summary.count} (${summary.availableCount} with values)`;
+}
+
+function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean, key: keyof NonNullable<ReturnType<TensorViewer['getSelectionSummary']>['stats']>): string {
+    if (!enabled || !summary.stats) return '—';
+    return formatRangeValue(summary.stats[key]);
 }
 
 function escapeInfo(text: string): string {
@@ -227,6 +246,7 @@ function commandActions(): CommandAction[] {
         { action: 'tensor-names', label: 'Toggle Tensor Names', shortcut: '', keywords: 'display tensor names labels title' },
         { action: 'tensor-view', label: 'Toggle Tensor View', shortcut: 'Ctrl+V', keywords: 'widgets tensor view panel' },
         { action: 'inspector', label: 'Toggle Inspector', shortcut: '', keywords: 'widgets inspector panel' },
+        { action: 'selection', label: 'Toggle Selection', shortcut: '', keywords: 'widgets selection panel stats highlighted cells' },
         { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
         { action: 'view', label: 'Focus Tensor View Input', shortcut: '', keywords: 'focus tensor view input field' },
     ];
@@ -416,6 +436,7 @@ commandPaletteInput.addEventListener('keydown', async (event) => {
 function updateSidebar(snapshot: ViewerSnapshot): void {
     tensorViewWidget.classList.toggle('hidden', !showTensorViewWidget);
     inspectorWidget.classList.toggle('hidden', !snapshot.showInspectorPanel);
+    selectionWidget.classList.toggle('hidden', !snapshot.showSelectionPanel);
     advancedSettingsWidget.classList.toggle('hidden', !showAdvancedSettingsWidget);
     const model = viewer.getInspectorModel();
     colorbarWidget.classList.toggle('hidden', !snapshot.heatmap || model.colorRanges.length === 0);
@@ -576,6 +597,32 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.rankValue.textContent = String(hoveredStatus?.rank ?? model.handle.rank);
 }
 
+function renderSelectionWidget(snapshot: ViewerSnapshot): void {
+    const model = viewer.getInspectorModel();
+    if (!model.handle) {
+        selectionWidget.innerHTML = `${titleWithInfo('Selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}<div class="widget-body">No tensor loaded.</div>`;
+        return;
+    }
+    const summary = viewer.getSelectionSummary();
+    const enabled = selectionEnabled(snapshot);
+    const note = enabled
+        ? 'Left-click and drag to start a new selection box, or hold Shift to toggle cells into or out of the current selection.'
+        : 'Selection is only available in 2D contiguous mapping.';
+    selectionWidget.innerHTML = `
+      ${titleWithInfo('Selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}
+      <div class="widget-body meta-grid">
+        <div><div class="label-row"><span class="meta-label">Highlighted Cells</span>${infoButton(note)}</div><span class="meta-value">${selectionCountValue(summary, enabled)}</span></div>
+        <div><div class="label-row"><span class="meta-label">Min</span>${infoButton('Minimum across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'min')}</span></div>
+        <div><div class="label-row"><span class="meta-label">25th</span>${infoButton('25th percentile across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'p25')}</span></div>
+        <div><div class="label-row"><span class="meta-label">50th</span>${infoButton('Median across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'p50')}</span></div>
+        <div><div class="label-row"><span class="meta-label">75th</span>${infoButton('75th percentile across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'p75')}</span></div>
+        <div><div class="label-row"><span class="meta-label">Max</span>${infoButton('Maximum across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'max')}</span></div>
+        <div><div class="label-row"><span class="meta-label">Mean</span>${infoButton('Mean across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'mean')}</span></div>
+        <div><div class="label-row"><span class="meta-label">Std</span>${infoButton('Population standard deviation across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'std')}</span></div>
+      </div>
+    `;
+}
+
 function renderColorbarWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     if (!snapshot.heatmap || model.colorRanges.length === 0) {
@@ -685,6 +732,7 @@ function render(snapshot: ViewerSnapshot): void {
     renderTabStrip();
     renderTensorViewWidget(snapshot);
     renderInspectorWidget(snapshot);
+    renderSelectionWidget(snapshot);
     renderAdvancedSettingsWidget(snapshot);
     renderColorbarWidget(snapshot);
 }
@@ -789,6 +837,9 @@ async function runAction(action: string): Promise<void> {
         case 'tensor-view':
             showTensorViewWidget = !showTensorViewWidget;
             render(viewer.getSnapshot());
+            return;
+        case 'selection':
+            viewer.toggleSelectionPanel();
             return;
         case 'advanced-settings':
             showAdvancedSettingsWidget = !showAdvancedSettingsWidget;

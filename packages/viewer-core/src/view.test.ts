@@ -9,6 +9,7 @@ import {
     mapViewCoordToLayoutCoord,
     mapViewCoordToTensorCoord,
     parseTensorView,
+    supportsContiguousSelectionFastPath2D,
 } from './view.js';
 
 describe('parseTensorView', () => {
@@ -123,5 +124,16 @@ describe('parseTensorView', () => {
         expect(mapViewCoordToLayoutCoord([1, 2], result.spec, true)).toEqual([1, 2]);
         expect(mapLayoutCoordToViewCoord([1, 2], result.spec, true)).toEqual([1, 2]);
         expect(layoutCoordIsVisible([1, 2], result.spec, true)).toBe(true);
+    });
+
+    it('detects 2d contiguous row-major fast-path views', () => {
+        const fast = parseTensorView([2, 3, 4, 5], 'A b C D', [0, 1, 0, 0]);
+        const slow = parseTensorView([2, 3, 4, 5], 'A C b D', [0, 0, 1, 0]);
+        expect(fast.ok).toBe(true);
+        expect(slow.ok).toBe(true);
+        if (!fast.ok || !slow.ok) return;
+        expect(supportsContiguousSelectionFastPath2D(fast.spec)).toBe(true);
+        expect(supportsContiguousSelectionFastPath2D(slow.spec)).toBe(false);
+        expect(supportsContiguousSelectionFastPath2D(fast.spec, true)).toBe(false);
     });
 });

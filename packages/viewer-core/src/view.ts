@@ -194,6 +194,31 @@ export function layoutAxisLabels(spec: TensorViewSpec, collapseHiddenAxes = fals
     return tokens.map((token) => token.label.toUpperCase());
 }
 
+/** Return whether 2D contiguous selection can use the row-major fast path. */
+export function supportsContiguousSelectionFastPath2D(spec: TensorViewSpec, collapseHiddenAxes = false): boolean {
+    if (collapseHiddenAxes) return false;
+    const flattenedAxes = spec.tokens
+        .filter((token): token is ViewToken & { kind: 'axis_group' } => token.kind === 'axis_group')
+        .flatMap((token) => token.axes);
+    if (flattenedAxes.length !== spec.tensorShape.length || flattenedAxes.some((axis, index) => axis !== index)) return false;
+
+    const split = Math.floor(spec.tokens.length / 2);
+    const xVisibleAxes: number[] = [];
+    let sawVisibleX = false;
+    for (let layoutAxis = split; layoutAxis < spec.tokens.length; layoutAxis += 1) {
+        const token = spec.tokens[layoutAxis];
+        if (!token || token.kind !== 'axis_group') continue;
+        if (token.visible) {
+            sawVisibleX = true;
+            xVisibleAxes.push(...token.axes);
+            continue;
+        }
+        if (sawVisibleX) return false;
+    }
+    const firstXAxis = spec.tensorShape.length - xVisibleAxes.length;
+    return xVisibleAxes.every((axis, index) => axis === firstXAxis + index);
+}
+
 /** Build a readable summary of the permute, reshape, and slice implied by one view string. */
 export function buildPreviewExpression(spec: TensorViewSpec): string {
     const viewAxes = spec.tokens

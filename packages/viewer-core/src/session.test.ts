@@ -43,4 +43,9 @@ describe('session builders', () => {
         expect(createViewerSnapshot({ showTensorNames: false }).showTensorNames).toBe(false);
     });
 
+    it('defaults selection panel on and preserves explicit overrides', () => {
+        expect(createViewerSnapshot().showSelectionPanel).toBe(true);
+        expect(createViewerSnapshot({ showSelectionPanel: false }).showSelectionPanel).toBe(false);
+    });
+
 });

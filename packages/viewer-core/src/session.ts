@@ -54,6 +54,7 @@ export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): V
         showDimensionLines: overrides.showDimensionLines ?? true,
         showTensorNames: overrides.showTensorNames ?? true,
         showInspectorPanel: overrides.showInspectorPanel ?? true,
+        showSelectionPanel: overrides.showSelectionPanel ?? true,
         showHoverDetailsPanel: overrides.showHoverDetailsPanel ?? true,
         camera: {
             position: overrides.camera?.position ?? [0, 0, 30],
