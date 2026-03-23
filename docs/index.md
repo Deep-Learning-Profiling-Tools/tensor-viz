@@ -7,6 +7,7 @@
 :caption: Guide
 
 install
+ui
 python
 typescript
 architecture
