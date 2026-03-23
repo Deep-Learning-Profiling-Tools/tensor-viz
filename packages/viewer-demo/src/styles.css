@@ -72,7 +72,7 @@ select {
     text-align: left;
 }
 
-.menu:hover .menu-list {
+.menu:hover > .menu-list {
     display: grid;
 }
 
@@ -85,6 +85,19 @@ select {
     min-width: 280px;
     background: #fff;
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.menu-submenu {
+    position: relative;
+}
+
+.menu-submenu:hover > .menu-submenu-list {
+    display: grid;
+}
+
+.menu-submenu-list {
+    left: 100%;
+    top: 0;
 }
 
 .menu-list button {

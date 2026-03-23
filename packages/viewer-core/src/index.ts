@@ -31,6 +31,7 @@ export type {
     LoadedBundleDocument,
     NumericArray,
     RGBA,
+    SelectionCoords,
     SessionBundleManifest,
     SliceToken,
     TensorDataRequestReason,

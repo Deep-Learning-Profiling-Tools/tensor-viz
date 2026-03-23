@@ -64,6 +64,9 @@ export type HoverInfo = {
     colorSource: 'base' | 'heatmap' | 'custom';
 };
 
+/** Selected tensor coordinates grouped by tensor id. */
+export type SelectionCoords = Map<string, number[][]>;
+
 /** Serializable viewer state for one loaded document.
  *
  * This captures how the viewer should look after tensors are present:

@@ -58,6 +58,16 @@ app.innerHTML = `
         <button data-action="heatmap" type="button">Toggle Heatmap <span>Ctrl+H</span></button>
         <button data-action="dims" type="button">Toggle Dimension Lines <span>Ctrl+D</span></button>
         <button data-action="tensor-names" type="button">Toggle Tensor Names <span></span></button>
+        <div class="menu-submenu">
+          <button class="menu-submenu-trigger" type="button">Advanced <span>&gt;</span></button>
+          <div class="menu-list menu-submenu-list">
+            <button data-action="mapping-contiguous" type="button">Set Contiguous Axis Family Mapping <span></span></button>
+            <button data-action="mapping-z-order" type="button">Set Z-Order Axis Family Mapping <span></span></button>
+            <button data-action="display-gaps" type="button">Toggle Block Gaps <span></span></button>
+            <button data-action="collapse-hidden-axes" type="button">Toggle Collapse Hidden Axes <span></span></button>
+            <button data-action="log-scale" type="button">Toggle Log Scale <span></span></button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="menu">
@@ -241,6 +251,11 @@ function commandActions(): CommandAction[] {
         { action: 'save', label: 'Save Tensor', shortcut: 'Ctrl+S', keywords: 'file save export tensor npy' },
         { action: '2d', label: 'Display as 2D', shortcut: 'Ctrl+2', keywords: 'display 2d orthographic' },
         { action: '3d', label: 'Display as 3D', shortcut: 'Ctrl+3', keywords: 'display 3d perspective' },
+        { action: 'mapping-contiguous', label: 'Set Contiguous Axis Family Mapping', shortcut: '', keywords: 'display axis family mapping contiguous layout' },
+        { action: 'mapping-z-order', label: 'Set Z-Order Axis Family Mapping', shortcut: '', keywords: 'display axis family mapping z-order z order layout' },
+        { action: 'display-gaps', label: 'Toggle Block Gaps', shortcut: '', keywords: 'display advanced block gaps spacing' },
+        { action: 'collapse-hidden-axes', label: 'Toggle Collapse Hidden Axes', shortcut: '', keywords: 'display advanced collapse hidden axes slices same place' },
+        { action: 'log-scale', label: 'Toggle Log Scale', shortcut: '', keywords: 'display advanced log scale heatmap colorbar' },
         { action: 'heatmap', label: 'Toggle Heatmap', shortcut: 'Ctrl+H', keywords: 'display heatmap colors' },
         { action: 'dims', label: 'Toggle Dimension Lines', shortcut: 'Ctrl+D', keywords: 'display dimensions guides labels' },
         { action: 'tensor-names', label: 'Toggle Tensor Names', shortcut: '', keywords: 'display tensor names labels title' },
@@ -606,7 +621,7 @@ function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     const summary = viewer.getSelectionSummary();
     const enabled = selectionEnabled(snapshot);
     const note = enabled
-        ? 'Left-click and drag to start a new selection box, or hold Shift to toggle cells into or out of the current selection.'
+        ? 'Left-click and drag to draw a selection box, then release to apply it. Hold Shift to add cells, or hold Ctrl to remove cells.'
         : 'Selection is only available in 2D contiguous mapping.';
     selectionWidget.innerHTML = `
       ${titleWithInfo('Selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}
@@ -831,6 +846,21 @@ async function runAction(action: string): Promise<void> {
         case '3d':
             viewer.setDisplayMode('3d');
             return;
+        case 'mapping-contiguous':
+            viewer.setDimensionMappingScheme('contiguous');
+            return;
+        case 'mapping-z-order':
+            viewer.setDimensionMappingScheme('z-order');
+            return;
+        case 'display-gaps':
+            viewer.toggleDisplayGaps();
+            return;
+        case 'collapse-hidden-axes':
+            viewer.toggleCollapseHiddenAxes();
+            return;
+        case 'log-scale':
+            viewer.toggleLogScale();
+            return;
         case 'heatmap':
             viewer.toggleHeatmap();
             return;
@@ -927,6 +957,7 @@ window.addEventListener('keydown', async (event) => {
 
 viewer.subscribe(render);
 viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
+viewer.subscribeSelection(() => renderSelectionWidget(viewer.getSnapshot()));
 
 tryLoadSession().then((loaded) => {
     if (!loaded) seedDemoTensor();
