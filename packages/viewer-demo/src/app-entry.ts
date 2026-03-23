@@ -280,11 +280,38 @@ function paletteActions(): CommandAction[] {
     return commandPaletteMode === 'tabs' ? tabActions() : commandActions();
 }
 
+function fuzzyScore(candidate: string, query: string): number | null {
+    let score = 0;
+    let queryIndex = 0;
+    let previousMatch = -1;
+    for (let candidateIndex = 0; candidateIndex < candidate.length && queryIndex < query.length; candidateIndex += 1) {
+        if (candidate[candidateIndex] !== query[queryIndex]) continue;
+        score += 1;
+        if (candidateIndex === 0 || ' -_/'.includes(candidate[candidateIndex - 1] ?? '')) score += 8;
+        if (previousMatch >= 0) {
+            const gap = candidateIndex - previousMatch - 1;
+            if (gap === 0) score += 12;
+            else score -= Math.min(4, gap);
+        }
+        previousMatch = candidateIndex;
+        queryIndex += 1;
+    }
+    if (queryIndex !== query.length) return null;
+    return score - Math.max(0, candidate.length - query.length) * 0.01;
+}
+
 function filteredCommandActions(): CommandAction[] {
-    const query = commandPaletteInput.value.trim().toLowerCase();
+    const query = commandPaletteInput.value.trim().toLowerCase().replace(/\s+/g, ' ');
     const actions = paletteActions();
     if (!query) return actions;
-    return actions.filter((entry) => `${entry.label} ${entry.keywords}`.toLowerCase().includes(query));
+    return actions
+        .map((entry) => ({
+            entry,
+            score: fuzzyScore(`${entry.label} ${entry.keywords}`.toLowerCase(), query),
+        }))
+        .filter((entry): entry is { entry: CommandAction; score: number } => entry.score !== null)
+        .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label))
+        .map(({ entry }) => entry);
 }
 
 function renderCommandPalette(): void {

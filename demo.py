@@ -221,7 +221,7 @@ def demo_coloring() -> None:
     viz(tensor, session_data=session_data, name="Coloring")
 
 
-DEMO = 9
+DEMO = 4
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,
