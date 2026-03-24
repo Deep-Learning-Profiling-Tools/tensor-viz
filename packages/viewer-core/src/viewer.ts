@@ -107,6 +107,8 @@ import type {
 } from './types.js';
 export type { ViewerOptions } from './viewer-config.js';
 
+const SELECTION_TINT_ALPHA = 0.4;
+
 /** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
     private readonly container: HTMLElement;
@@ -140,6 +142,7 @@ export class TensorViewer {
     private readonly listeners = new Set<(snapshot: ViewerSnapshot) => void>();
     private readonly hoverListeners = new Set<(hover: HoverInfo | null) => void>();
     private readonly selectionListeners = new Set<(selection: SelectionCoords) => void>();
+    private readonly selectionPreviewListeners = new Set<(selection: SelectionCoords) => void>();
     private readonly pickMeshes: PickMesh[] = [];
     private readonly resizeObserver?: ResizeObserver;
     private readonly state: ViewerState = {
@@ -167,6 +170,7 @@ export class TensorViewer {
     private lastCanvasPointer = { x: 0, y: 0 };
     private lastHoverLogKey: string | null = null;
     private readonly selectedCells = new Map<string, Set<string>>();
+    private readonly previewSelectedCells = new Map<string, Set<string>>();
     private selectionDrag: SelectionDragState | null = null;
     private readonly requestTensorDataCallback?: ViewerOptions['requestTensorData'];
     private readonly pendingTensorDataRequests = new Map<string, Promise<boolean>>();
@@ -324,6 +328,10 @@ export class TensorViewer {
         return layoutCoordIsVisible(coord, spec, this.state.collapseHiddenAxes);
     }
 
+    private tensorCoordVisible(tensor: TensorRecord, tensorCoord: number[]): boolean {
+        return !tensor.visibleCoords || tensor.visibleCoords.has(coordKey(tensorCoord));
+    }
+
     private layoutAxisLabels(spec: TensorViewSpec): string[] {
         return layoutAxisLabels(spec, this.state.collapseHiddenAxes);
     }
@@ -348,7 +356,8 @@ export class TensorViewer {
                 value: number,
                 heatmapRange: { min: number; max: number } | null,
             ) => this.baseCellColor(tensor, tensorCoord, value, heatmapRange),
-            isSelectedCell: (tensorId: string, tensorCoord: number[]) => this.isSelectedCell(tensorId, tensorCoord),
+            tensorCoordVisible: (tensor: TensorRecord, tensorCoord: number[]) => this.tensorCoordVisible(tensor, tensorCoord),
+            isSelectedCell: (tensorId: string, tensorCoord: number[]) => this.isHighlightedCell(tensorId, tensorCoord),
             selectedColor: (color: Color) => this.selectedColor(color),
             linearIndex: (coord: number[], shape: number[]) => this.linearIndex(coord, shape),
             clearHover: () => this.clearHover(),
@@ -458,6 +467,7 @@ export class TensorViewer {
             if (!this.layoutCoordIsVisible(hit.coord, tensor.view)) continue;
             const viewCoord = this.mapLayoutCoordToViewCoord(hit.coord, tensor.view);
             const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+            if (!this.tensorCoordVisible(tensor, tensorCoord)) continue;
             const { value, colorSource } = this.hoverValue(tensor, tensorCoord);
             return {
                 hover: {
@@ -492,6 +502,7 @@ export class TensorViewer {
         const viewCoord = tensor.view.viewShape.length === 0 ? [] : unravelIndex(hit.instanceId, meta.instanceShape);
         const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
         const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+        if (!this.tensorCoordVisible(tensor, tensorCoord)) return null;
         const { value, colorSource } = this.hoverValue(tensor, tensorCoord);
         const instanceMatrix = new Matrix4();
         const position = new Vector3();
@@ -549,8 +560,15 @@ export class TensorViewer {
         return this.selectionEntries().get(tensorId)?.has(coordKey(tensorCoord)) ?? false;
     }
 
+    private isHighlightedCell(tensorId: string, tensorCoord: number[]): boolean {
+        const key = coordKey(tensorCoord);
+        if (this.selectionDrag) return this.previewSelectedCells.get(tensorId)?.has(key) ?? false;
+        return (this.selectionEntries().get(tensorId)?.has(key) ?? false)
+            || (this.previewSelectedCells.get(tensorId)?.has(key) ?? false);
+    }
+
     private selectedColor(baseColor: Color): Color {
-        return baseColor.clone().lerp(ACTIVE_COLOR, 0.7);
+        return baseColor.clone().lerp(ACTIVE_COLOR, SELECTION_TINT_ALPHA);
     }
 
     /** Return one cell's base color before any committed or preview selection tint is applied. */
@@ -629,6 +647,7 @@ export class TensorViewer {
         tensor: TensorRecord,
         box: { left: number; right: number; top: number; bottom: number },
     ): Set<string> | null {
+        if (tensor.visibleCoords) return null;
         if (!supportsContiguousSelectionFastPath2D(tensor.view, this.state.collapseHiddenAxes)) return null;
         const split = Math.floor(tensor.view.tokens.length / 2);
         const ySizes = tensor.view.tokens.slice(0, split).filter((token) => token.visible).map((token) => token.size);
@@ -741,6 +760,7 @@ export class TensorViewer {
             for (let index = 0; index < count; index += 1) {
                 const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
                 const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                if (!this.tensorCoordVisible(tensor, tensorCoord)) continue;
                 const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
                 const cellBounds = this.state.displayMode === '2d'
                     ? this.canvasCellBounds(tensor, layoutCoord)
@@ -832,7 +852,7 @@ if (selectionPreviewActive > 0.5) {
     else if (selectionPreviewMode < 1.5) selected = max(selected, inPreview ? 1.0 : 0.0);
     else if (inPreview) selected = 0.0;
 }
-diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
+diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA} * selected);`,
             );
         };
         material.needsUpdate = true;
@@ -847,12 +867,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         const bottom = box ? this.canvasPixelToWorld(0, box.bottom).y : 0;
         const top = box ? this.canvasPixelToWorld(0, box.top).y : 0;
         const mode = !drag ? 0 : drag.mode === 'add' ? 1 : drag.mode === 'remove' ? 2 : 0;
-        this.tensorMeshes.forEach((group) => {
+        this.tensorMeshes.forEach((group, tensorId) => {
             const mesh = group.children[0];
             if (!(mesh instanceof InstancedMesh)) return;
             const uniforms = this.selectionPreviewUniforms(mesh);
             if (!uniforms) return;
-            uniforms.selectionPreviewActive.value = drag ? 1 : 0;
+            uniforms.selectionPreviewActive.value = drag && drag.tensorId === tensorId ? 1 : 0;
             uniforms.selectionPreviewBounds.value.set(left, right, bottom, top);
             uniforms.selectionPreviewMode.value = mode;
         });
@@ -876,12 +896,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             const baseColor = this.baseCellColor(tensor, tensorCoord, value, heatmapRange);
             const color = selectionState
                 ? baseColor
-                : this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(baseColor) : baseColor;
+                : this.isHighlightedCell(tensor.id, tensorCoord) ? this.selectedColor(baseColor) : baseColor;
             const offset = index * 3;
             colorArray[offset] = color.r;
             colorArray[offset + 1] = color.g;
             colorArray[offset + 2] = color.b;
-            if (selectionState) selectionState[index] = this.isSelectedCell(tensor.id, tensorCoord) ? 1 : 0;
+            if (selectionState) selectionState[index] = this.isHighlightedCell(tensor.id, tensorCoord) ? 1 : 0;
         }
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         if (selectionAttribute) selectionAttribute.needsUpdate = true;
@@ -901,6 +921,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.selectionDrag?.previewSelections.forEach((_coords, tensorId) => tensorIds.add(tensorId));
         this.selectedCells.clear();
         this.selectionDrag = null;
+        this.emitSelectionPreview();
         this.syncSelectionBox();
         if (tensorIds.size !== 0) this.refreshSelectionVisuals(...tensorIds);
         this.emitSelection();
@@ -941,6 +962,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         const drag = this.selectionDrag;
         if (!drag || drag.source !== source) return;
         drag.currentClient = { x: clientX, y: clientY };
+        this.updateSelectionPreview(drag);
+        this.emitSelectionPreview();
         this.requestRender();
     }
 
@@ -948,6 +971,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         const drag = this.selectionDrag;
         if (!drag) return;
         this.updateSelectionPreview(drag);
+        this.previewSelectedCells.clear();
+        this.emitSelectionPreview();
         this.selectionDrag = null;
         this.selectedCells.clear();
         drag.previewSelections.forEach((coords, tensorId) => {
@@ -1384,7 +1409,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         const extent = displayExtent2D(instanceShape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
         const rowCount = instanceShape.length > 1 ? instanceShape[0] : 1;
         const columnCount = instanceShape.length > 1 ? instanceShape[1] : (instanceShape[0] ?? 1);
-        const selected = this.selectedCells.get(tensor.id);
         const startX = tensor.offset[0] - extent.x / 2 + 0.5;
         const startY = tensor.offset[1] + extent.y / 2 - 0.5;
         const stepX = columnCount > 1 ? (extent.x - 1) / (columnCount - 1) : 0;
@@ -1430,7 +1454,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
                 }
                 if (selectionState) {
                     const tensorCoord = instanceShape.length > 1 ? [row, column] : [column];
-                    selectionState[cellIndex] = selected?.has(coordKey(tensorCoord)) ? 1 : 0;
+                    selectionState[cellIndex] = this.isHighlightedCell(tensor.id, tensorCoord) ? 1 : 0;
                 }
                 cellIndex += 1;
             }
@@ -1628,7 +1652,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         heatmapRange: { min: number; max: number } | null,
     ): Color {
         const color = this.baseCellColor(tensor, tensorCoord, value, heatmapRange);
-        return this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
+        return this.isHighlightedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
     }
 
     private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
@@ -1715,6 +1739,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.selectionListeners.forEach((listener) => listener(selection));
     }
 
+    private emitSelectionPreview(): void {
+        const selection = this.selectionDrag ? this.selectionCoords(this.selectionDrag.previewSelections) : new Map();
+        this.selectionPreviewListeners.forEach((listener) => listener(selection));
+    }
+
     private clearHover(): void {
         this.state.hover = null;
         this.state.lastHover = null;
@@ -1729,6 +1758,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.tensorMeshes.clear();
         this.pickMeshes.length = 0;
         this.pendingTensorDataRequests.clear();
+        this.previewSelectedCells.clear();
+        this.emitSelectionPreview();
         this.clearSelection(false);
         this.tensors.clear();
         this.state.activeTensorId = null;
@@ -1923,6 +1954,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             offset: [0, 0, 0],
             view: parsed.spec,
             customColors: new Map(),
+            visibleCoords: null,
         };
         this.assignTensorData(tensor, data, dtype);
         tensor.offset = options.offset ?? this.autoTensorOffset(tensor, options.displayMode ?? this.state.displayMode);
@@ -1940,14 +1972,20 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     public removeTensor(tensorId: string): void {
         logEvent('tensor:remove', tensorId);
         this.tensors.delete(tensorId);
+        const previewChanged = this.previewSelectedCells.delete(tensorId);
         const selectionChanged = this.selectedCells.delete(tensorId)
             || (this.selectionDrag?.baseSelections.delete(tensorId) ?? false)
             || (this.selectionDrag?.previewSelections.delete(tensorId) ?? false);
         if (this.selectionDrag?.tensorId === tensorId) {
             this.selectionDrag = null;
+            this.emitSelectionPreview();
             this.syncSelectionBox();
         }
         if (selectionChanged) this.emitSelection();
+        else if (previewChanged) {
+            this.emitSelectionPreview();
+            this.refreshSelectionVisuals(tensorId);
+        }
         if (this.state.activeTensorId === tensorId) {
             this.state.activeTensorId = this.tensors.keys().next().value ?? null;
         }
@@ -2025,6 +2063,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.selectionListeners.add(listener);
         listener(this.getSelectedCoords());
         return () => this.selectionListeners.delete(listener);
+    }
+
+    /** Subscribe to live drag-preview selection changes. */
+    public subscribeSelectionPreview(listener: (selection: SelectionCoords) => void): () => void {
+        this.selectionPreviewListeners.add(listener);
+        listener(this.selectionDrag ? this.selectionCoords(this.selectionDrag.previewSelections) : new Map());
+        return () => this.selectionPreviewListeners.delete(listener);
     }
 
     /** Switch between 2D and 3D display modes. */
@@ -2249,6 +2294,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.rebuildAllMeshes();
     }
 
+    /** Restrict one tensor to a coordinate mask, or clear the mask with `null`. */
+    public setTensorVisibleCoords(tensorId: string, coords: number[][] | null): void {
+        const tensor = this.requireTensor(tensorId);
+        tensor.visibleCoords = coords ? new Set(coords.map((coord) => coordKey(coord))) : null;
+        if (this.state.hover?.tensorId === tensorId || this.state.lastHover?.tensorId === tensorId) this.clearHover();
+        this.rebuildAllMeshes();
+    }
+
     /** Alias for {@link getSnapshot}. */
     public getState(): Readonly<ViewerSnapshot> {
         return this.getSnapshot();
@@ -2284,10 +2337,24 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             this.state.activeTensorId = this.selectedCells.keys().next().value ?? this.state.activeTensorId;
         }
         this.selectionDrag = null;
+        this.emitSelectionPreview();
         this.syncSelectionBox();
         if (touched.size !== 0) this.refreshSelectionVisuals(...touched);
         this.emitSelection();
         if (emit) this.emit();
+    }
+
+    /** Replace the current non-committed highlight overlay. */
+    public setPreviewSelectedCoords(selection: SelectionCoords): void {
+        const nextEntries = new Map<string, Set<string>>();
+        selection.forEach((coords, tensorId) => {
+            if (coords.length === 0) return;
+            nextEntries.set(tensorId, new Set(coords.map((coord) => coordKey(coord))));
+        });
+        const touched = new Set([...this.previewSelectedCells.keys(), ...nextEntries.keys()]);
+        this.previewSelectedCells.clear();
+        nextEntries.forEach((coords, tensorId) => this.previewSelectedCells.set(tensorId, coords));
+        if (touched.size !== 0) this.refreshSelectionVisuals(...touched);
     }
 
     /** Return selection count plus summary stats across selected cells with loaded values. */

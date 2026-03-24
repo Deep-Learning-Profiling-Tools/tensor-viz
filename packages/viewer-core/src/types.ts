@@ -211,6 +211,7 @@ export type TensorRecord = {
     offset: Vec3;
     view: TensorViewSpec;
     customColors: Map<string, CustomColor>;
+    visibleCoords: Set<string> | null;
 };
 
 /** Internal mutable viewer state mirrored into public snapshots. */

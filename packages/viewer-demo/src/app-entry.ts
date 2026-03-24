@@ -400,6 +400,42 @@ function mapLogicalSelection(coords: number[][], mapping: LinearLayoutSelectionM
     return Array.from(hardwareKeys, (key) => coordFromKey(key));
 }
 
+function slicedTensorCoords(tensorId: string): number[][] | null {
+    const status = viewer.getTensorStatus(tensorId);
+    const snapshot = viewer.getTensorView(tensorId);
+    const parsed = parseTensorView(
+        status.shape.slice(),
+        snapshot.view,
+        snapshot.hiddenIndices,
+        status.axisLabels,
+    );
+    if (!parsed.ok || parsed.spec.sliceTokens.length === 0) return null;
+    const hiddenAxes = parsed.spec.tokens
+        .filter((token) => token.kind === 'axis_group' && !token.visible)
+        .flatMap((token) => token.axes);
+    if (hiddenAxes.length === 0) return null;
+    const coords: number[][] = [];
+    const total = product(status.shape);
+    for (let index = 0; index < total; index += 1) {
+        const coord = unravelIndex(index, status.shape);
+        if (hiddenAxes.every((axis) => coord[axis] === parsed.spec.hiddenIndices[axis])) coords.push(coord);
+    }
+    return coords;
+}
+
+function syncLinearLayoutViewFilters(): void {
+    const tab = activeTab();
+    if (!tab || !isLinearLayoutTab(tab)) return;
+    const mapping = linearLayoutSelectionMapForTab(tab);
+    if (!mapping) return;
+    const hardwareSlice = slicedTensorCoords(mapping.hardwareTensorId);
+    const logicalSlice = slicedTensorCoords(mapping.logicalTensorId);
+    const hardwareMask = logicalSlice ? mapLogicalSelection(logicalSlice, mapping) : null;
+    const logicalMask = hardwareSlice ? mapHardwareSelection(hardwareSlice, mapping) : null;
+    viewer.setTensorVisibleCoords(mapping.hardwareTensorId, hardwareMask);
+    viewer.setTensorVisibleCoords(mapping.logicalTensorId, logicalMask);
+}
+
 function syncLinearLayoutSelection(selection: SelectionCoords): void {
     if (syncingLinearLayoutSelection) return;
     const tab = activeTab();
@@ -435,6 +471,48 @@ function syncLinearLayoutSelection(selection: SelectionCoords): void {
     syncingLinearLayoutSelection = true;
     viewer.setSelectedCoords(nextSelection);
     syncingLinearLayoutSelection = false;
+}
+
+function syncLinearLayoutSelectionPreview(selection: SelectionCoords): void {
+    const tab = activeTab();
+    if (!tab || !isLinearLayoutTab(tab)) {
+        viewer.setPreviewSelectedCoords(selection);
+        return;
+    }
+    const mapping = linearLayoutSelectionMapForTab(tab);
+    if (!mapping) {
+        viewer.setPreviewSelectedCoords(selection);
+        return;
+    }
+    const hardwareCoords = selection.get(mapping.hardwareTensorId) ?? [];
+    const logicalCoords = selection.get(mapping.logicalTensorId) ?? [];
+    if (hardwareCoords.length === 0 && logicalCoords.length === 0) {
+        viewer.setPreviewSelectedCoords(new Map());
+        return;
+    }
+    const activeId = viewer.getState().activeTensorId;
+    const source = selection.size === 1
+        ? (hardwareCoords.length ? 'hardware' : 'logical')
+        : activeId === mapping.hardwareTensorId
+            ? 'hardware'
+            : activeId === mapping.logicalTensorId
+                ? 'logical'
+                : hardwareCoords.length && !logicalCoords.length
+                    ? 'hardware'
+                    : logicalCoords.length
+                        ? 'logical'
+                        : 'hardware';
+    const nextSelection = new Map<string, number[][]>();
+    if (source === 'hardware') {
+        if (hardwareCoords.length) nextSelection.set(mapping.hardwareTensorId, hardwareCoords);
+        const mapped = mapHardwareSelection(hardwareCoords, mapping);
+        if (mapped.length) nextSelection.set(mapping.logicalTensorId, mapped);
+    } else {
+        if (logicalCoords.length) nextSelection.set(mapping.logicalTensorId, logicalCoords);
+        const mapped = mapLogicalSelection(logicalCoords, mapping);
+        if (mapped.length) nextSelection.set(mapping.hardwareTensorId, mapped);
+    }
+    viewer.setPreviewSelectedCoords(nextSelection);
 }
 
 function parseBasesField(label: string, value: string): number[][] {
@@ -871,6 +949,8 @@ async function loadTab(tabId: string): Promise<void> {
     switchingTab = false;
     renderTabStrip();
     syncLinearLayoutState(tab);
+    syncLinearLayoutViewFilters();
+    syncLinearLayoutSelectionPreview(new Map());
 }
 
 window.addEventListener('pointerup', () => {
@@ -993,6 +1073,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             try {
                 logUi('tensor-view:change', { tensorId: model.handle!.id, value: input.value });
                 viewer.setTensorView(model.handle!.id, input.value);
+                syncLinearLayoutViewFilters();
                 viewErrors.delete(model.handle!.id);
             } catch (error) {
                 viewErrors.set(model.handle!.id, error instanceof Error ? error.message : String(error));
@@ -1014,6 +1095,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.token, nextValue);
+            syncLinearLayoutViewFilters();
         };
         slider?.addEventListener('pointerdown', () => {
             suspendTensorViewRender = true;
@@ -1509,6 +1591,9 @@ window.addEventListener('keydown', async (event) => {
 
 viewer.subscribe(render);
 viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
+viewer.subscribeSelectionPreview((selection) => {
+    syncLinearLayoutSelectionPreview(selection);
+});
 viewer.subscribeSelection((selection) => {
     renderSelectionWidget(viewer.getSnapshot());
     syncLinearLayoutSelection(selection);

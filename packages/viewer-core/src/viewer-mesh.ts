@@ -40,6 +40,7 @@ type MeshViewerContext = {
         value: number,
         heatmapRange: { min: number; max: number } | null,
     ): { r: number; g: number; b: number };
+    tensorCoordVisible(tensor: TensorRecord, tensorCoord: number[]): boolean;
     isSelectedCell(tensorId: string, tensorCoord: number[]): boolean;
     selectedColor(color: { clone(): { lerp(target: { r: number; g: number; b: number }, alpha: number): { r: number; g: number; b: number } } }): {
         r: number;
@@ -70,7 +71,7 @@ function populateFastMesh2D(
             && token.visible
             && token.axes.length === 1
             && token.axes[0] === index);
-    if (!isIdentityView || tensor.customColors.size !== 0 || !colorArray) return false;
+    if (!isIdentityView || tensor.customColors.size !== 0 || tensor.visibleCoords || !colorArray) return false;
 
     // default 1d/2d views are affine grids, so write instance buffers directly.
     const matrixArray = mesh.instanceMatrix.array as Float32Array;
@@ -321,6 +322,13 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
         for (let index = 0; index < count; index += 1) {
             const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
             const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+            if (!viewer.tensorCoordVisible(tensor, tensorCoord)) {
+                matrix.makeScale(0, 0, 0);
+                mesh.setMatrixAt(index, matrix);
+                mesh.setColorAt(index, BASE_COLOR as never);
+                if (selectionState) selectionState[index] = 0;
+                continue;
+            }
             const layoutCoord = viewer.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
             const tensorLinear = viewer.linearIndex(tensorCoord, tensor.shape);
             const value = numericValue(tensor.data, tensorLinear);
@@ -436,6 +444,14 @@ export function updateSliceMesh(viewer: MeshViewerContext, tensor: TensorRecord,
     for (let index = 0; index < count; index += 1) {
         const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
         const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+        if (!viewer.tensorCoordVisible(tensor, tensorCoord)) {
+            const colorOffset = index * 3;
+            colorArray[colorOffset] = BASE_COLOR.r;
+            colorArray[colorOffset + 1] = BASE_COLOR.g;
+            colorArray[colorOffset + 2] = BASE_COLOR.b;
+            if (selectionState) selectionState[index] = 0;
+            continue;
+        }
         const value = numericValue(tensor.data, viewer.linearIndex(tensorCoord, tensor.shape));
         const colorOffset = index * 3;
         const baseColor = viewer.baseCellColor(tensor, tensorCoord, value, heatmapRange);
