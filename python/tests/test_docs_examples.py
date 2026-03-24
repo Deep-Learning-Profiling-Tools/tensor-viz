@@ -67,10 +67,10 @@ class DocsExamplesTest(unittest.TestCase):
             color_instructions={
                 "tensor-1": [
                     {
-                        "mode": "rgba",
+                        "mode": "rgb",
                         "kind": "coords",
                         "coords": [[0, 0], [1, 1]],
-                        "color": [0, 90, 255, 255],
+                        "color": [0, 90, 255],
                     }
                 ]
             },

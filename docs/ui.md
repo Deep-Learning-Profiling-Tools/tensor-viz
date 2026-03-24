@@ -15,13 +15,6 @@ The app has four main areas:
 You can resize the sidebar by dragging the splitter between the viewport and the
 widgets.
 
-## File Menu
-
-- `Open Tensor`: load one local `.npy` file.
-- `Save Tensor`: save the active tensor as `.npy`.
-
-`Save Tensor` writes the currently active tensor, not every loaded tensor.
-
 ## Display Menu
 
 - `Display as 2D`: switch to the orthographic 2D layout.

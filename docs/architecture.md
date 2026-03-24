@@ -87,7 +87,6 @@ internals.
 - sidebar widgets
 - command palette
 - tab strip
-- file open/save flows
 - session loading from the demo app's HTTP endpoints
 
 The main object here is the return value from `mountDemoApp(...)`. It is a small

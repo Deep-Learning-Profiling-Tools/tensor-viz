@@ -1,4 +1,4 @@
-export { createTypedArray, isNpyFile, loadNpy, saveNpy } from './npy.js';
+export { createTypedArray } from './typed-array.js';
 export { axisWorldKeyForMode, displayExtent, displayHitForPoint2D, displayPositionForCoord, displayPositionForCoord2D, unravelIndex } from './layout.js';
 export type { CoordHit2D } from './layout.js';
 export { createBundleManifest, createSessionBundleManifest, createViewerSnapshot } from './session.js';
@@ -30,7 +30,7 @@ export type {
     HueSaturation,
     LoadedBundleDocument,
     NumericArray,
-    RGBA,
+    RGB,
     SelectionCoords,
     SessionBundleManifest,
     SliceToken,

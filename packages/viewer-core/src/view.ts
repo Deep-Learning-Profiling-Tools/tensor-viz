@@ -45,7 +45,7 @@ function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): 
 /**
  * Compute the element count for one shape after clamping degenerate extents to `1`.
  *
- * Used anywhere the viewer needs a stable linear size, such as `.npy` IO, reshapes,
+ * Used anywhere the viewer needs a stable linear size, such as reshapes,
  * grouped-axis flattening, and instanced-mesh allocation.
  */
 export function product(values: number[]): number {

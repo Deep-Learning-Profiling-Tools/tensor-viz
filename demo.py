@@ -221,7 +221,13 @@ def demo_coloring() -> None:
     viz(tensor, session_data=session_data, name="Coloring")
 
 
-DEMO = 4
+def demo_large() -> None:
+    """Show large tensor."""
+    tensor = np.random.randn(1024,1024)
+    viz(tensor)
+
+
+DEMO = 10 
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,
@@ -233,6 +239,7 @@ DEMOS = {
     7: demo_image_like_tensor,
     8: demo_metadata_only,
     9: demo_coloring,
+    10: demo_large,
 }
 
 

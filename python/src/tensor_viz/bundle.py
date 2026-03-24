@@ -356,8 +356,8 @@ def create_session_data(
         Optional viewer color instructions keyed by generated tensor id such as
         ``tensor-1`` and ``tensor-2`` in input order. Use ``kind="dense"``
         for one color per element, ``kind="coords"`` for explicit coordinates,
-        and ``kind="region"`` for a strided block. ``mode="rgba"`` expects
-        ``[r, g, b, a]`` tuples, while ``mode="hs"`` expects
+        and ``kind="region"`` for a strided block. ``mode="rgb"`` expects
+        ``[r, g, b]`` tuples, while ``mode="hs"`` expects
         ``[hue, saturation]``.
 
     Examples
@@ -378,38 +378,38 @@ def create_session_data(
     >>> session_data.tensor_bytes
     {}
 
-    Dense RGBA colors:
+    Dense RGB colors:
 
     >>> session_data = tensor_viz.create_session_data(
     ...     {"weights": tensor},
     ...     labels={"weights": "O I"},
     ...     color_instructions={
     ...         "tensor-1": [
-    ...             {"mode": "rgba", "kind": "dense", "values": [255, 0, 0, 255] * tensor.size}
+    ...             {"mode": "rgb", "kind": "dense", "values": [255, 0, 0] * tensor.size}
     ...         ]
     ...     },
     ... )
 
-    Coordinate RGBA colors:
+    Coordinate RGB colors:
 
     >>> session_data = tensor_viz.create_session_data(
     ...     {"weights": tensor},
     ...     labels={"weights": "O I"},
     ...     color_instructions={
     ...         "tensor-1": [
-    ...             {"mode": "rgba", "kind": "coords", "coords": [[0, 0]], "color": [255, 0, 0, 255]}
+    ...             {"mode": "rgb", "kind": "coords", "coords": [[0, 0]], "color": [255, 0, 0]}
     ...         ]
     ...     },
     ... )
 
-    Region RGBA colors:
+    Region RGB colors:
 
     >>> session_data = tensor_viz.create_session_data(
     ...     {"weights": tensor},
     ...     labels={"weights": "O I"},
     ...     color_instructions={
     ...         "tensor-1": [
-    ...             {"mode": "rgba", "kind": "region", "base": [0, 0], "shape": [2, 2], "jumps": [1, 1], "color": [255, 0, 0, 255]}
+    ...             {"mode": "rgb", "kind": "region", "base": [0, 0], "shape": [2, 2], "jumps": [1, 1], "color": [255, 0, 0]}
     ...         ]
     ...     },
     ... )

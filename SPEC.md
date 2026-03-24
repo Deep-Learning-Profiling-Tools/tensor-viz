@@ -253,7 +253,7 @@ The browser API is imperative and subscribe-based.
 
 ```ts
 type DType = 'float32' | 'float64' | 'int32' | 'int64' | 'uint8' | string;
-type RGBA = readonly [number, number, number, number];
+type RGB = readonly [number, number, number];
 type Vec3 = readonly [number, number, number];
 
 interface TensorHandle {
@@ -320,15 +320,12 @@ interface TensorViewer {
   setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot;
 
   colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
-  colorTensor(tensorId: string, coords: number[][], color: RGBA): void;
-  colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGBA): void;
+  colorTensor(tensorId: string, coords: number[][], color: RGB): void;
+  colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGB): void;
   clearTensorColors(tensorId: string): void;
 
   getState(): Readonly<ViewerSnapshot>;
   getHover(): HoverInfo | null;
-
-  openFile(file: File): Promise<void>;
-  saveFile(): Blob;
 
   destroy(): void;
 }
@@ -365,7 +362,7 @@ Where:
 
 - tensor shape is arbitrary rank
 - color buffer shape is `tensor.shape + (4,)`
-- color channels are RGBA
+- color channels are RGB
 
 ### Sparse Coord Coloring
 
@@ -377,7 +374,7 @@ Where:
 
 - `coords.shape = (num_coords, rank)`
 - each row is a full coordinate in tensor order
-- all listed coordinates receive the same RGBA
+- all listed coordinates receive the same RGB
 
 ### Region Descriptor Coloring
 

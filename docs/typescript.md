@@ -131,7 +131,7 @@ const bundle = createBundleManifest({
       shape: [3, 4],
       axisLabels: ["O", "I"],
       colorInstructions: [
-        { mode: "rgba", kind: "coords", coords: [[0, 0], [1, 1]], color: [0, 90, 255, 255] },
+        { mode: "rgb", kind: "coords", coords: [[0, 0], [1, 1]], color: [0, 90, 255] },
       ],
     },
   ],
@@ -207,7 +207,7 @@ import { TensorViewer } from "@tensor-viz/viewer-core";
 
 const viewer = new TensorViewer(host, {
   requestTensorData: async (tensor, reason) => {
-    if (reason !== "heatmap" && reason !== "save") return null;
+    if (reason !== "heatmap") return null;
     return fetchTensorDataFromServer(tensor.id);
   },
 });
@@ -265,25 +265,25 @@ app, create them in your host UI and either:
 
 In `viewer-core`, custom colors are live viewer mutations.
 
-Dense RGBA:
+Dense RGB:
 
 ```ts
 viewer.colorTensor(
   weights.id,
-  new Uint8ClampedArray(Array.from({ length: 16 }, () => [0, 90, 255, 255]).flat()),
+  new Uint8ClampedArray(Array.from({ length: 16 }, () => [0, 90, 255]).flat()),
 );
 ```
 
-Coordinate RGBA:
+Coordinate RGB:
 
 ```ts
-viewer.colorTensor(weights.id, [[0, 0], [1, 1]], [0, 90, 255, 255]);
+viewer.colorTensor(weights.id, [[0, 0], [1, 1]], [0, 90, 255]);
 ```
 
-Region RGBA:
+Region RGB:
 
 ```ts
-viewer.colorTensor(weights.id, [0, 0], [3, 2], [1, 2], [0, 90, 255, 255]);
+viewer.colorTensor(weights.id, [0, 0], [3, 2], [1, 2], [0, 90, 255]);
 ```
 
 Coordinate HS:
@@ -340,7 +340,7 @@ const manifest: BundleManifest = {
       offset: [0, 0, 0],
       view: { view: "O I", hiddenIndices: [0, 0] },
       colorInstructions: [
-        { mode: "rgba", kind: "coords", coords: [[0, 0], [1, 1]], color: [0, 90, 255, 255] },
+        { mode: "rgb", kind: "coords", coords: [[0, 0], [1, 1]], color: [0, 90, 255] },
       ],
     },
   ],

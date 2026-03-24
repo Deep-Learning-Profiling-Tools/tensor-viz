@@ -1,5 +1,4 @@
 import {
-    axisWorldKeyForMode,
     createTypedArray,
     parseTensorView,
     TensorViewer,
@@ -11,125 +10,37 @@ import {
     type SessionBundleManifest,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
+import {
+    formatAxisTokens,
+    formatAxisValues,
+    formatRangeValue,
+    infoButton,
+    labelWithInfo,
+    selectionEnabled,
+    titleWithInfo,
+} from './app-format.js';
+import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
 
-const app = document.querySelector<HTMLDivElement>('#app');
-if (!app) throw new Error('Missing app root.');
-
-function supportsWebGL(): boolean {
-    const canvas = document.createElement('canvas');
-    try {
-        return Boolean(
-            (typeof WebGL2RenderingContext !== 'undefined' && canvas.getContext('webgl2'))
-            || (typeof WebGLRenderingContext !== 'undefined'
-                && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))),
-        );
-    } catch {
-        return false;
-    }
-}
-
-function renderWebglUnavailable(): void {
-    app.innerHTML = `
-      <main class="startup-note">
-        <p>This viewer needs WebGL to render tensors, but WebGL appears disabled or unavailable in this browser.</p>
-        <p>Enable WebGL or hardware acceleration in your browser settings, then reload this page.</p>
-      </main>
-    `;
-}
+const app = getAppRoot();
 
 if (!supportsWebGL()) {
-    renderWebglUnavailable();
+    renderWebglUnavailable(app);
 } else {
-app.innerHTML = `
-  <div class="ribbon">
-    <div class="menu">
-      <button class="menu-trigger" type="button">File</button>
-      <div class="menu-list">
-        <button data-action="open" type="button">Open Tensor <span>Ctrl+O</span></button>
-        <button data-action="save" type="button">Save Tensor <span>Ctrl+S</span></button>
-      </div>
-    </div>
-    <div class="menu">
-      <button class="menu-trigger" type="button">Display</button>
-      <div class="menu-list">
-        <button data-action="2d" type="button">Display as 2D <span>Ctrl+2</span></button>
-        <button data-action="3d" type="button">Display as 3D <span>Ctrl+3</span></button>
-        <button data-action="heatmap" type="button">Toggle Heatmap <span>Ctrl+H</span></button>
-        <button data-action="dims" type="button">Toggle Dimension Lines <span>Ctrl+D</span></button>
-        <button data-action="tensor-names" type="button">Toggle Tensor Names <span></span></button>
-        <div class="menu-submenu">
-          <button class="menu-submenu-trigger" type="button">Advanced <span>&gt;</span></button>
-          <div class="menu-list menu-submenu-list">
-            <button data-action="mapping-contiguous" type="button">Set Contiguous Axis Family Mapping <span></span></button>
-            <button data-action="mapping-z-order" type="button">Set Z-Order Axis Family Mapping <span></span></button>
-            <button data-action="display-gaps" type="button">Toggle Block Gaps <span></span></button>
-            <button data-action="collapse-hidden-axes" type="button">Toggle Collapse Hidden Axes <span></span></button>
-            <button data-action="log-scale" type="button">Toggle Log Scale <span></span></button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="menu">
-      <button class="menu-trigger" type="button">Widgets</button>
-      <div class="menu-list">
-        <button data-action="tensor-view" type="button">Toggle Tensor View <span>Ctrl+V</span></button>
-        <button data-action="inspector" type="button">Toggle Inspector <span></span></button>
-        <button data-action="selection" type="button">Toggle Selection <span></span></button>
-        <button data-action="advanced-settings" type="button">Toggle Advanced Settings <span></span></button>
-      </div>
-    </div>
-  </div>
-  <div class="tab-strip hidden" id="tab-strip"></div>
-  <main class="viewport-wrap">
-    <div id="viewport"></div>
-  </main>
-  <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
-  <aside class="sidebar" id="sidebar">
-    <section class="widget" id="tensor-view-widget"></section>
-    <section class="widget" id="inspector-widget"></section>
-    <section class="widget" id="selection-widget"></section>
-    <section class="widget" id="advanced-settings-widget"></section>
-    <section class="widget" id="colorbar-widget"></section>
-  </aside>
-  <div class="command-palette hidden" id="command-palette">
-    <div class="command-palette-backdrop" id="command-palette-backdrop"></div>
-    <div class="command-palette-dialog">
-      <input id="command-palette-input" type="text" placeholder="Type a command" autocomplete="off" />
-      <div class="command-palette-list" id="command-palette-list"></div>
-    </div>
-  </div>
-  <input class="hidden" id="file-input" type="file" accept=".npy" />
-`;
-
-const viewport = document.querySelector<HTMLDivElement>('#viewport');
-const tabStrip = document.querySelector<HTMLDivElement>('#tab-strip');
-const sidebarSplitter = document.querySelector<HTMLDivElement>('#sidebar-splitter');
-const tensorViewWidget = document.querySelector<HTMLElement>('#tensor-view-widget');
-const inspectorWidget = document.querySelector<HTMLElement>('#inspector-widget');
-const selectionWidget = document.querySelector<HTMLElement>('#selection-widget');
-const advancedSettingsWidget = document.querySelector<HTMLElement>('#advanced-settings-widget');
-const colorbarWidget = document.querySelector<HTMLElement>('#colorbar-widget');
-const commandPalette = document.querySelector<HTMLDivElement>('#command-palette');
-const commandPaletteBackdrop = document.querySelector<HTMLDivElement>('#command-palette-backdrop');
-const commandPaletteInput = document.querySelector<HTMLInputElement>('#command-palette-input');
-const commandPaletteList = document.querySelector<HTMLDivElement>('#command-palette-list');
-const fileInput = document.querySelector<HTMLInputElement>('#file-input');
-if (
-    !viewport
-    || !tabStrip
-    || !sidebarSplitter
-    || !tensorViewWidget
-    || !inspectorWidget
-    || !selectionWidget
-    || !advancedSettingsWidget
-    || !colorbarWidget
-    || !commandPalette
-    || !commandPaletteBackdrop
-    || !commandPaletteInput
-    || !commandPaletteList
-    || !fileInput
-) throw new Error('Missing app elements.');
+const {
+    viewport,
+    tabStrip,
+    sidebarSplitter,
+    tensorViewWidget,
+    inspectorWidget,
+    selectionWidget,
+    advancedSettingsWidget,
+    colorbarWidget,
+    commandPalette,
+    commandPaletteBackdrop,
+    commandPaletteInput,
+    commandPaletteList,
+} = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
 const viewErrors = new Map<string, string>();
@@ -176,14 +87,6 @@ function logUi(event: string, details?: unknown): void {
     else console.log('[tensor-viz-ui]', event, details);
 }
 
-function formatRangeValue(value: number): string {
-    return Number.isInteger(value) ? String(value) : value.toPrecision(6);
-}
-
-function selectionEnabled(snapshot: ViewerSnapshot): boolean {
-    return snapshot.displayMode === '2d' && (snapshot.dimensionMappingScheme ?? 'z-order') === 'contiguous';
-}
-
 function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
     if (!enabled) return 'Unavailable';
     if (summary.count === 0) return '0';
@@ -195,60 +98,9 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
     return formatRangeValue(summary.stats[key]);
 }
 
-function escapeInfo(text: string): string {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-function infoButton(text: string): string {
-    const escaped = escapeInfo(text);
-    return `<button class="info-button" type="button" tabindex="-1" aria-label="${escaped}" data-info="${escaped}">i</button>`;
-}
-
-function titleWithInfo(title: string, info: string): string {
-    return `<div class="title-row"><h2>${title}</h2>${infoButton(info)}</div>`;
-}
-
-function labelWithInfo(label: string, info: string, htmlFor?: string): string {
-    const target = htmlFor ? ` for="${htmlFor}"` : '';
-    return `<label${target} class="label-row"><span>${label}</span>${infoButton(info)}</label>`;
-}
-
-function axisColor(displayMode: '2d' | '3d', rank: number, axis: number, scheme: DimensionMappingScheme): string {
-    const worldKey = axisWorldKeyForMode(displayMode, rank, axis, scheme);
-    const family = Array.from({ length: rank }, (_entry, index) => index)
-        .filter((index) => axisWorldKeyForMode(displayMode, rank, index, scheme) === worldKey);
-    const familyIndex = Math.max(0, family.indexOf(axis));
-    const intensity = Math.max(1, familyIndex + 1) / Math.max(1, family.length);
-    const channel = Math.round(intensity * 255);
-    if (worldKey === 1) return `rgb(0 ${channel} 0)`;
-    if (worldKey === 2) return `rgb(0 0 ${channel})`;
-    return `rgb(${channel} 0 0)`;
-}
-
-function axisSpan(content: string, color: string): string {
-    return `<span class="axis-value-segment" style="--axis-color: ${color};">${escapeInfo(content)}</span>`;
-}
-
-function formatAxisValues(values: readonly (number | string)[], displayMode: '2d' | '3d', scheme: DimensionMappingScheme): string {
-    if (values.length === 0) return '[]';
-    const segments = values.map((value, axis) => axisSpan(String(value), axisColor(displayMode, values.length, axis, scheme)));
-    return `[${segments.join('<span class="axis-value-punct">, </span>')}]`;
-}
-
-function formatAxisTokens(tokens: readonly string[], displayMode: '2d' | '3d', scheme: DimensionMappingScheme): string {
-    if (tokens.length === 0) return '';
-    return tokens.map((token, axis) => axisSpan(token, axisColor(displayMode, tokens.length, axis, scheme))).join('<span class="axis-value-punct"> </span>');
-}
-
 function commandActions(): CommandAction[] {
     return [
         { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
-        { action: 'open', label: 'Open Tensor', shortcut: 'Ctrl+O', keywords: 'file open load tensor npy' },
-        { action: 'save', label: 'Save Tensor', shortcut: 'Ctrl+S', keywords: 'file save export tensor npy' },
         { action: '2d', label: 'Display as 2D', shortcut: 'Ctrl+2', keywords: 'display 2d orthographic' },
         { action: '3d', label: 'Display as 3D', shortcut: 'Ctrl+3', keywords: 'display 3d perspective' },
         { action: 'mapping-contiguous', label: 'Set Contiguous Axis Family Mapping', shortcut: '', keywords: 'display axis family mapping contiguous layout' },
@@ -779,20 +631,6 @@ function render(snapshot: ViewerSnapshot): void {
     renderColorbarWidget(snapshot);
 }
 
-function sanitizeFilename(name: string): string {
-    return name.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'tensor';
-}
-
-async function saveTensorToDisk(): Promise<void> {
-    const blob = await viewer.saveFile();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${sanitizeFilename(viewer.getInspectorModel().handle?.name ?? 'tensor')}.npy`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-}
-
 /** loads one tab's raw tensor payloads from the local python session server. */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
     const entries = await Promise.all(tensors
@@ -843,13 +681,6 @@ function seedDemoTensor(): void {
     viewer.addTensor(shape, data, 'Sample');
 }
 
-async function openLocalFile(file: File): Promise<void> {
-    sessionTabs = [];
-    activeTabId = null;
-    renderTabStrip();
-    await viewer.openFile(file);
-}
-
 async function runAction(action: string): Promise<void> {
     logUi('action', action);
     closeCommandPalette();
@@ -860,12 +691,6 @@ async function runAction(action: string): Promise<void> {
     switch (action) {
         case 'command-palette':
             openCommandPalette();
-            return;
-        case 'open':
-            fileInput.click();
-            return;
-        case 'save':
-            await saveTensorToDisk();
             return;
         case '2d':
             viewer.setDisplayMode('2d');
@@ -929,14 +754,6 @@ document.querySelectorAll<HTMLButtonElement>('.menu-list button').forEach((butto
     });
 });
 
-fileInput.addEventListener('change', async () => {
-    const [file] = Array.from(fileInput.files ?? []);
-    if (!file) return;
-    logUi('file:input', file.name);
-    await openLocalFile(file);
-    fileInput.value = '';
-});
-
 window.addEventListener('keydown', async (event) => {
     const target = event.target as HTMLElement | null;
     const isEditing = target && ['INPUT', 'TEXTAREA'].includes(target.tagName);
@@ -946,15 +763,9 @@ window.addEventListener('keydown', async (event) => {
         closeCommandPalette();
         return;
     }
-    if (isEditing && !isPaletteInput && !(event.ctrlKey && event.key.toLowerCase() === 's')) return;
+    if (isEditing && !isPaletteInput) return;
 
-    if (event.ctrlKey && event.key.toLowerCase() === 'o') {
-        event.preventDefault();
-        await runAction('open');
-    } else if (event.ctrlKey && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        await runAction('save');
-    } else if (event.ctrlKey && event.key === '2') {
+    if (event.ctrlKey && event.key === '2') {
         event.preventDefault();
         await runAction('2d');
     } else if (event.ctrlKey && event.key === '3') {

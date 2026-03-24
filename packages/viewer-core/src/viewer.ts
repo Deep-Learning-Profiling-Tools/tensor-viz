@@ -1,19 +1,15 @@
 import {
-    BufferAttribute,
     Box3,
     BoxGeometry,
-    BufferGeometry,
     Color,
-    DoubleSide,
     EdgesGeometry,
     Group,
     InstancedBufferAttribute,
     InstancedMesh,
-    LineBasicMaterial,
     Line,
+    LineBasicMaterial,
     LineSegments,
     Matrix4,
-    Mesh,
     MeshBasicMaterial,
     MOUSE,
     NoToneMapping,
@@ -23,7 +19,6 @@ import {
     Raycaster,
     SRGBColorSpace,
     Scene,
-    ShapeGeometry,
     Sphere,
     Vector2,
     Vector3,
@@ -31,9 +26,6 @@ import {
     WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
-import helvetikerBoldFont from 'three/examples/fonts/helvetiker_bold.typeface.json';
-import { isNpyFile, loadNpy, saveNpy } from './npy.js';
 import {
     axisWorldKeyForMode,
     DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
@@ -58,16 +50,50 @@ import {
     product,
     supportsContiguousSelectionFastPath2D,
 } from './view.js';
+import {
+    ACTIVE_COLOR,
+    AUTO_FIT_2D_SCALE,
+    AUTO_FIT_3D_DISTANCE_SCALE,
+    BASE_COLOR,
+    CANVAS_WORLD_SCALE,
+    DEFAULT_TENSOR_SPACING,
+    HOVER_COLOR,
+    MAX_CANVAS_FIT_INSET,
+    MIN_CANVAS_FIT_INSET,
+    MeshMeta,
+    normalizeCanvasZoom,
+    PickMesh,
+    SelectionDragState,
+    SelectionPreviewUniforms,
+    ViewerOptions,
+    logEvent,
+} from './viewer-config.js';
+import { axisFamilyColor, createLine, createTextLabel, initializeVertexColors } from './viewer-graphics.js';
+import { buildTensorGroup, updateSliceMesh } from './viewer-mesh.js';
+import {
+    boxesIntersect,
+    colorFromHueSaturation,
+    colorFromRgb,
+    computeMinMax,
+    coordFromKey,
+    coordKey,
+    dtypeFromArray,
+    numericValue,
+    parseCustomColor,
+    quantile,
+    signedLog1p,
+    tupleFromVector,
+    vectorFromTuple,
+} from './viewer-utils.js';
 import type {
     BundleManifest,
     ColorInstruction,
-    CustomColor,
     DType,
     DimensionMappingScheme,
     HoverInfo,
     HueSaturation,
     NumericArray,
-    RGBA,
+    RGB,
     SelectionCoords,
     TensorDataRequestReason,
     TensorHandle,
@@ -79,235 +105,7 @@ import type {
     ViewerSnapshot,
     ViewerState,
 } from './types.js';
-
-const BASE_COLOR = new Color('#90a4ae');
-const ACTIVE_COLOR = new Color('#1976d2');
-const HOVER_COLOR = new Color('#f59e0b');
-
-/** Construction-time viewer options that do not need full state persistence. */
-export type ViewerOptions = {
-    background?: string;
-    requestTensorData?: (tensor: TensorStatus, reason: TensorDataRequestReason) => Promise<NumericArray | null | undefined> | NumericArray | null | undefined;
-};
-
-type MeshMeta = {
-    tensorId: string;
-    instanceShape: number[];
-};
-
-type PickMesh = {
-    tensorId: string;
-    mesh: InstancedMesh;
-    bounds: Box3;
-    rect2D: {
-        minX: number;
-        maxX: number;
-        minY: number;
-        maxY: number;
-    };
-};
-
-type SelectionDragState = {
-    source: '2d' | '3d';
-    mode: 'replace' | 'add' | 'remove';
-    tensorId: string | null;
-    startClient: { x: number; y: number };
-    currentClient: { x: number; y: number };
-    baseSelections: Map<string, Set<string>>;
-    previewSelections: Map<string, Set<string>>;
-};
-
-type SelectionPreviewUniforms = {
-    selectionPreviewActive: { value: number };
-    selectionPreviewBounds: { value: Vector4 };
-    selectionPreviewMode: { value: number };
-    selectionColor: { value: Color };
-};
-
-const CANVAS_WORLD_SCALE = 4;
-const MIN_CANVAS_ZOOM = 1e-9;
-const MIN_CANVAS_FIT_INSET = 16;
-const MAX_CANVAS_FIT_INSET = 48;
-const AUTO_FIT_2D_SCALE = 0.75;
-const AUTO_FIT_3D_DISTANCE_SCALE = 1.25;
-const DEFAULT_TENSOR_SPACING = 2;
-const LOG_PREFIX = '[tensor-viz]';
-const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
-const LOG_ENABLED = (() => {
-    try {
-        return typeof window !== 'undefined'
-            && ((window as { __TENSOR_VIZ_DEBUG__?: boolean }).__TENSOR_VIZ_DEBUG__ === true
-                || window.localStorage.getItem('tensor-viz-debug') === '1');
-    } catch {
-        return false;
-    }
-})();
-
-function createLine(points: Vector3[], color: string): Line {
-    const geometry = new BufferGeometry().setFromPoints(points);
-    const line = new Line(geometry, new LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 }));
-    line.renderOrder = 5_000;
-    return line;
-}
-
-function logEvent(event: string, details?: unknown): void {
-    if (!LOG_ENABLED) return;
-    if (details === undefined) console.log(LOG_PREFIX, event);
-    else console.log(LOG_PREFIX, event, details);
-}
-
-function normalizeCanvasZoom(value: number): number {
-    if (Number.isNaN(value) || value <= 0) return MIN_CANVAS_ZOOM;
-    return Math.min(Number.MAX_VALUE, value);
-}
-
-function initializeVertexColors(geometry: BufferGeometry): void {
-    const normals = geometry.attributes.normal;
-    const colorArray = new Float32Array(geometry.attributes.position.count * 3);
-    const lightDir = new Vector3(0.35, 0.6, 0.7).normalize();
-    for (let index = 0; index < normals.count; index += 1) {
-        const ndotl = Math.max(0, normals.getX(index) * lightDir.x + normals.getY(index) * lightDir.y + normals.getZ(index) * lightDir.z);
-        const shade = 0.6 + 0.4 * ndotl;
-        const base = index * 3;
-        colorArray[base] = shade;
-        colorArray[base + 1] = shade;
-        colorArray[base + 2] = shade;
-    }
-    geometry.setAttribute('color', new BufferAttribute(colorArray, 3));
-}
-
-function createTextLabel(text: string, color = '#334155'): Group {
-    // use shape text instead of troika so brave/linux stays on the same path as the working line geometry.
-    const shapes = LABEL_FONT.generateShapes(text, 1.1);
-    const frontGeometry = new ShapeGeometry(shapes);
-    frontGeometry.center();
-    const front = new Mesh(frontGeometry, new MeshBasicMaterial({ color, depthTest: false, depthWrite: false, side: DoubleSide }));
-
-    const label = new Group();
-    label.add(front);
-    label.frustumCulled = false;
-    label.renderOrder = 10_000;
-    label.onBeforeRender = function onBeforeRender(_renderer: unknown, _scene: unknown, camera: { quaternion: unknown }): void {
-        this.quaternion.copy(camera.quaternion as never);
-    };
-    front.frustumCulled = false;
-    front.renderOrder = 10_000;
-    return label;
-}
-
-function axisFamilyColor(worldKey: 0 | 1 | 2, familyIndex: number, familyCount: number): string {
-    const t = Math.max(1, familyIndex + 1) / Math.max(1, familyCount);
-    const color = new Color();
-    if (worldKey === 1) color.setRGB(0, t, 0);
-    else if (worldKey === 2) color.setRGB(0, 0, t);
-    else color.setRGB(t, 0, 0);
-    return `#${color.getHexString()}`;
-}
-
-function signedLog1p(value: number): number {
-    return Math.sign(value) * Math.log1p(Math.abs(value));
-}
-
-function computeMinMax(data: NumericArray): { min: number; max: number } {
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (let index = 0; index < data.length; index += 1) {
-        const value = Number(data[index] ?? 0);
-        if (value < min) min = value;
-        if (value > max) max = value;
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1 };
-    return { min, max };
-}
-
-function vectorFromTuple(tuple: Vec3): Vector3 {
-    return new Vector3(tuple[0], tuple[1], tuple[2]);
-}
-
-function tupleFromVector(vector: Vector3): Vec3 {
-    return [vector.x, vector.y, vector.z];
-}
-
-function dtypeFromArray(data: NumericArray): DType {
-    if (data instanceof Float32Array) return 'float32';
-    if (data instanceof Int32Array) return 'int32';
-    if (data instanceof Uint8Array) return 'uint8';
-    return 'float64';
-}
-
-function numericValue(data: NumericArray | null, index: number): number {
-    return Number(data?.[index] ?? 0);
-}
-
-function coordKey(coord: number[]): string {
-    return coord.join(',');
-}
-
-function coordFromKey(key: string): number[] {
-    return key === '' ? [] : key.split(',').map((value) => Number(value));
-}
-
-function quantile(sortedValues: number[], percentile: number): number {
-    if (sortedValues.length === 1) return sortedValues[0] ?? 0;
-    const position = (sortedValues.length - 1) * percentile;
-    const lower = Math.floor(position);
-    const upper = Math.ceil(position);
-    const lowerValue = sortedValues[lower] ?? 0;
-    const upperValue = sortedValues[upper] ?? lowerValue;
-    if (lower === upper) return lowerValue;
-    return lowerValue + (upperValue - lowerValue) * (position - lower);
-}
-
-function boxesIntersect(
-    left: { left: number; right: number; top: number; bottom: number },
-    right: { left: number; right: number; top: number; bottom: number },
-): boolean {
-    return left.left <= right.right
-        && left.right >= right.left
-        && left.top <= right.bottom
-        && left.bottom >= right.top;
-}
-
-function colorFromRgba(rgba: RGBA): Color {
-    return new Color(rgba[0] / 255, rgba[1] / 255, rgba[2] / 255);
-}
-
-function normalizeHue(hue: number): number {
-    const unit = Math.abs(hue) > 1 ? hue / 360 : hue;
-    return ((unit % 1) + 1) % 1;
-}
-
-function normalizeSaturation(saturation: number): number {
-    const unit = Math.abs(saturation) > 1 ? saturation / 100 : saturation;
-    return Math.max(0, Math.min(1, unit));
-}
-
-function colorFromHueSaturation(color: HueSaturation, brightness: number): Color {
-    const hue = normalizeHue(color[0]);
-    const saturation = normalizeSaturation(color[1]);
-    const value = Math.max(0, Math.min(1, brightness));
-    const sector = hue * 6;
-    const index = Math.floor(sector);
-    const fraction = sector - index;
-    const p = value * (1 - saturation);
-    const q = value * (1 - saturation * fraction);
-    const t = value * (1 - saturation * (1 - fraction));
-    const components = [
-        [value, t, p],
-        [q, value, p],
-        [p, value, t],
-        [p, q, value],
-        [t, p, value],
-        [value, p, q],
-    ][index % 6] ?? [value, value, value];
-    return new Color(components[0], components[1], components[2]);
-}
-
-function parseCustomColor(value: number[]): CustomColor {
-    if (value.length === 2) return { kind: 'hs', value: [value[0], value[1]] };
-    if (value.length === 4) return { kind: 'rgba', value: [value[0], value[1], value[2], value[3]] };
-    throw new Error(`Expected color tuple of length 2 or 4, received ${value.length}.`);
-}
+export type { ViewerOptions } from './viewer-config.js';
 
 /** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
@@ -530,6 +328,35 @@ export class TensorViewer {
         return layoutAxisLabels(spec, this.state.collapseHiddenAxes);
     }
 
+    private meshContext() {
+        return {
+            cubeGeometry: this.cubeGeometry,
+            planeGeometry: this.planeGeometry,
+            state: this.state,
+            tensorMeshes: this.tensorMeshes,
+            instanceShape: (spec: TensorViewSpec) => this.instanceShape(spec),
+            layoutShape: (spec: TensorViewSpec) => this.layoutShape(spec),
+            layoutAxisLabels: (spec: TensorViewSpec) => this.layoutAxisLabels(spec),
+            layoutGapMultiple: () => this.layoutGapMultiple(),
+            mapViewCoordToLayoutCoord: (viewCoord: number[], spec: TensorViewSpec) => this.mapViewCoordToLayoutCoord(viewCoord, spec),
+            selectionStateAttribute: (mesh: InstancedMesh) => this.selectionStateAttribute(mesh),
+            installSelectionPreviewShader: (mesh: InstancedMesh) => this.installSelectionPreviewShader(mesh),
+            heatmapNormalizedValue: (value: number, min: number, max: number) => this.heatmapNormalizedValue(value, min, max),
+            baseCellColor: (
+                tensor: TensorRecord,
+                tensorCoord: number[],
+                value: number,
+                heatmapRange: { min: number; max: number } | null,
+            ) => this.baseCellColor(tensor, tensorCoord, value, heatmapRange),
+            isSelectedCell: (tensorId: string, tensorCoord: number[]) => this.isSelectedCell(tensorId, tensorCoord),
+            selectedColor: (color: Color) => this.selectedColor(color),
+            linearIndex: (coord: number[], shape: number[]) => this.linearIndex(coord, shape),
+            clearHover: () => this.clearHover(),
+            requestRender: () => this.requestRender(),
+            emit: () => this.emit(),
+        };
+    }
+
     private tensorExtentForMode(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
         const shape = layoutShape(tensor.view, this.state.collapseHiddenAxes);
         if (mode === '2d') {
@@ -734,7 +561,7 @@ export class TensorViewer {
         heatmapRange: { min: number; max: number } | null,
     ): Color {
         const customColor = tensor.customColors.get(coordKey(tensorCoord));
-        if (customColor?.kind === 'rgba') return colorFromRgba(customColor.value);
+        if (customColor?.kind === 'rgb') return colorFromRgb(customColor.value);
         if (customColor?.kind === 'hs') {
             return colorFromHueSaturation(
                 customColor.value,
@@ -1770,173 +1597,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     }
 
     private buildTensorGroup(tensor: TensorRecord): Group {
-        const group = new Group();
-        const instanceShape = this.instanceShape(tensor.view);
-        const shape = this.layoutShape(tensor.view);
-        const labels = this.layoutAxisLabels(tensor.view);
-        const count = product(instanceShape);
-        const geometry = this.state.displayMode === '2d' ? this.planeGeometry.clone() : this.cubeGeometry;
-        const mesh = new InstancedMesh(
-            geometry,
-            new MeshBasicMaterial({ color: 0xffffff, vertexColors: true, toneMapped: false }),
-            count,
-        );
-        mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3), 3);
-        if (this.state.displayMode === '2d') {
-            mesh.geometry.setAttribute('selectionState', new InstancedBufferAttribute(new Float32Array(count), 1));
-            this.installSelectionPreviewShader(mesh);
-        }
-        const outlineExtent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-        const outlineSpan2D = Math.max(outlineExtent2D.x, outlineExtent2D.y);
-        const baseOutlineLabelScale2D = Math.max(1.25, Math.min(10, outlineSpan2D * 0.05));
-        const guideLabelScale2D = baseOutlineLabelScale2D / 5;
-        const guideStartOffset2D = Math.max(1.15, guideLabelScale2D * 2.5);
-        const guideLevelStep2D = Math.max(0.75, guideLabelScale2D * 3.5);
-        const guideLabelOffset2D = Math.max(0.3, guideLabelScale2D * 1.2);
-        const tensorNameScale2D = (baseOutlineLabelScale2D * 1.25) / 2;
-        const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
-        const selectionAttribute = this.selectionStateAttribute(mesh);
-        const selectionState = selectionAttribute?.array as Float32Array | undefined;
-        if (!this.populateFastMesh2D(tensor, mesh, instanceShape, heatmapRange)) {
-            const matrix = new Matrix4();
-            const offset = vectorFromTuple(tensor.offset);
-            for (let index = 0; index < count; index += 1) {
-                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
-                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
-                const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
-                const tensorLinear = this.linearIndex(tensorCoord, tensor.shape);
-                const value = numericValue(tensor.data, tensorLinear);
-                const position = this.state.displayMode === '2d'
-                    ? (() => {
-                        const flat = displayPositionForCoord2D(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-                        return new Vector3(tensor.offset[0] + flat.x, tensor.offset[1] + flat.y, 0);
-                    })()
-                    : displayPositionForCoord(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(offset);
-                matrix.makeTranslation(position.x, position.y, position.z);
-                mesh.setMatrixAt(index, matrix);
-                const baseColor = this.baseCellColor(tensor, tensorCoord, value, heatmapRange);
-                mesh.setColorAt(index, selectionState ? baseColor : this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(baseColor) : baseColor);
-                if (selectionState) selectionState[index] = this.isSelectedCell(tensor.id, tensorCoord) ? 1 : 0;
-            }
-        }
-
-        mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-        if (selectionAttribute) selectionAttribute.needsUpdate = true;
-        if (this.state.displayMode === '2d') {
-            const halfX = outlineExtent2D.x / 2;
-            const halfY = outlineExtent2D.y / 2;
-            const center = new Vector3(tensor.offset[0], tensor.offset[1], 0);
-            mesh.boundingBox = new Box3(
-                new Vector3(center.x - halfX, center.y - halfY, 0),
-                new Vector3(center.x + halfX, center.y + halfY, 0),
-            );
-            mesh.boundingSphere = new Sphere(center, Math.hypot(halfX, halfY));
-        } else {
-            const outlineExtent = displayExtent(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            const halfExtent = outlineExtent.clone().multiplyScalar(0.5);
-            const center = vectorFromTuple(tensor.offset);
-            mesh.boundingBox = new Box3(center.clone().sub(halfExtent), center.clone().add(halfExtent));
-            mesh.boundingSphere = new Sphere(center, halfExtent.length());
-        }
-        mesh.material.needsUpdate = true;
-        mesh.userData.meta = { tensorId: tensor.id, instanceShape } satisfies MeshMeta;
-        group.add(mesh);
-        if (this.state.displayMode === '2d') {
-            group.add(this.buildOutline2D(outlineExtent2D, tensor.offset));
-            const showDimensionGuides = this.state.showDimensionLines && labels.length > 0;
-            if (showDimensionGuides) {
-                group.add(this.buildDimensionGuides2D(
-                    shape,
-                    tensor.offset,
-                    labels,
-                    guideStartOffset2D,
-                    guideLevelStep2D,
-                    guideLabelOffset2D,
-                    guideLabelScale2D,
-                ));
-            }
-            if (this.state.showTensorNames) {
-                const topGuideCount = shape.reduce((count, _size, axis) => (
-                    count + Number(axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) === 0)
-                ), 0);
-                const nameLabel = createTextLabel(tensor.name, '#0f172a');
-                const guideClearance = showDimensionGuides
-                    ? guideStartOffset2D
-                        + Math.max(0, topGuideCount - 1) * guideLevelStep2D
-                        + guideLabelOffset2D
-                        + tensorNameScale2D * 1.5
-                    : tensorNameScale2D * 1.75;
-                nameLabel.position.set(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance, 0.02);
-                nameLabel.scale.setScalar(tensorNameScale2D);
-                group.add(nameLabel);
-            }
-        } else {
-            const outlineExtent = displayExtent(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            group.add(this.buildOutline(outlineExtent, tensor.offset));
-            if (this.state.showDimensionLines && labels.length > 0) group.add(this.buildDimensionGuides(outlineExtent, shape, tensor.offset, labels));
-        }
-        return group;
+        return buildTensorGroup(this.meshContext(), tensor);
     }
 
     /** updates instance colors in place when only the sliced tensor indices changed. */
     private updateSliceMesh(tensor: TensorRecord, previousView: TensorViewSpec): boolean {
-        if (previousView.canonical !== tensor.view.canonical) return false;
-        if (!previousView.hiddenIndices.some((value, index) => value !== tensor.view.hiddenIndices[index])) return false;
-        if (previousView.viewShape.length !== tensor.view.viewShape.length
-            || previousView.viewShape.some((size, index) => size !== tensor.view.viewShape[index])) return false;
-        const shape = this.layoutShape(tensor.view);
-        const previousShape = layoutShape(previousView, this.state.collapseHiddenAxes);
-        if (previousShape.length !== shape.length
-            || previousShape.some((size, index) => size !== shape[index])) return false;
-
-        const group = this.tensorMeshes.get(tensor.id);
-        const mesh = group?.children[0];
-        const colorArray = mesh instanceof InstancedMesh ? mesh.instanceColor?.array as Float32Array | undefined : undefined;
-        const selectionAttribute = mesh instanceof InstancedMesh ? this.selectionStateAttribute(mesh) : null;
-        const selectionState = selectionAttribute?.array as Float32Array | undefined;
-        if (!(mesh instanceof InstancedMesh) || !colorArray) return false;
-
-        const instanceShape = this.instanceShape(tensor.view);
-        const anchorViewCoord = tensor.view.viewShape.length === 0 ? [] : new Array(tensor.view.viewShape.length).fill(0);
-        const previousAnchor = mapViewCoordToLayoutCoord(anchorViewCoord, previousView, this.state.collapseHiddenAxes);
-        const nextAnchor = this.mapViewCoordToLayoutCoord(anchorViewCoord, tensor.view);
-        if (this.state.displayMode === '2d') {
-            const previousPosition = displayPositionForCoord2D(previousAnchor, previousShape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            const nextPosition = displayPositionForCoord2D(nextAnchor, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            mesh.position.x += nextPosition.x - previousPosition.x;
-            mesh.position.y += nextPosition.y - previousPosition.y;
-            mesh.position.z = 0;
-        } else {
-            const previousPosition = displayPositionForCoord(previousAnchor, previousShape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            const nextPosition = displayPositionForCoord(nextAnchor, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-            mesh.position.add(nextPosition.sub(previousPosition));
-        }
-
-        const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
-        const count = product(instanceShape);
-        for (let index = 0; index < count; index += 1) {
-            const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
-            const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
-            const value = numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape));
-            const colorOffset = index * 3;
-            const baseColor = this.baseCellColor(tensor, tensorCoord, value, heatmapRange);
-            const color = selectionState
-                ? baseColor
-                : this.isSelectedCell(tensor.id, tensorCoord) ? this.selectedColor(baseColor) : baseColor;
-            colorArray[colorOffset] = color.r;
-            colorArray[colorOffset + 1] = color.g;
-            colorArray[colorOffset + 2] = color.b;
-            if (selectionState) selectionState[index] = this.isSelectedCell(tensor.id, tensorCoord) ? 1 : 0;
-        }
-
-        if (this.state.hover?.tensorId === tensor.id || this.state.lastHover?.tensorId === tensor.id) this.clearHover();
-        mesh.instanceColor!.needsUpdate = true;
-        if (selectionAttribute) selectionAttribute.needsUpdate = true;
-        mesh.updateMatrixWorld(true);
-        this.requestRender();
-        this.emit();
-        return true;
+        return updateSliceMesh(this.meshContext(), tensor, previousView);
     }
 
     private render2D(): void {
@@ -1984,21 +1650,21 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     private applyColors(
         tensor: TensorRecord,
         arg1: Uint8ClampedArray | Float32Array | number[][] | number[],
-        arg2?: RGBA | HueSaturation | number[],
-        arg3?: number[] | RGBA | HueSaturation,
-        arg4?: RGBA | HueSaturation | number[],
+        arg2?: RGB | HueSaturation | number[],
+        arg3?: number[] | RGB | HueSaturation,
+        arg4?: RGB | HueSaturation | number[],
     ): void {
         if (arg1 instanceof Uint8ClampedArray || arg1 instanceof Float32Array) {
             const denseColorSize = arg1.length / product(tensor.shape);
-            if (denseColorSize !== 2 && denseColorSize !== 4) {
-                throw new Error(`Expected dense color payload with 2 or 4 channels per cell, received ${arg1.length}.`);
+            if (denseColorSize !== 2 && denseColorSize !== 3) {
+                throw new Error(`Expected dense color payload with 2 or 3 channels per cell, received ${arg1.length}.`);
             }
             for (let index = 0; index < product(tensor.shape); index += 1) {
                 const coord = unravelIndex(index, tensor.shape);
                 const offset = index * denseColorSize;
                 const values = Array.from(arg1.slice(offset, offset + denseColorSize));
                 tensor.customColors.set(coordKey(coord), parseCustomColor(
-                    denseColorSize === 4 && arg1 instanceof Float32Array
+                    denseColorSize === 3 && arg1 instanceof Float32Array
                         ? values.map((value) => Math.round(value * 255))
                         : values,
                 ));
@@ -2553,15 +2219,15 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     }
 
     public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
-    public colorTensor(tensorId: string, coords: number[][], color: RGBA | HueSaturation): void;
-    public colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGBA | HueSaturation): void;
+    public colorTensor(tensorId: string, coords: number[][], color: RGB | HueSaturation): void;
+    public colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGB | HueSaturation): void;
     /** Apply dense, coordinate, or region-based custom colors to one tensor. */
     public colorTensor(
         tensorId: string,
         arg1: Uint8ClampedArray | Float32Array | number[][] | number[],
-        arg2?: RGBA | HueSaturation | number[],
-        arg3?: number[] | RGBA | HueSaturation,
-        arg4?: RGBA | HueSaturation,
+        arg2?: RGB | HueSaturation | number[],
+        arg3?: number[] | RGB | HueSaturation,
+        arg4?: RGB | HueSaturation,
     ): void {
         const tensor = this.requireTensor(tensorId);
         tensor.customColors.clear();
@@ -2643,18 +2309,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         };
     }
 
-    /** Load one `.npy` file into the viewer as the active tensor. */
-    public async openFile(file: File): Promise<void> {
-        logEvent('file:open', file.name);
-        if (!(await isNpyFile(file))) throw new Error('Only .npy arrays are supported.');
-        const array = await loadNpy(file);
-        this.resetLoadedState();
-        this.insertTensor(array.shape, array.data, {
-            name: file.name.replace(/\.npy$/i, '') || 'Tensor',
-            dtype: array.dtype,
-        });
-    }
-
     /** Load a manifest plus decoded tensor buffers into the viewer. */
     public loadBundleData(manifest: BundleManifest, tensors: Map<string, NumericArray>): void {
         const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
@@ -2678,17 +2332,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         });
         this.applySnapshot(manifest.viewer);
         this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
-    }
-
-    /** Save the active tensor back out as a `.npy` blob. */
-    public async saveFile(): Promise<Blob> {
-        logEvent('file:save');
-        if (!this.state.activeTensorId) throw new Error('No tensor loaded.');
-        const activeTensorId = this.state.activeTensorId;
-        await this.ensureTensorData(activeTensorId, 'save');
-        const tensor = this.requireTensor(activeTensorId);
-        if (!tensor.data) throw new Error(`Tensor ${tensor.name} has no backing data to save.`);
-        return saveNpy(tensor.shape, tensor.data, tensor.dtype);
     }
 
     /** Build the demo-side inspector model for the currently active tensor. */

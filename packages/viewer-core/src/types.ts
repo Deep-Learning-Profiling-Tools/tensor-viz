@@ -1,4 +1,4 @@
-/** Supported dense tensor dtypes for viewer storage, `.npy` IO, and manifests. */
+/** Supported dense tensor dtypes for viewer storage and manifests. */
 export type DType = 'float64' | 'float32' | 'int32' | 'uint8';
 
 /** Strategy for assigning tensor axes to the x, y, and z layout families. */
@@ -10,22 +10,22 @@ export type NumericArray = Float64Array | Float32Array | Int32Array | Uint8Array
 /** Fixed-length xyz tuple used for tensor offsets and camera values. */
 export type Vec3 = readonly [number, number, number];
 
-/** RGBA color tuple using 0-255 channels. */
-export type RGBA = readonly [number, number, number, number];
+/** RGB color tuple using 0-255 channels. */
+export type RGB = readonly [number, number, number];
 
 /** Hue-saturation tuple used by the viewer's brightness-preserving color mode. */
 export type HueSaturation = readonly [number, number];
 
 /** One normalized custom color entry stored on a tensor cell. */
 export type CustomColor =
-    | { kind: 'rgba'; value: RGBA }
+    | { kind: 'rgb'; value: RGB }
     | { kind: 'hs'; value: HueSaturation };
 
 /** Serializable custom-color instructions persisted in bundle manifests. */
 export type ColorInstruction =
-    | { mode: 'rgba' | 'hs'; kind: 'dense'; values: number[] }
-    | { mode: 'rgba' | 'hs'; kind: 'coords'; coords: number[][]; color: number[] }
-    | { mode: 'rgba' | 'hs'; kind: 'region'; base: number[]; shape: number[]; jumps: number[]; color: number[] };
+    | { mode: 'rgb' | 'hs'; kind: 'dense'; values: number[] }
+    | { mode: 'rgb' | 'hs'; kind: 'coords'; coords: number[][]; color: number[] }
+    | { mode: 'rgb' | 'hs'; kind: 'region'; base: number[]; shape: number[]; jumps: number[]; color: number[] };
 
 /** Lightweight metadata returned when a tensor is added to a viewer. */
 export type TensorHandle = {
