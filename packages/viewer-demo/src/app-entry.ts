@@ -87,8 +87,50 @@ type LinearLayoutNotice = {
     text: string;
 };
 
+const LINEAR_LAYOUT_AXES = ['thread', 'warp', 'register'] as const;
+const LINEAR_LAYOUT_CHANNELS = ['H', 'S', 'L'] as const;
+const OUTPUT_AXIS_NAMES = [
+    'x',
+    'y',
+    'z',
+    'w',
+    'v',
+    'u',
+    't',
+    's',
+    'r',
+    'q',
+    'p',
+    'o',
+    'n',
+    'm',
+    'l',
+    'k',
+    'j',
+    'i',
+    'h',
+    'g',
+    'f',
+    'e',
+    'd',
+    'c',
+    'b',
+    'a',
+] as const;
+
+type LinearLayoutAxis = typeof LINEAR_LAYOUT_AXES[number];
+type LinearLayoutChannel = typeof LINEAR_LAYOUT_CHANNELS[number];
+type LinearLayoutMappingValue = LinearLayoutAxis | 'none';
+
+type LinearLayoutFormState = {
+    bases: Record<LinearLayoutAxis, string>;
+    mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue>;
+    ranges: Record<LinearLayoutChannel, [string, string]>;
+};
+
 const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
-let linearLayoutText = loadLinearLayoutText();
+let linearLayoutState = loadLinearLayoutState();
+const linearLayoutStates = new Map<string, LinearLayoutFormState>();
 let linearLayoutNotice: LinearLayoutNotice | null = null;
 
 type CommandAction = {
@@ -115,34 +157,245 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
 }
 
 /** Load the persisted linear-layout JSON used by the static demo sidebar. */
-function loadLinearLayoutText(): string {
+function loadLinearLayoutState(): LinearLayoutFormState {
+    const fallback = defaultLinearLayoutState();
     try {
-        return window.localStorage.getItem(LINEAR_LAYOUT_STORAGE_KEY) ?? defaultLinearLayoutSpecText();
+        const stored = window.localStorage.getItem(LINEAR_LAYOUT_STORAGE_KEY);
+        if (!stored) return fallback;
+        const parsed = JSON.parse(stored);
+        if (isLinearLayoutState(parsed)) return parsed;
+        if (parsed && typeof parsed === 'object' && (parsed.bases || parsed.input_dims)) {
+            return stateFromLayoutSpec(parsed, fallback);
+        }
     } catch {
-        return defaultLinearLayoutSpecText();
+        return fallback;
     }
+    return fallback;
 }
 
 /** Persist the current linear-layout JSON for the next browser session. */
-function storeLinearLayoutText(): void {
+function storeLinearLayoutState(): void {
     try {
-        window.localStorage.setItem(LINEAR_LAYOUT_STORAGE_KEY, linearLayoutText);
+        window.localStorage.setItem(LINEAR_LAYOUT_STORAGE_KEY, JSON.stringify(linearLayoutState));
     } catch {
         // ignore storage failures in restricted browsers
     }
+}
+
+function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as LinearLayoutFormState;
+    return LINEAR_LAYOUT_AXES.every((axis) => typeof record.bases?.[axis] === 'string')
+        && LINEAR_LAYOUT_CHANNELS.every((channel) => typeof record.mapping?.[channel] === 'string')
+        && LINEAR_LAYOUT_CHANNELS.every((channel) => Array.isArray(record.ranges?.[channel]));
+}
+
+function defaultLinearLayoutState(): LinearLayoutFormState {
+    return stateFromLayoutSpec(JSON.parse(defaultLinearLayoutSpecText()));
+}
+
+function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
+    return {
+        bases: { ...state.bases },
+        mapping: { ...state.mapping },
+        ranges: {
+            H: [...state.ranges.H],
+            S: [...state.ranges.S],
+            L: [...state.ranges.L],
+        } as Record<LinearLayoutChannel, [string, string]>,
+    };
+}
+
+function stateFromLayoutSpec(raw: any, fallback?: LinearLayoutFormState): LinearLayoutFormState {
+    const axes = {
+        thread: formatBases([]),
+        warp: formatBases([]),
+        register: formatBases([]),
+    } satisfies Record<LinearLayoutAxis, string>;
+    const entries = Array.isArray(raw?.input_dims)
+        ? raw.input_dims
+        : Array.isArray(raw?.bases)
+            ? raw.bases
+            : [];
+    entries.forEach((entry: any) => {
+        const pair = Array.isArray(entry) ? entry : [entry?.name, entry?.bases];
+        const [name, bases] = pair;
+        if (typeof name !== 'string' || !(name in axes)) return;
+        axes[name as LinearLayoutAxis] = formatBases(bases ?? []);
+    });
+    const mappingFallback = fallback?.mapping ?? {
+        H: 'warp',
+        S: 'thread',
+        L: 'register',
+    };
+    const rangesFallback = fallback?.ranges ?? {
+        H: ['0', '0.85'],
+        S: ['0.35', '0.95'],
+        L: ['0.25', '0.95'],
+    };
+    const mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue> = { ...mappingFallback };
+    if (raw?.color_axes && typeof raw.color_axes === 'object') {
+        Object.entries(raw.color_axes).forEach(([axisName, channelName]) => {
+            const channel = String(channelName).toUpperCase();
+            if (!LINEAR_LAYOUT_CHANNELS.includes(channel as LinearLayoutChannel)) return;
+            if (!LINEAR_LAYOUT_AXES.includes(axisName as LinearLayoutAxis)) return;
+            mapping[channel as LinearLayoutChannel] = axisName as LinearLayoutAxis;
+        });
+    }
+    const ranges: Record<LinearLayoutChannel, [string, string]> = { ...rangesFallback };
+    if (raw?.color_ranges && typeof raw.color_ranges === 'object') {
+        Object.entries(raw.color_ranges).forEach(([channelName, range]) => {
+            if (!LINEAR_LAYOUT_CHANNELS.includes(channelName.toUpperCase() as LinearLayoutChannel)) return;
+            if (!Array.isArray(range) || range.length !== 2) return;
+            ranges[channelName.toUpperCase() as LinearLayoutChannel] = [String(range[0]), String(range[1])];
+        });
+    }
+    return {
+        bases: axes,
+        mapping,
+        ranges,
+    };
+}
+
+function formatBases(value: unknown): string {
+    return JSON.stringify(value ?? []);
+}
+
+function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
+    const names = tab.manifest.tensors.map((tensor) => tensor.name.toLowerCase());
+    return names.includes('hardware tensor') && names.includes('logical tensor');
+}
+
+function syncLinearLayoutState(tab: LoadedBundleDocument): void {
+    if (!isLinearLayoutTab(tab)) return;
+    const stored = linearLayoutStates.get(tab.id);
+    if (stored) {
+        linearLayoutState = cloneLinearLayoutState(stored);
+        renderLinearLayoutWidget();
+        return;
+    }
+    const candidate = (tab.manifest.viewer as { linearLayoutState?: unknown }).linearLayoutState;
+    if (isLinearLayoutState(candidate)) {
+        linearLayoutState = cloneLinearLayoutState(candidate);
+        linearLayoutStates.set(tab.id, cloneLinearLayoutState(candidate));
+        renderLinearLayoutWidget();
+        return;
+    }
+    linearLayoutState = defaultLinearLayoutState();
+    linearLayoutStates.set(tab.id, cloneLinearLayoutState(linearLayoutState));
+    renderLinearLayoutWidget();
+}
+
+function parseBasesField(label: string, value: string): number[][] {
+    if (!value.trim()) return [];
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch (error) {
+        throw new Error(`${label} bases must be valid JSON.`);
+    }
+    if (!Array.isArray(parsed)) throw new Error(`${label} bases must be a JSON array.`);
+    return parsed.map((basis, index) => {
+        if (!Array.isArray(basis)) throw new Error(`${label} basis ${index + 1} must be an array.`);
+        return basis.map((entry, axis) => {
+            if (typeof entry !== 'number' || Number.isNaN(entry)) {
+                throw new Error(`${label} basis ${index + 1}[${axis + 1}] must be a number.`);
+            }
+            return entry;
+        });
+    });
+}
+
+function outputDimsFromBases(bases: Record<LinearLayoutAxis, number[][]>): string[] {
+    let outputRank = 0;
+    LINEAR_LAYOUT_AXES.forEach((axis) => {
+        bases[axis].forEach((basis) => {
+            outputRank = Math.max(outputRank, basis.length);
+        });
+    });
+    const rank = outputRank || 1;
+    if (rank > OUTPUT_AXIS_NAMES.length) {
+        throw new Error(`Output rank ${rank} exceeds supported axes (${OUTPUT_AXIS_NAMES.length}).`);
+    }
+    return OUTPUT_AXIS_NAMES.slice(0, rank).reverse();
+}
+
+function colorAxesFromMapping(mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue>): Record<string, string> | undefined {
+    const entries: Array<[string, string]> = [];
+    const used = new Set<string>();
+    LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
+        const axis = mapping[channel];
+        if (axis === 'none') return;
+        if (used.has(axis)) {
+            throw new Error(`Each axis can map to only one color channel (duplicate ${axis}).`);
+        }
+        used.add(axis);
+        entries.push([axis, channel]);
+    });
+    return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function colorRangesFromState(ranges: Record<LinearLayoutChannel, [string, string]>): Record<string, [number, number]> {
+    const output: Record<string, [number, number]> = {};
+    LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
+        const [start, end] = ranges[channel];
+        const startValue = Number(start);
+        const endValue = Number(end);
+        if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
+            throw new Error(`${channel} range must contain two numbers.`);
+        }
+        output[channel] = [startValue, endValue];
+    });
+    return output;
 }
 
 /** Render the browser-side linear-layout editor that powers the Pages build. */
 function renderLinearLayoutWidget(): void {
     const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
     const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
+    const axisOptions = (value: LinearLayoutMappingValue): string => [
+        `<option value="none" ${value === 'none' ? 'selected' : ''}>None</option>`,
+        ...LINEAR_LAYOUT_AXES.map((axis) => `<option value="${axis}" ${value === axis ? 'selected' : ''}>${axis}</option>`),
+    ].join('');
     linearLayoutWidget.innerHTML = `
-      ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser from a Triton-style JSON layout spec. This works on static GitHub Pages because no Python session server is required.')}
+      ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser. Output dims are inferred from the basis vector length.')}
       <div class="widget-body">
-        <p class="widget-copy">Use JSON matching <span class="inline-code">LinearLayout.from_bases(...)</span>. <span class="inline-code">bases</span> accepts <span class="inline-code">[name, basisVectors]</span> pairs, and <span class="inline-code">out_dims</span> can be output names or <span class="inline-code">[name, size]</span> pairs.</p>
+        <p class="widget-copy">Enter basis vectors for each axis. Use the same JSON lists you would pass to <span class="inline-code">LinearLayout.from_bases</span>.</p>
         <div class="field">
-          ${labelWithInfo('Layout JSON', 'Edit a Triton-style linear layout. Input sizes are inferred as 2^len(bases), and omitted output sizes are inferred from the generated coordinates.', 'linear-layout-input')}
-          <textarea id="linear-layout-input" rows="18" spellcheck="false">${escapeInfo(linearLayoutText)}</textarea>
+          ${labelWithInfo('Thread Bases', 'Basis vectors for the thread axis.', 'linear-layout-thread')}
+          <textarea id="linear-layout-thread" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.thread)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Warp Bases', 'Basis vectors for the warp axis.', 'linear-layout-warp')}
+          <textarea id="linear-layout-warp" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.warp)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Register Bases', 'Basis vectors for the register axis.', 'linear-layout-register')}
+          <textarea id="linear-layout-register" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.register)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.', 'linear-layout-color')}
+          <div class="inline-row">
+            <span class="range-label">Hue</span>
+            <select id="linear-layout-hue-axis">${axisOptions(linearLayoutState.mapping.H)}</select>
+            <input id="linear-layout-hue-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[0])}" />
+            <span class="range-separator">to</span>
+            <input id="linear-layout-hue-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[1])}" />
+          </div>
+          <div class="inline-row">
+            <span class="range-label">Sat</span>
+            <select id="linear-layout-saturation-axis">${axisOptions(linearLayoutState.mapping.S)}</select>
+            <input id="linear-layout-saturation-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[0])}" />
+            <span class="range-separator">to</span>
+            <input id="linear-layout-saturation-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[1])}" />
+          </div>
+          <div class="inline-row">
+            <span class="range-label">Light</span>
+            <select id="linear-layout-lightness-axis">${axisOptions(linearLayoutState.mapping.L)}</select>
+            <input id="linear-layout-lightness-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[0])}" />
+            <span class="range-separator">to</span>
+            <input id="linear-layout-lightness-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[1])}" />
+          </div>
         </div>
         <div class="button-row">
           <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
@@ -152,40 +405,86 @@ function renderLinearLayoutWidget(): void {
       </div>
     `;
 
-    const input = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-input');
+    const threadInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-thread');
+    const warpInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-warp');
+    const registerInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-register');
+    const hueAxisInput = linearLayoutWidget.querySelector<HTMLSelectElement>('#linear-layout-hue-axis');
+    const saturationAxisInput = linearLayoutWidget.querySelector<HTMLSelectElement>('#linear-layout-saturation-axis');
+    const lightnessAxisInput = linearLayoutWidget.querySelector<HTMLSelectElement>('#linear-layout-lightness-axis');
+    const hueMinInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-hue-min');
+    const hueMaxInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-hue-max');
+    const saturationMinInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-min');
+    const saturationMaxInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-max');
+    const lightnessMinInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-min');
+    const lightnessMaxInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-max');
     const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
     const reset = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-reset');
-    input?.addEventListener('input', () => {
-        linearLayoutText = input.value;
+    threadInput?.addEventListener('input', () => {
+        linearLayoutState.bases.thread = threadInput.value;
     });
-    input?.addEventListener('keydown', async (event) => {
-        if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
-        event.preventDefault();
-        linearLayoutText = input.value;
-        await applyLinearLayoutSpec();
+    warpInput?.addEventListener('input', () => {
+        linearLayoutState.bases.warp = warpInput.value;
+    });
+    registerInput?.addEventListener('input', () => {
+        linearLayoutState.bases.register = registerInput.value;
+    });
+    hueAxisInput?.addEventListener('change', () => {
+        linearLayoutState.mapping.H = (hueAxisInput.value as LinearLayoutMappingValue) ?? 'none';
+    });
+    saturationAxisInput?.addEventListener('change', () => {
+        linearLayoutState.mapping.S = (saturationAxisInput.value as LinearLayoutMappingValue) ?? 'none';
+    });
+    lightnessAxisInput?.addEventListener('change', () => {
+        linearLayoutState.mapping.L = (lightnessAxisInput.value as LinearLayoutMappingValue) ?? 'none';
+    });
+    hueMinInput?.addEventListener('change', () => {
+        linearLayoutState.ranges.H[0] = hueMinInput.value;
+    });
+    hueMaxInput?.addEventListener('change', () => {
+        linearLayoutState.ranges.H[1] = hueMaxInput.value;
+    });
+    saturationMinInput?.addEventListener('change', () => {
+        linearLayoutState.ranges.S[0] = saturationMinInput.value;
+    });
+    saturationMaxInput?.addEventListener('change', () => {
+        linearLayoutState.ranges.S[1] = saturationMaxInput.value;
+    });
+    lightnessMinInput?.addEventListener('change', () => {
+        linearLayoutState.ranges.L[0] = lightnessMinInput.value;
+    });
+    lightnessMaxInput?.addEventListener('change', () => {
+        linearLayoutState.ranges.L[1] = lightnessMaxInput.value;
     });
     apply?.addEventListener('click', async () => {
-        linearLayoutText = input?.value ?? linearLayoutText;
         await applyLinearLayoutSpec();
     });
     reset?.addEventListener('click', () => {
-        linearLayoutText = defaultLinearLayoutSpecText();
+        linearLayoutState = defaultLinearLayoutState();
         linearLayoutNotice = null;
         renderLinearLayoutWidget();
     });
 }
 
-/** Add or replace the custom linear-layout tab and switch the viewer to it. */
+/** Add or replace the linear-layout tab and switch the viewer to it. */
 async function upsertLinearLayoutTab(document: LoadedBundleDocument, replaceTabs = false): Promise<void> {
+    const activeTab = sessionTabs.find((tab) => tab.id === activeTabId);
+    const targetId = activeTab?.id ?? document.id;
+    const targetTitle = activeTab?.title ?? document.title;
+    const nextDocument = {
+        ...document,
+        id: targetId,
+        title: targetTitle,
+    };
+    linearLayoutStates.set(targetId, cloneLinearLayoutState(linearLayoutState));
     if (replaceTabs || sessionTabs.length === 0) {
-        sessionTabs = [document];
+        sessionTabs = [nextDocument];
     } else {
-        const index = sessionTabs.findIndex((tab) => tab.id === document.id);
+        const index = sessionTabs.findIndex((tab) => tab.id === targetId);
         sessionTabs = index === -1
-            ? [...sessionTabs, document]
-            : sessionTabs.map((tab, tabIndex) => tabIndex === index ? document : tab);
+            ? [...sessionTabs, nextDocument]
+            : sessionTabs.map((tab, tabIndex) => tabIndex === index ? nextDocument : tab);
     }
-    await loadTab(document.id);
+    await loadTab(targetId);
 }
 
 /** Parse the sidebar JSON, rebuild the layout tensors, and load them into the viewer. */
@@ -193,13 +492,29 @@ async function applyLinearLayoutSpec(
     options: { replaceTabs?: boolean; silent?: boolean } = {},
 ): Promise<boolean> {
     try {
+        const bases = {
+            thread: parseBasesField('Thread', linearLayoutState.bases.thread),
+            warp: parseBasesField('Warp', linearLayoutState.bases.warp),
+            register: parseBasesField('Register', linearLayoutState.bases.register),
+        };
+        const spec = {
+            bases: [
+                ['warp', bases.warp],
+                ['thread', bases.thread],
+                ['register', bases.register],
+            ],
+            out_dims: outputDimsFromBases(bases),
+            color_axes: colorAxesFromMapping(linearLayoutState.mapping),
+            color_ranges: colorRangesFromState(linearLayoutState.ranges),
+        };
         const document = createLinearLayoutDocument(
-            parseLinearLayoutSpec(linearLayoutText),
+            parseLinearLayoutSpec(JSON.stringify(spec)),
             viewer.getSnapshot(),
         );
-        storeLinearLayoutText();
+        storeLinearLayoutState();
         await upsertLinearLayoutTab(document, options.replaceTabs);
-        linearLayoutNotice = options.silent ? null : { tone: 'success', text: `Rendered ${document.title}.` };
+        const activeTitle = sessionTabs.find((tab) => tab.id === activeTabId)?.title ?? document.title;
+        linearLayoutNotice = options.silent ? null : { tone: 'success', text: `Rendered ${activeTitle}.` };
         renderLinearLayoutWidget();
         return true;
     } catch (error) {
@@ -351,7 +666,13 @@ function activeTab(): LoadedBundleDocument | undefined {
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
-    tab.manifest.viewer = viewer.getSnapshot();
+    const snapshot = viewer.getSnapshot() as ViewerSnapshot & { linearLayoutState?: LinearLayoutFormState };
+    if (isLinearLayoutTab(tab)) {
+        const cloned = cloneLinearLayoutState(linearLayoutState);
+        linearLayoutStates.set(tab.id, cloned);
+        snapshot.linearLayoutState = cloned;
+    }
+    tab.manifest.viewer = snapshot;
 }
 
 function renderTabStrip(): void {
@@ -376,12 +697,16 @@ function renderTabStrip(): void {
 async function loadTab(tabId: string): Promise<void> {
     const tab = sessionTabs.find((entry) => entry.id === tabId);
     if (!tab) return;
-    if (!switchingTab) captureActiveTabSnapshot();
+    if (!switchingTab && activeTabId && activeTabId !== tabId) captureActiveTabSnapshot();
     switchingTab = true;
     activeTabId = tabId;
     viewer.loadBundleData(tab.manifest, tab.tensors);
+    if (tab.manifest.viewer.dimensionMappingScheme) {
+        viewer.setDimensionMappingScheme(tab.manifest.viewer.dimensionMappingScheme);
+    }
     switchingTab = false;
     renderTabStrip();
+    syncLinearLayoutState(tab);
 }
 
 window.addEventListener('pointerup', () => {
@@ -777,12 +1102,22 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
 
 /** loads one session tab from the raw manifest plus tensor-byte endpoints. */
 async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
+    const tensorNames = tab.tensors.map((tensor) => tensor.name.toLowerCase());
+    const isLinearLayout = tensorNames.includes('hardware tensor') && tensorNames.includes('logical tensor');
+    const viewerState = {
+        ...tab.viewer,
+        dimensionMappingScheme: isLinearLayout ? 'contiguous' : tab.viewer.dimensionMappingScheme,
+    };
+    const storedLinearLayoutState = (viewerState as { linearLayoutState?: unknown }).linearLayoutState;
+    if (isLinearLayout && isLinearLayoutState(storedLinearLayoutState)) {
+        linearLayoutStates.set(tab.id, cloneLinearLayoutState(storedLinearLayoutState));
+    }
     return {
         id: tab.id,
         title: tab.title,
         manifest: {
             version: 1,
-            viewer: tab.viewer,
+            viewer: viewerState,
             tensors: tab.tensors,
         },
         tensors: await loadTabTensors(tab.tensors),
@@ -794,9 +1129,12 @@ async function tryLoadSession(): Promise<boolean> {
     if (!response.ok) return false;
     const manifest = await response.json() as SessionBundleManifest;
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
+    const initialMapping = manifest.tabs[0]?.viewer.dimensionMappingScheme;
+    if (initialMapping) viewer.setDimensionMappingScheme(initialMapping);
     sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));
-    activeTabId = sessionTabs[0]?.id ?? null;
-    if (activeTabId) await loadTab(activeTabId);
+    activeTabId = null;
+    const initialTabId = sessionTabs[0]?.id ?? null;
+    if (initialTabId) await loadTab(initialTabId);
     return true;
 }
 
@@ -958,12 +1296,12 @@ renderLinearLayoutWidget();
 tryLoadSession().then(async (loaded) => {
     if (loaded) return;
     if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
-    linearLayoutText = defaultLinearLayoutSpecText();
+    linearLayoutState = defaultLinearLayoutState();
     if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
     seedDemoTensor();
 }).catch(async () => {
     if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
-    linearLayoutText = defaultLinearLayoutSpecText();
+    linearLayoutState = defaultLinearLayoutState();
     if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
     seedDemoTensor();
 });

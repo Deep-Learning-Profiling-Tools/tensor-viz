@@ -66,22 +66,25 @@ export function createLinearLayoutDocument(
     viewer?: Partial<ViewerSnapshot>,
 ): LoadedBundleDocument {
     const inputShape = spec.input_dims.map(({ bases }) => 2 ** bases.length);
+    const hardwareLayout = hardwareTensorLayout(spec.input_dims.map(({ name }) => name), inputShape);
     const logicalOutputDims = logicalOutputDimsFor(spec.output_dims);
     const logicalShape = logicalOutputDims.map(({ size }) => size);
     const outputAxes = new Map(spec.output_dims.map((dim, axis) => [dim.name, axis]));
-    const inputNames = spec.input_dims.map(({ name }) => name);
-    const channelAxes = normalizeColorAxes(inputNames, inputShape, spec.color_axes);
-    const hardwareTensor = new Float32Array(product(inputShape));
+    const channelAxes = normalizeColorAxes(spec.input_dims.map(({ name }) => name), inputShape, spec.color_axes);
+    const hardwareTensor = new Float32Array(product(hardwareLayout.shape));
     const logicalTensor = new Float32Array(product(logicalShape)).fill(-1);
-    const hardwareRgba = new Float32Array(product(inputShape) * 4);
-    const logicalRgba = new Float32Array(product(logicalShape) * 4);
+    const hardwareRgb = new Float32Array(product(hardwareLayout.shape) * 3);
+    const logicalRgb = new Float32Array(product(logicalShape) * 3);
 
-    for (let index = 0; index < hardwareTensor.length; index += 1) {
+    for (let index = 0; index < product(inputShape); index += 1) {
         const inputCoord = unravelIndex(index, inputShape);
+        const hardwareCoord = hardwareLayout.axisOrder.map((axis) => inputCoord[axis] ?? 0);
+        const hardwareIndex = flatIndex(hardwareCoord, hardwareLayout.shape);
         const hue = colorValue('H', inputCoord, inputShape, channelAxes.H, spec.color_ranges);
         const saturation = colorValue('S', inputCoord, inputShape, channelAxes.S, spec.color_ranges);
         const lightness = colorValue('L', inputCoord, inputShape, channelAxes.L, spec.color_ranges);
-        const rgba = rgbaColor(hue, saturation, lightness);
+        const rgb = rgbColor(hue, saturation, lightness);
+        const value = channelAxes.L === null ? 0 : inputCoord[channelAxes.L] ?? 0;
         const outputCoord = mapLinearLayoutCoord(inputCoord, spec.input_dims, spec.output_dims.length);
         const logicalCoord = logicalOutputDims.map(({ name, size }) => {
             const axis = outputAxes.get(name);
@@ -93,10 +96,10 @@ export function createLinearLayoutDocument(
             return value;
         });
         const logicalIndex = flatIndex(logicalCoord, logicalShape);
-        hardwareTensor[index] = lightness;
-        logicalTensor[logicalIndex] = lightness;
-        hardwareRgba.set(rgba, index * 4);
-        logicalRgba.set(rgba, logicalIndex * 4);
+        hardwareTensor[hardwareIndex] = value;
+        logicalTensor[logicalIndex] = value;
+        hardwareRgb.set(rgb, hardwareIndex * 3);
+        logicalRgb.set(rgb, logicalIndex * 3);
     }
 
     const manifest = createBundleManifest({
@@ -106,9 +109,9 @@ export function createLinearLayoutDocument(
                 id: 'tensor-1',
                 name: 'Hardware tensor',
                 dtype: 'float32',
-                shape: inputShape,
-                axisLabels: viewerAxisLabels(inputNames),
-                colorInstructions: [{ mode: 'rgba', kind: 'dense', values: Array.from(hardwareRgba) }],
+                shape: hardwareLayout.shape,
+                axisLabels: hardwareLayout.axisLabels,
+                colorInstructions: [{ mode: 'rgb', kind: 'dense', values: Array.from(hardwareRgb) }],
             },
             {
                 id: 'tensor-2',
@@ -116,7 +119,7 @@ export function createLinearLayoutDocument(
                 dtype: 'float32',
                 shape: logicalShape,
                 axisLabels: logicalAxisLabels(logicalOutputDims.map(({ name }) => name)),
-                colorInstructions: [{ mode: 'rgba', kind: 'dense', values: Array.from(logicalRgba) }],
+                colorInstructions: [{ mode: 'rgb', kind: 'dense', values: Array.from(logicalRgb) }],
             },
         ],
     });
@@ -131,6 +134,12 @@ export function createLinearLayoutDocument(
         ]),
     };
 }
+
+type HardwareTensorLayout = {
+    shape: number[];
+    axisLabels: string[];
+    axisOrder: number[];
+};
 
 /** Parse the sidebar JSON into the canonical layout spec used by the viewer. */
 export function parseLinearLayoutSpec(text: string): LinearLayoutSpec {
@@ -320,6 +329,23 @@ function logicalOutputDimsFor(output_dims: LinearLayoutOutputDimSpec[]): LinearL
     return names.length === 2 && names[0] === 'x' && names[1] === 'y' ? [...output_dims].reverse() : output_dims;
 }
 
+/** Reorder three-axis hardware tensors to keep threads on Y and warp/register on X in contiguous 2D. */
+function hardwareTensorLayout(inputNames: string[], inputShape: number[]): HardwareTensorLayout {
+    if (inputShape.length !== 3) {
+        return {
+            shape: inputShape,
+            axisLabels: viewerAxisLabels(inputNames),
+            axisOrder: inputShape.map((_size, axis) => axis),
+        };
+    }
+    const axisOrder = [1, 0, 2];
+    return {
+        shape: axisOrder.map((axis) => inputShape[axis] ?? 1),
+        axisLabels: viewerAxisLabels(axisOrder.map((axis) => inputNames[axis]!)),
+        axisOrder,
+    };
+}
+
 /** Convert raw layout names into viewer-safe axis labels. */
 function viewerAxisLabels(names: string[]): string[] {
     const counts = new Map<string, number>();
@@ -397,10 +423,9 @@ function colorValue(
     return start + ((stop - start) * position);
 }
 
-/** Convert one HSV triple into the RGB tuple stored in custom viewer colors. */
-function rgbaColor(hue: number, saturation: number, value: number): [number, number, number, number] {
-    const [red, green, blue] = hsvToRgb(hue, Math.max(0, Math.min(1, saturation)), Math.max(0, Math.min(1, value)));
-    return [red, green, blue, 1];
+/** Convert one HSV triple into its RGB representation. */
+function rgbColor(hue: number, saturation: number, value: number): [number, number, number] {
+    return hsvToRgb(hue, Math.max(0, Math.min(1, saturation)), Math.max(0, Math.min(1, value)));
 }
 
 /** Convert one HSV triple into its RGB representation. */
@@ -434,7 +459,7 @@ function flatIndex(coord: number[], shape: number[]): number {
 
 /** Preserve interactive display settings while letting the new layout refit the camera. */
 function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): Partial<ViewerSnapshot> {
-    if (!viewer) return {};
+    if (!viewer) return { dimensionMappingScheme: 'contiguous' };
     return {
         displayMode: viewer.displayMode,
         heatmap: viewer.heatmap,
@@ -442,7 +467,7 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
         displayGaps: viewer.displayGaps,
         logScale: viewer.logScale,
         collapseHiddenAxes: viewer.collapseHiddenAxes,
-        dimensionMappingScheme: viewer.dimensionMappingScheme,
+        dimensionMappingScheme: 'contiguous',
         showDimensionLines: viewer.showDimensionLines,
         showInspectorPanel: viewer.showInspectorPanel,
         showHoverDetailsPanel: viewer.showHoverDetailsPanel,

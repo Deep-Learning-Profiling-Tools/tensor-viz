@@ -16,11 +16,14 @@ from .bundle import SessionData, Tab, TensorInput, TensorLabels, create_session_
 
 
 def _static_root() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    workspace = repo_root / "packages" / "viewer-demo" / "dist"
+    if workspace.exists() and any(workspace.iterdir()):
+        return workspace
     packaged = Path(__file__).resolve().parent / "static"
     if packaged.exists() and any(packaged.iterdir()):
         return packaged
-    repo_root = Path(__file__).resolve().parents[4]
-    return repo_root / "packages" / "viewer-demo" / "dist"
+    return workspace
 
 
 @dataclass
@@ -136,6 +139,10 @@ def viz(
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(static_root), **kwargs)
+
+        def end_headers(self) -> None:
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            super().end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
