@@ -124,6 +124,10 @@ textarea {
     font-size: 0.82rem;
 }
 
+.mono-value {
+    font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
 .tab-strip {
     grid-column: 1 / 2;
     display: flex;

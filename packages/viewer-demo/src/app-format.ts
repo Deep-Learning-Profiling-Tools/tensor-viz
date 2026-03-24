@@ -56,3 +56,15 @@ export function formatAxisTokens(tokens: readonly string[], displayMode: '2d' | 
     if (tokens.length === 0) return '';
     return tokens.map((token, axis) => axisSpan(token, axisColor(displayMode, tokens.length, axis, scheme))).join('<span class="axis-value-punct"> </span>');
 }
+
+export function formatNamedAxisValues(
+    labels: readonly string[],
+    values: readonly (number | string)[],
+    displayMode: '2d' | '3d',
+    scheme: DimensionMappingScheme,
+): string {
+    if (values.length === 0) return '[]';
+    return values
+        .map((value, axis) => axisSpan(`${labels[axis] ?? axis}:${value}`, axisColor(displayMode, values.length, axis, scheme)))
+        .join('<span class="axis-value-punct"> </span>');
+}

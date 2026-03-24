@@ -18,6 +18,7 @@ import {
     escapeInfo,
     formatAxisTokens,
     formatAxisValues,
+    formatNamedAxisValues,
     formatRangeValue,
     infoButton,
     labelWithInfo,
@@ -46,6 +47,7 @@ const {
     tabStrip,
     sidebarSplitter,
     linearLayoutWidget,
+    linearLayoutColorWidget,
     tensorViewWidget,
     inspectorWidget,
     selectionWidget,
@@ -77,12 +79,16 @@ const MAX_SIDEBAR_WIDTH = 720;
 
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
-    layoutCoord: HTMLDivElement;
-    tensorCoord: HTMLDivElement;
+    hardwareCoord: HTMLDivElement;
+    logicalCoord: HTMLDivElement;
+    hardwareCoordBinary: HTMLDivElement;
+    logicalCoordBinary: HTMLDivElement;
     value: HTMLDivElement;
     hoveredTensorValue: HTMLSpanElement;
-    layoutCoordValue: HTMLSpanElement;
-    tensorCoordValue: HTMLSpanElement;
+    hardwareCoordValue: HTMLSpanElement;
+    logicalCoordValue: HTMLSpanElement;
+    hardwareCoordBinaryValue: HTMLSpanElement;
+    logicalCoordBinaryValue: HTMLSpanElement;
     valueField: HTMLSpanElement;
     dtypeValue: HTMLSpanElement;
     tensorShapeValue: HTMLSpanElement;
@@ -494,85 +500,43 @@ function colorRangesFromState(ranges: Record<LinearLayoutChannel, [string, strin
     return output;
 }
 
-/** Render the browser-side linear-layout editor that powers the Pages build. */
-function renderLinearLayoutWidget(): void {
-    const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
-    const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
-    const axisOptions = (value: LinearLayoutMappingValue): string => [
-        `<option value="none" ${value === 'none' ? 'selected' : ''}>None</option>`,
-        ...LINEAR_LAYOUT_AXES.map((axis) => `<option value="${axis}" ${value === axis ? 'selected' : ''}>${axis}</option>`),
-    ].join('');
-    linearLayoutWidget.innerHTML = `
-      ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser. Output dims are inferred from the basis vector length.')}
+function renderLinearLayoutColorWidget(axisOptions: (value: LinearLayoutMappingValue) => string): void {
+    linearLayoutColorWidget.innerHTML = `
+      ${titleWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.')}
       <div class="widget-body">
-        <p class="widget-copy">Enter basis vectors for each axis. Use the same JSON lists you would pass to <span class="inline-code">LinearLayout.from_bases</span>.</p>
-        <div class="field">
-          ${labelWithInfo('Thread Bases', 'Basis vectors for the thread axis.', 'linear-layout-thread')}
-          <textarea id="linear-layout-thread" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.thread)}</textarea>
+        <div class="inline-row">
+          <span class="range-label">Hue</span>
+          <select id="linear-layout-hue-axis">${axisOptions(linearLayoutState.mapping.H)}</select>
+          <input id="linear-layout-hue-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[0])}" />
+          <span class="range-separator">to</span>
+          <input id="linear-layout-hue-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[1])}" />
         </div>
-        <div class="field">
-          ${labelWithInfo('Warp Bases', 'Basis vectors for the warp axis.', 'linear-layout-warp')}
-          <textarea id="linear-layout-warp" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.warp)}</textarea>
+        <div class="inline-row">
+          <span class="range-label">Sat</span>
+          <select id="linear-layout-saturation-axis">${axisOptions(linearLayoutState.mapping.S)}</select>
+          <input id="linear-layout-saturation-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[0])}" />
+          <span class="range-separator">to</span>
+          <input id="linear-layout-saturation-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[1])}" />
         </div>
-        <div class="field">
-          ${labelWithInfo('Register Bases', 'Basis vectors for the register axis.', 'linear-layout-register')}
-          <textarea id="linear-layout-register" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.register)}</textarea>
+        <div class="inline-row">
+          <span class="range-label">Light</span>
+          <select id="linear-layout-lightness-axis">${axisOptions(linearLayoutState.mapping.L)}</select>
+          <input id="linear-layout-lightness-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[0])}" />
+          <span class="range-separator">to</span>
+          <input id="linear-layout-lightness-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[1])}" />
         </div>
-        <div class="field">
-          ${labelWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.', 'linear-layout-hue-axis')}
-          <div class="inline-row">
-            <span class="range-label">Hue</span>
-            <select id="linear-layout-hue-axis">${axisOptions(linearLayoutState.mapping.H)}</select>
-            <input id="linear-layout-hue-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[0])}" />
-            <span class="range-separator">to</span>
-            <input id="linear-layout-hue-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[1])}" />
-          </div>
-          <div class="inline-row">
-            <span class="range-label">Sat</span>
-            <select id="linear-layout-saturation-axis">${axisOptions(linearLayoutState.mapping.S)}</select>
-            <input id="linear-layout-saturation-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[0])}" />
-            <span class="range-separator">to</span>
-            <input id="linear-layout-saturation-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[1])}" />
-          </div>
-          <div class="inline-row">
-            <span class="range-label">Light</span>
-            <select id="linear-layout-lightness-axis">${axisOptions(linearLayoutState.mapping.L)}</select>
-            <input id="linear-layout-lightness-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[0])}" />
-            <span class="range-separator">to</span>
-            <input id="linear-layout-lightness-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[1])}" />
-          </div>
-        </div>
-        <div class="button-row">
-          <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
-          <button class="secondary-button" id="linear-layout-reset" type="button">Reset Example</button>
-        </div>
-        ${status}
       </div>
     `;
 
-    const threadInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-thread');
-    const warpInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-warp');
-    const registerInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-register');
-    const hueAxisInput = linearLayoutWidget.querySelector<HTMLSelectElement>('#linear-layout-hue-axis');
-    const saturationAxisInput = linearLayoutWidget.querySelector<HTMLSelectElement>('#linear-layout-saturation-axis');
-    const lightnessAxisInput = linearLayoutWidget.querySelector<HTMLSelectElement>('#linear-layout-lightness-axis');
-    const hueMinInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-hue-min');
-    const hueMaxInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-hue-max');
-    const saturationMinInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-min');
-    const saturationMaxInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-max');
-    const lightnessMinInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-min');
-    const lightnessMaxInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-max');
-    const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
-    const reset = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-reset');
-    threadInput?.addEventListener('input', () => {
-        linearLayoutState.bases.thread = threadInput.value;
-    });
-    warpInput?.addEventListener('input', () => {
-        linearLayoutState.bases.warp = warpInput.value;
-    });
-    registerInput?.addEventListener('input', () => {
-        linearLayoutState.bases.register = registerInput.value;
-    });
+    const hueAxisInput = linearLayoutColorWidget.querySelector<HTMLSelectElement>('#linear-layout-hue-axis');
+    const saturationAxisInput = linearLayoutColorWidget.querySelector<HTMLSelectElement>('#linear-layout-saturation-axis');
+    const lightnessAxisInput = linearLayoutColorWidget.querySelector<HTMLSelectElement>('#linear-layout-lightness-axis');
+    const hueMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-hue-min');
+    const hueMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-hue-max');
+    const saturationMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-min');
+    const saturationMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-max');
+    const lightnessMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-min');
+    const lightnessMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-max');
     hueAxisInput?.addEventListener('change', () => {
         linearLayoutState.mapping.H = (hueAxisInput.value as LinearLayoutMappingValue) ?? 'none';
     });
@@ -600,6 +564,54 @@ function renderLinearLayoutWidget(): void {
     lightnessMaxInput?.addEventListener('change', () => {
         linearLayoutState.ranges.L[1] = lightnessMaxInput.value;
     });
+}
+
+/** Render the browser-side linear-layout editor that powers the Pages build. */
+function renderLinearLayoutWidget(): void {
+    const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
+    const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
+    const axisOptions = (value: LinearLayoutMappingValue): string => [
+        `<option value="none" ${value === 'none' ? 'selected' : ''}>None</option>`,
+        ...LINEAR_LAYOUT_AXES.map((axis) => `<option value="${axis}" ${value === axis ? 'selected' : ''}>${axis}</option>`),
+    ].join('');
+    linearLayoutWidget.innerHTML = `
+      ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser. Output dims are inferred from the basis vector length.')}
+      <div class="widget-body">
+        <p class="widget-copy">Enter basis vectors for each axis. Use the same JSON lists you would pass to <span class="inline-code">LinearLayout.from_bases</span>.</p>
+        <div class="field">
+          ${labelWithInfo('Thread Bases', 'Basis vectors for the thread axis.', 'linear-layout-thread')}
+          <textarea id="linear-layout-thread" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.thread)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Warp Bases', 'Basis vectors for the warp axis.', 'linear-layout-warp')}
+          <textarea id="linear-layout-warp" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.warp)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Register Bases', 'Basis vectors for the register axis.', 'linear-layout-register')}
+          <textarea id="linear-layout-register" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.register)}</textarea>
+        </div>
+        <div class="button-row">
+          <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
+          <button class="secondary-button" id="linear-layout-reset" type="button">Reset Example</button>
+        </div>
+        ${status}
+      </div>
+    `;
+
+    const threadInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-thread');
+    const warpInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-warp');
+    const registerInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-register');
+    const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
+    const reset = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-reset');
+    threadInput?.addEventListener('input', () => {
+        linearLayoutState.bases.thread = threadInput.value;
+    });
+    warpInput?.addEventListener('input', () => {
+        linearLayoutState.bases.warp = warpInput.value;
+    });
+    registerInput?.addEventListener('input', () => {
+        linearLayoutState.bases.register = registerInput.value;
+    });
     apply?.addEventListener('click', async () => {
         await applyLinearLayoutSpec();
     });
@@ -608,6 +620,7 @@ function renderLinearLayoutWidget(): void {
         linearLayoutNotice = null;
         renderLinearLayoutWidget();
     });
+    renderLinearLayoutColorWidget(axisOptions);
 }
 
 /** Add or replace the linear-layout tab and switch the viewer to it. */
@@ -1029,6 +1042,8 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
 function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
+    const tab = activeTab();
+    const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
     if (!model.handle) {
         inspectorReady = false;
         inspectorRefs = null;
@@ -1040,8 +1055,10 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
           ${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}
           <div class="widget-body meta-grid">
             <div id="inspector-hovered-tensor"><div class="label-row"><span class="meta-label">Hovered Tensor</span>${infoButton('The loaded tensor currently under the cursor.')}</div><span class="meta-value" id="inspector-hovered-tensor-value"></span></div>
-            <div id="inspector-layout-coord"><div class="label-row"><span class="meta-label">Layout Coord</span>${infoButton('Coordinate in the rendered layout after grouping and optional slice collapsing.')}</div><span class="meta-value" id="inspector-layout-coord-value"></span></div>
-            <div id="inspector-tensor-coord"><div class="label-row"><span class="meta-label">Tensor Coord</span>${infoButton('Coordinate in the original dense tensor before view regrouping or slicing.')}</div><span class="meta-value" id="inspector-tensor-coord-value"></span></div>
+            <div id="inspector-hardware-coord"><div class="label-row"><span class="meta-label">Hardware Coord</span>${infoButton('Coordinate in hardware tensor order. For linear-layout tabs this is the T/W/R coordinate for the hovered logical or hardware cell.')}</div><span class="meta-value" id="inspector-hardware-coord-value"></span></div>
+            <div id="inspector-logical-coord"><div class="label-row"><span class="meta-label">Logical Coord</span>${infoButton('Coordinate in logical tensor order. For linear-layout tabs this is the matching logical coordinate for the hovered hardware or logical cell.')}</div><span class="meta-value" id="inspector-logical-coord-value"></span></div>
+            <div id="inspector-hardware-coord-binary"><div class="label-row"><span class="meta-label">Hardware Coord (Binary)</span>${infoButton('Hardware coordinate encoded in binary, padded per axis width.')}</div><span class="meta-value mono-value" id="inspector-hardware-coord-binary-value"></span></div>
+            <div id="inspector-logical-coord-binary"><div class="label-row"><span class="meta-label">Logical Coord (Binary)</span>${infoButton('Logical coordinate encoded in binary, padded per axis width.')}</div><span class="meta-value mono-value" id="inspector-logical-coord-binary-value"></span></div>
             <div id="inspector-value"><div class="label-row"><span class="meta-label">Value</span>${infoButton('Numeric value at the hovered tensor element.')}</div><span class="meta-value" id="inspector-value-field"></span></div>
             <div><div class="label-row"><span class="meta-label">DType</span>${infoButton('Underlying numeric storage type for the active tensor.')}</div><span class="meta-value" id="inspector-dtype"></span></div>
             <div><div class="label-row"><span class="meta-label">Tensor Shape</span>${infoButton('Original tensor shape before Tensor View transformations.')}</div><span class="meta-value" id="inspector-tensor-shape"></span></div>
@@ -1050,12 +1067,16 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
         `;
         inspectorRefs = {
             hoveredTensor: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hovered-tensor')!,
-            layoutCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-layout-coord')!,
-            tensorCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-tensor-coord')!,
+            hardwareCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hardware-coord')!,
+            logicalCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-logical-coord')!,
+            hardwareCoordBinary: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hardware-coord-binary')!,
+            logicalCoordBinary: inspectorWidget.querySelector<HTMLDivElement>('#inspector-logical-coord-binary')!,
             value: inspectorWidget.querySelector<HTMLDivElement>('#inspector-value')!,
             hoveredTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hovered-tensor-value')!,
-            layoutCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-layout-coord-value')!,
-            tensorCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-tensor-coord-value')!,
+            hardwareCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hardware-coord-value')!,
+            logicalCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-logical-coord-value')!,
+            hardwareCoordBinaryValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hardware-coord-binary-value')!,
+            logicalCoordBinaryValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-logical-coord-binary-value')!,
             valueField: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-value-field')!,
             dtypeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-dtype')!,
             tensorShapeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-tensor-shape')!,
@@ -1066,13 +1087,57 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
+    const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutTab) : null;
+    const hardwareStatus = linearLayout ? viewer.getTensorStatus(linearLayout.hardwareTensorId) : null;
+    const logicalStatus = linearLayout ? viewer.getTensorStatus(linearLayout.logicalTensorId) : null;
+    const hardwareCoord = !hover || !linearLayout
+        ? hover?.layoutCoord ?? null
+        : hover.tensorId === linearLayout.hardwareTensorId
+            ? hover.tensorCoord
+            : coordFromKey(linearLayout.logicalToHardware.get(coordKey(hover.tensorCoord))?.[0] ?? '');
+    const logicalCoord = !hover || !linearLayout
+        ? hover?.tensorCoord ?? null
+        : hover.tensorId === linearLayout.logicalTensorId
+            ? hover.tensorCoord
+            : coordFromKey(linearLayout.hardwareToLogical.get(coordKey(hover.tensorCoord)) ?? '');
+    const hardwareLabels = hardwareStatus?.axisLabels ?? [];
+    const logicalLabels = logicalStatus?.axisLabels ?? [];
+    const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
+        if (!coord || !shape) return '';
+        return formatAxisTokens(
+            coord.map((value, axis) => {
+                const width = Math.max(1, Math.ceil(Math.log2(Math.max(2, shape[axis] ?? 1))));
+                return value.toString(2).padStart(width, '0');
+            }),
+            snapshot.displayMode,
+            dimensionMappingScheme,
+        );
+    };
     inspectorRefs.hoveredTensor.classList.toggle('hidden', !hover);
-    inspectorRefs.layoutCoord.classList.toggle('hidden', !hover);
-    inspectorRefs.tensorCoord.classList.toggle('hidden', !hover);
+    inspectorRefs.hardwareCoord.classList.toggle('hidden', !hover);
+    inspectorRefs.logicalCoord.classList.toggle('hidden', !hover);
+    inspectorRefs.hardwareCoordBinary.classList.toggle('hidden', !hover);
+    inspectorRefs.logicalCoordBinary.classList.toggle('hidden', !hover);
     inspectorRefs.value.classList.toggle('hidden', !hover);
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
-    inspectorRefs.layoutCoordValue.innerHTML = hover ? formatAxisValues(hover.layoutCoord, snapshot.displayMode, dimensionMappingScheme) : '';
-    inspectorRefs.tensorCoordValue.innerHTML = hover ? formatAxisValues(hover.tensorCoord, snapshot.displayMode, dimensionMappingScheme) : '';
+    inspectorRefs.hardwareCoordValue.innerHTML = !hardwareCoord
+        ? ''
+        : formatNamedAxisValues(
+            hardwareLabels,
+            hardwareCoord,
+            snapshot.displayMode,
+            dimensionMappingScheme,
+        );
+    inspectorRefs.logicalCoordValue.innerHTML = !logicalCoord
+        ? ''
+        : formatNamedAxisValues(
+            logicalLabels,
+            logicalCoord,
+            snapshot.displayMode,
+            dimensionMappingScheme,
+        );
+    inspectorRefs.hardwareCoordBinaryValue.innerHTML = binaryCoord(hardwareCoord, hardwareStatus?.shape);
+    inspectorRefs.logicalCoordBinaryValue.innerHTML = binaryCoord(logicalCoord, logicalStatus?.shape);
     inspectorRefs.valueField.textContent = !hover ? '' : hover.value === null ? 'Unavailable' : String(hover.value);
     inspectorRefs.dtypeValue.textContent = model.handle.dtype;
     inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(
