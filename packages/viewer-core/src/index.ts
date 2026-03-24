@@ -17,6 +17,7 @@ export {
     parseTensorView,
     product,
 } from './view.js';
+export { coordFromKey, coordKey } from './viewer-utils.js';
 export { TensorViewer } from './viewer.js';
 export type { ViewerOptions } from './viewer.js';
 export type {

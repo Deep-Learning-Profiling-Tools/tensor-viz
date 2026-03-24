@@ -2266,6 +2266,30 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         return this.selectionCoords();
     }
 
+    /** Replace the current selection with the provided coordinates. */
+    public setSelectedCoords(selection: SelectionCoords, emit = true): void {
+        if (!this.selectionEnabled()) {
+            this.clearSelection(false);
+            return;
+        }
+        const nextEntries = new Map<string, Set<string>>();
+        selection.forEach((coords, tensorId) => {
+            if (coords.length === 0) return;
+            nextEntries.set(tensorId, new Set(coords.map((coord) => coordKey(coord))));
+        });
+        const touched = new Set([...this.selectedCells.keys(), ...nextEntries.keys()]);
+        this.selectedCells.clear();
+        nextEntries.forEach((coords, tensorId) => this.selectedCells.set(tensorId, coords));
+        if (this.selectedCells.size !== 0) {
+            this.state.activeTensorId = this.selectedCells.keys().next().value ?? this.state.activeTensorId;
+        }
+        this.selectionDrag = null;
+        this.syncSelectionBox();
+        if (touched.size !== 0) this.refreshSelectionVisuals(...touched);
+        this.emitSelection();
+        if (emit) this.emit();
+    }
+
     /** Return selection count plus summary stats across selected cells with loaded values. */
     public getSelectionSummary(): {
         count: number;

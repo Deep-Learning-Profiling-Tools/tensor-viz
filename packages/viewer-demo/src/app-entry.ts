@@ -1,13 +1,17 @@
 import {
     createTypedArray,
+    coordFromKey,
+    coordKey,
     parseTensorView,
     TensorViewer,
     product,
+    unravelIndex,
     type BundleManifest,
     type DimensionMappingScheme,
     type LoadedBundleDocument,
     type NumericArray,
     type SessionBundleManifest,
+    type SelectionCoords,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import {
@@ -23,7 +27,11 @@ import {
 import {
     createLinearLayoutDocument,
     defaultLinearLayoutSpecText,
+    linearLayoutAxisOrder,
+    logicalOutputDimsFor,
+    mapLinearLayoutCoord,
     parseLinearLayoutSpec,
+    type LinearLayoutSpec,
 } from './linear-layout.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
@@ -132,6 +140,15 @@ const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
 let linearLayoutState = loadLinearLayoutState();
 const linearLayoutStates = new Map<string, LinearLayoutFormState>();
 let linearLayoutNotice: LinearLayoutNotice | null = null;
+type LinearLayoutSelectionMap = {
+    hardwareTensorId: string;
+    logicalTensorId: string;
+    hardwareToLogical: Map<string, string>;
+    logicalToHardware: Map<string, string[]>;
+};
+
+const linearLayoutSelectionMaps = new Map<string, LinearLayoutSelectionMap>();
+let syncingLinearLayoutSelection = false;
 
 type CommandAction = {
     action: string;
@@ -286,6 +303,134 @@ function syncLinearLayoutState(tab: LoadedBundleDocument): void {
     renderLinearLayoutWidget();
 }
 
+function linearLayoutSpecForTab(tab: LoadedBundleDocument): LinearLayoutSpec | null {
+    const candidate = (tab.manifest.viewer as { linearLayoutSpec?: unknown }).linearLayoutSpec;
+    if (!candidate) return null;
+    try {
+        return parseLinearLayoutSpec(JSON.stringify(candidate));
+    } catch (error) {
+        logUi('linear-layout:spec-error', error);
+        return null;
+    }
+}
+
+function linearLayoutSelectionMapForTab(tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
+    const cached = linearLayoutSelectionMaps.get(tab.id);
+    if (cached) return cached;
+    const spec = linearLayoutSpecForTab(tab);
+    if (!spec) return null;
+    const hardwareTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'hardware tensor');
+    const logicalTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'logical tensor');
+    if (!hardwareTensor || !logicalTensor) return null;
+    const inputShape = spec.input_dims.map(({ bases }) => 2 ** bases.length);
+    const outputAxisByName = new Map(spec.output_dims.map((dim, axis) => [dim.name, axis]));
+    const logicalOutputDims = logicalOutputDimsFor(spec.output_dims);
+    const hardwareAxisOrder = linearLayoutAxisOrder(spec.input_dims);
+    const hardwareToLogical = new Map<string, string>();
+    const logicalToHardware = new Map<string, string[]>();
+    const total = product(inputShape);
+    for (let index = 0; index < total; index += 1) {
+        const inputCoord = unravelIndex(index, inputShape);
+        const outputCoord = mapLinearLayoutCoord(inputCoord, spec.input_dims, spec.output_dims.length);
+        const logicalCoord = logicalOutputDims.map(({ name }) => {
+            const axis = outputAxisByName.get(name);
+            return axis === undefined ? 0 : (outputCoord[axis] ?? 0);
+        });
+        const hardwareCoord = hardwareAxisOrder.map((axis) => inputCoord[axis] ?? 0);
+        const hardwareKey = coordKey(hardwareCoord);
+        const logicalKey = coordKey(logicalCoord);
+        hardwareToLogical.set(hardwareKey, logicalKey);
+        const bucket = logicalToHardware.get(logicalKey) ?? [];
+        bucket.push(hardwareKey);
+        logicalToHardware.set(logicalKey, bucket);
+    }
+    const map = {
+        hardwareTensorId: hardwareTensor.id,
+        logicalTensorId: logicalTensor.id,
+        hardwareToLogical,
+        logicalToHardware,
+    };
+    linearLayoutSelectionMaps.set(tab.id, map);
+    return map;
+}
+
+function selectionKeys(coords: number[][]): Set<string> {
+    return new Set(coords.map((coord) => coordKey(coord)));
+}
+
+function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>): boolean {
+    if (left.size !== right.size) return false;
+    for (const [tensorId, coords] of right) {
+        const leftCoords = left.get(tensorId);
+        if (!leftCoords) return false;
+        const leftKeys = selectionKeys(leftCoords);
+        const rightKeys = selectionKeys(coords);
+        if (leftKeys.size !== rightKeys.size) return false;
+        for (const key of rightKeys) {
+            if (!leftKeys.has(key)) return false;
+        }
+    }
+    return true;
+}
+
+function mapHardwareSelection(coords: number[][], mapping: LinearLayoutSelectionMap): number[][] {
+    const logicalKeys = new Set<string>();
+    coords.forEach((coord) => {
+        const key = coordKey(coord);
+        const mapped = mapping.hardwareToLogical.get(key);
+        if (mapped) logicalKeys.add(mapped);
+    });
+    return Array.from(logicalKeys, (key) => coordFromKey(key));
+}
+
+function mapLogicalSelection(coords: number[][], mapping: LinearLayoutSelectionMap): number[][] {
+    const hardwareKeys = new Set<string>();
+    coords.forEach((coord) => {
+        const key = coordKey(coord);
+        const mapped = mapping.logicalToHardware.get(key);
+        if (!mapped) return;
+        mapped.forEach((hardwareKey) => hardwareKeys.add(hardwareKey));
+    });
+    return Array.from(hardwareKeys, (key) => coordFromKey(key));
+}
+
+function syncLinearLayoutSelection(selection: SelectionCoords): void {
+    if (syncingLinearLayoutSelection) return;
+    const tab = activeTab();
+    if (!tab || !isLinearLayoutTab(tab)) return;
+    const mapping = linearLayoutSelectionMapForTab(tab);
+    if (!mapping) return;
+    const hardwareCoords = selection.get(mapping.hardwareTensorId) ?? [];
+    const logicalCoords = selection.get(mapping.logicalTensorId) ?? [];
+    if (hardwareCoords.length === 0 && logicalCoords.length === 0) return;
+    const activeId = viewer.getState().activeTensorId;
+    const source = selection.size === 1
+        ? (hardwareCoords.length ? 'hardware' : 'logical')
+        : activeId === mapping.hardwareTensorId
+            ? 'hardware'
+            : activeId === mapping.logicalTensorId
+                ? 'logical'
+                : hardwareCoords.length && !logicalCoords.length
+                    ? 'hardware'
+                    : logicalCoords.length
+                        ? 'logical'
+                        : 'hardware';
+    const nextSelection = new Map<string, number[][]>();
+    if (source === 'hardware') {
+        if (hardwareCoords.length) nextSelection.set(mapping.hardwareTensorId, hardwareCoords);
+        const mapped = mapHardwareSelection(hardwareCoords, mapping);
+        if (mapped.length) nextSelection.set(mapping.logicalTensorId, mapped);
+    } else {
+        if (logicalCoords.length) nextSelection.set(mapping.logicalTensorId, logicalCoords);
+        const mapped = mapLogicalSelection(logicalCoords, mapping);
+        if (mapped.length) nextSelection.set(mapping.hardwareTensorId, mapped);
+    }
+    if (selectionsMatch(selection, nextSelection)) return;
+    syncingLinearLayoutSelection = true;
+    viewer.setSelectedCoords(nextSelection);
+    syncingLinearLayoutSelection = false;
+}
+
 function parseBasesField(label: string, value: string): number[][] {
     if (!value.trim()) return [];
     let parsed: unknown;
@@ -374,7 +519,7 @@ function renderLinearLayoutWidget(): void {
           <textarea id="linear-layout-register" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.register)}</textarea>
         </div>
         <div class="field">
-          ${labelWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.', 'linear-layout-color')}
+          ${labelWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.', 'linear-layout-hue-axis')}
           <div class="inline-row">
             <span class="range-label">Hue</span>
             <select id="linear-layout-hue-axis">${axisOptions(linearLayoutState.mapping.H)}</select>
@@ -476,6 +621,7 @@ async function upsertLinearLayoutTab(document: LoadedBundleDocument, replaceTabs
         title: targetTitle,
     };
     linearLayoutStates.set(targetId, cloneLinearLayoutState(linearLayoutState));
+    linearLayoutSelectionMaps.delete(targetId);
     if (replaceTabs || sessionTabs.length === 0) {
         sessionTabs = [nextDocument];
     } else {
@@ -666,11 +812,16 @@ function activeTab(): LoadedBundleDocument | undefined {
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
-    const snapshot = viewer.getSnapshot() as ViewerSnapshot & { linearLayoutState?: LinearLayoutFormState };
+    const snapshot = viewer.getSnapshot() as ViewerSnapshot & {
+        linearLayoutSpec?: LinearLayoutSpec;
+        linearLayoutState?: LinearLayoutFormState;
+    };
     if (isLinearLayoutTab(tab)) {
         const cloned = cloneLinearLayoutState(linearLayoutState);
         linearLayoutStates.set(tab.id, cloned);
         snapshot.linearLayoutState = cloned;
+        const linearLayoutSpec = (tab.manifest.viewer as { linearLayoutSpec?: LinearLayoutSpec }).linearLayoutSpec;
+        if (linearLayoutSpec) snapshot.linearLayoutSpec = linearLayoutSpec;
     }
     tab.manifest.viewer = snapshot;
 }
@@ -1131,6 +1282,7 @@ async function tryLoadSession(): Promise<boolean> {
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
     const initialMapping = manifest.tabs[0]?.viewer.dimensionMappingScheme;
     if (initialMapping) viewer.setDimensionMappingScheme(initialMapping);
+    linearLayoutSelectionMaps.clear();
     sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));
     activeTabId = null;
     const initialTabId = sessionTabs[0]?.id ?? null;
@@ -1141,6 +1293,7 @@ async function tryLoadSession(): Promise<boolean> {
 function seedDemoTensor(): void {
     sessionTabs = [];
     activeTabId = null;
+    linearLayoutSelectionMaps.clear();
     const shape = [4, 4, 4];
     const data = new Float64Array(product(shape));
     for (let index = 0; index < data.length; index += 1) {
@@ -1152,6 +1305,7 @@ function seedDemoTensor(): void {
 async function openLocalFile(file: File): Promise<void> {
     sessionTabs = [];
     activeTabId = null;
+    linearLayoutSelectionMaps.clear();
     renderTabStrip();
     await viewer.openFile(file);
 }
@@ -1290,7 +1444,10 @@ window.addEventListener('keydown', async (event) => {
 
 viewer.subscribe(render);
 viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
-viewer.subscribeSelection(() => renderSelectionWidget(viewer.getSnapshot()));
+viewer.subscribeSelection((selection) => {
+    renderSelectionWidget(viewer.getSnapshot());
+    syncLinearLayoutSelection(selection);
+});
 renderLinearLayoutWidget();
 
 tryLoadSession().then(async (loaded) => {

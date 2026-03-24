@@ -118,11 +118,11 @@ export function createLinearLayoutDocument(
                 name: 'Logical tensor',
                 dtype: 'float32',
                 shape: logicalShape,
-                axisLabels: logicalAxisLabels(logicalOutputDims.map(({ name }) => name)),
                 colorInstructions: [{ mode: 'rgb', kind: 'dense', values: Array.from(logicalRgb) }],
             },
         ],
     });
+    (manifest.viewer as ViewerSnapshot & { linearLayoutSpec?: LinearLayoutSpec }).linearLayoutSpec = spec;
 
     return {
         id: LINEAR_LAYOUT_TAB_ID,
@@ -302,7 +302,7 @@ function duplicateName(names: string[]): string | null {
 }
 
 /** Map one input coordinate into output space using Triton-style xor basis composition. */
-function mapLinearLayoutCoord(
+export function mapLinearLayoutCoord(
     inputCoord: number[],
     input_dims: LinearLayoutInputDimSpec[],
     outputRank: number,
@@ -324,9 +324,14 @@ function mapLinearLayoutCoord(
 }
 
 /** Return the viewer-visible output-dimension order used for the logical tensor. */
-function logicalOutputDimsFor(output_dims: LinearLayoutOutputDimSpec[]): LinearLayoutOutputDimSpec[] {
+export function logicalOutputDimsFor(output_dims: LinearLayoutOutputDimSpec[]): LinearLayoutOutputDimSpec[] {
     const names = output_dims.map(({ name }) => name.toLowerCase());
     return names.length === 2 && names[0] === 'x' && names[1] === 'y' ? [...output_dims].reverse() : output_dims;
+}
+
+export function linearLayoutAxisOrder(input_dims: LinearLayoutInputDimSpec[]): number[] {
+    const inputShape = input_dims.map(({ bases }) => 2 ** bases.length);
+    return hardwareTensorLayout(input_dims.map(({ name }) => name), inputShape).axisOrder;
 }
 
 /** Reorder three-axis hardware tensors to keep threads on Y and warp/register on X in contiguous 2D. */
@@ -355,13 +360,6 @@ function viewerAxisLabels(names: string[]): string[] {
         counts.set(base, index + 1);
         return index === 0 ? base : `${base}${index}`;
     });
-}
-
-/** Return the logical output labels used by the tensor viewer. */
-function logicalAxisLabels(outputNames: string[]): string[] {
-    return outputNames.length === 2 && outputNames.map((name) => name.toLowerCase()).join(',') === 'y,x'
-        ? ['Y', 'X']
-        : viewerAxisLabels(outputNames);
 }
 
 /** Find the first axis whose name loosely matches the requested substring. */
