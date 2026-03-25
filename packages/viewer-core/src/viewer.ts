@@ -2567,6 +2567,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
     }
 
+    /** Refit the active camera to the loaded tensors using the current viewport size. */
+    public refitView(): void {
+        this.fitCamera();
+        this.emit();
+    }
+
     /** Build the demo-side inspector model for the currently active tensor. */
     public getInspectorModel(): {
         handle: TensorHandle | null;

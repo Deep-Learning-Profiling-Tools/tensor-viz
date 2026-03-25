@@ -1990,6 +1990,8 @@ async function loadBakedLinearLayoutTabs(): Promise<boolean> {
     const initialTabId = sessionTabs[0]?.id ?? null;
     if (!initialTabId) return false;
     await loadTab(initialTabId);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    viewer.refitView();
     return true;
 }
 
