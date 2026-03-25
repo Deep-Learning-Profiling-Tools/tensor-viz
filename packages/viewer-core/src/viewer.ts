@@ -1637,8 +1637,39 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.renderer.render(this.scene, this.camera);
         this.flatContext.setTransform(1, 0, 0, 1, 0, 0);
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
+        this.draw2DTensorNames();
         this.draw2DMarkers();
         this.draw2DCellLabels();
+    }
+
+    private draw2DTensorNames(): void {
+        if (!this.state.showTensorNames) return;
+        this.flatContext.save();
+        this.flatContext.textAlign = 'center';
+        this.flatContext.textBaseline = 'middle';
+        this.flatContext.fillStyle = '#0f172a';
+        this.tensors.forEach((tensor) => {
+            const shape = this.layoutShape(tensor.view);
+            const outlineExtent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+            const baseOutlineLabelScale2D = Math.max(1.25, Math.min(10, Math.max(outlineExtent2D.x, outlineExtent2D.y) * 0.05));
+            const guideLabelScale2D = baseOutlineLabelScale2D / 5;
+            const guideStartOffset2D = Math.max(1.15, guideLabelScale2D * 2.5);
+            const guideLevelStep2D = Math.max(0.75, guideLabelScale2D * 3.5);
+            const guideLabelOffset2D = Math.max(0.3, guideLabelScale2D * 1.2);
+            const tensorNameScale2D = (baseOutlineLabelScale2D * 1.25) / 2;
+            const labels = this.layoutAxisLabels(tensor.view);
+            const topGuideCount = shape.reduce((sum, _size, axis) => (
+                sum + Number(axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) === 0)
+            ), 0);
+            const guideClearance = this.state.showDimensionLines && labels.length > 0
+                ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + tensorNameScale2D * 1.5
+                : tensorNameScale2D * 1.75;
+            const nameCanvas = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance);
+            const fontSize = Math.max(18, tensorNameScale2D * CANVAS_WORLD_SCALE * this.canvasZoom);
+            this.flatContext.font = `700 ${fontSize}px "IBM Plex Sans", "Segoe UI", sans-serif`;
+            this.flatContext.fillText(tensor.name, nameCanvas.x, nameCanvas.y);
+        });
+        this.flatContext.restore();
     }
 
     private draw2DMarkers(): void {
@@ -1717,6 +1748,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             }
         });
         this.flatContext.restore();
+    }
+
+    private escapeSvgText(text: string): string {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     private linearIndex(coord: number[], shape: number[]): number {
@@ -2602,6 +2641,162 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     /** Backward-compatible alias for {@link setSliceTokenValue}. */
     public setHiddenTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         return this.setSliceTokenValue(tensorId, token, value);
+    }
+
+    /** Export the current 2D viewport as an SVG blob. */
+    public saveSvg(): Blob {
+        if (this.state.displayMode !== '2d') {
+            throw new Error('SVG export is only available in 2D.');
+        }
+        const parts: string[] = [];
+        parts.push(
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.flatCanvas.width} ${this.flatCanvas.height}" width="${this.flatCanvas.width}" height="${this.flatCanvas.height}">`,
+            `<rect width="${this.flatCanvas.width}" height="${this.flatCanvas.height}" fill="#${this.scene.background instanceof Color ? this.scene.background.getHexString() : 'e5e7eb'}" />`,
+        );
+        this.tensors.forEach((tensor) => {
+            const instanceShape = this.instanceShape(tensor.view);
+            const shape = this.layoutShape(tensor.view);
+            const labels = this.layoutAxisLabels(tensor.view);
+            const count = product(instanceShape);
+            const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
+            for (let index = 0; index < count; index += 1) {
+                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                if (!this.tensorCoordVisible(tensor, tensorCoord)) continue;
+                const bounds = this.canvasCellBounds(tensor, this.mapViewCoordToLayoutCoord(viewCoord, tensor.view));
+                const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
+                const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
+                parts.push(
+                    `<rect x="${bounds.left}" y="${bounds.top}" width="${Math.max(0, bounds.right - bounds.left)}" height="${Math.max(0, bounds.bottom - bounds.top)}" fill="#${color.getHexString()}" />`,
+                );
+                if (tensor.markerCoords?.has(coordKey(tensorCoord))) {
+                    const outerInset = 1.5;
+                    const innerInset = 3;
+                    const outerLeft = bounds.left + outerInset;
+                    const outerTop = bounds.top + outerInset;
+                    const outerWidth = Math.max(0, bounds.right - bounds.left - outerInset * 2);
+                    const outerHeight = Math.max(0, bounds.bottom - bounds.top - outerInset * 2);
+                    const innerLeft = bounds.left + innerInset;
+                    const innerTop = bounds.top + innerInset;
+                    const innerWidth = Math.max(0, bounds.right - bounds.left - innerInset * 2);
+                    const innerHeight = Math.max(0, bounds.bottom - bounds.top - innerInset * 2);
+                    parts.push(
+                        `<rect x="${outerLeft}" y="${outerTop}" width="${outerWidth}" height="${outerHeight}" fill="#e5e7eb" stroke="rgba(15, 23, 42, 0.65)" stroke-width="2" />`,
+                        `<line x1="${innerLeft}" y1="${innerTop}" x2="${innerLeft + innerWidth}" y2="${innerTop + innerHeight}" stroke="rgba(15, 23, 42, 0.65)" stroke-width="2" />`,
+                        `<line x1="${innerLeft + innerWidth}" y1="${innerTop}" x2="${innerLeft}" y2="${innerTop + innerHeight}" stroke="rgba(15, 23, 42, 0.65)" stroke-width="2" />`,
+                        `<rect x="${innerLeft}" y="${innerTop}" width="${innerWidth}" height="${innerHeight}" fill="none" stroke="rgba(241, 245, 249, 0.8)" stroke-width="1" />`,
+                    );
+                }
+                const text = tensor.cellLabels?.get(coordKey(tensorCoord));
+                if (!text) continue;
+                const lines = text.split('\n').filter(Boolean);
+                if (lines.length === 0) continue;
+                const width = bounds.right - bounds.left;
+                const height = bounds.bottom - bounds.top;
+                const maxChars = Math.max(...lines.map((line) => line.length), 1);
+                const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
+                if (fontSize < 7) continue;
+                const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
+                const centerX = (bounds.left + bounds.right) / 2;
+                const centerY = (bounds.top + bounds.bottom) / 2;
+                const startY = centerY - ((lines.length - 1) * lineHeight) / 2;
+                const fill = this.cellLabelColor(tensor, tensorCoord);
+                const tspans = lines.map((line, lineIndex) => (
+                    `<tspan x="${centerX}" y="${startY + (lineIndex * lineHeight)}">${this.escapeSvgText(line)}</tspan>`
+                )).join('');
+                parts.push(
+                    `<text text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Mono, SFMono-Regular, monospace" font-size="${fontSize}" fill="${fill}">${tspans}</text>`,
+                );
+            }
+            const outlineExtent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+            const outlineLeft = tensor.offset[0] - outlineExtent2D.x / 2;
+            const outlineTop = tensor.offset[1] + outlineExtent2D.y / 2;
+            const outlineBottom = tensor.offset[1] - outlineExtent2D.y / 2;
+            const outlineStart = this.projectCanvasPoint(outlineLeft, outlineTop);
+            const outlineEnd = this.projectCanvasPoint(tensor.offset[0] + outlineExtent2D.x / 2, outlineBottom);
+            parts.push(
+                `<rect x="${outlineStart.x}" y="${outlineStart.y}" width="${Math.max(0, outlineEnd.x - outlineStart.x)}" height="${Math.max(0, outlineEnd.y - outlineStart.y)}" fill="none" stroke="#94a3b8" stroke-width="1.5" />`,
+            );
+            if (this.state.showDimensionLines && labels.length > 0) {
+                const guideLabelScale2D = Math.max(1.25, Math.min(10, Math.max(outlineExtent2D.x, outlineExtent2D.y) * 0.05)) / 5;
+                const guideStartOffset2D = Math.max(1.15, guideLabelScale2D * 2.5);
+                const guideLevelStep2D = Math.max(0.75, guideLabelScale2D * 3.5);
+                const guideLabelOffset2D = Math.max(0.3, guideLabelScale2D * 1.2);
+                const families = new Map<number, number[]>();
+                for (let axis = 0; axis < shape.length; axis += 1) {
+                    const key = axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) as 0 | 1;
+                    const family = families.get(key) ?? [];
+                    family.push(axis);
+                    families.set(key, family);
+                }
+                shape.forEach((size, axis) => {
+                    const familyKey = axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) as 0 | 1;
+                    const family = families.get(familyKey) ?? [axis];
+                    const familyPos = Math.max(0, family.indexOf(axis));
+                    const start = new Array(shape.length).fill(0);
+                    const end = start.slice();
+                    family.forEach((familyAxis) => {
+                        if (familyAxis >= axis) end[familyAxis] = Math.max(0, shape[familyAxis] - 1);
+                    });
+                    const startPos = displayPositionForCoord2D(start, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+                    const endPos = displayPositionForCoord2D(end, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+                    const delta = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
+                    const length = Math.hypot(delta.x, delta.y) || 1;
+                    const axisDir = { x: delta.x / length, y: delta.y / length };
+                    const extentStart = {
+                        x: tensor.offset[0] + startPos.x - axisDir.x * 0.5,
+                        y: tensor.offset[1] + startPos.y - axisDir.y * 0.5,
+                    };
+                    const extentEnd = {
+                        x: tensor.offset[0] + endPos.x + axisDir.x * 0.5,
+                        y: tensor.offset[1] + endPos.y + axisDir.y * 0.5,
+                    };
+                    const dir = familyKey === 0 ? { x: 0, y: 1 } : { x: -1, y: 0 };
+                    const reverseIndex = family.length - 1 - familyPos;
+                    const worldOffset = guideStartOffset2D + reverseIndex * guideLevelStep2D;
+                    const startGuide = { x: extentStart.x + dir.x * worldOffset, y: extentStart.y + dir.y * worldOffset };
+                    const endGuide = { x: extentEnd.x + dir.x * worldOffset, y: extentEnd.y + dir.y * worldOffset };
+                    const labelPos = {
+                        x: (startGuide.x + endGuide.x) / 2 + dir.x * guideLabelOffset2D,
+                        y: (startGuide.y + endGuide.y) / 2 + dir.y * guideLabelOffset2D,
+                    };
+                    const color = axisFamilyColor(familyKey as 0 | 1 | 2, familyPos, family.length);
+                    const startCanvas = this.projectCanvasPoint(extentStart.x, extentStart.y);
+                    const endCanvas = this.projectCanvasPoint(extentEnd.x, extentEnd.y);
+                    const startGuideCanvas = this.projectCanvasPoint(startGuide.x, startGuide.y);
+                    const endGuideCanvas = this.projectCanvasPoint(endGuide.x, endGuide.y);
+                    const labelCanvas = this.projectCanvasPoint(labelPos.x, labelPos.y);
+                    const guideFontSize = Math.max(10, guideLabelScale2D * CANVAS_WORLD_SCALE * this.canvasZoom * 0.8);
+                    parts.push(
+                        `<line x1="${startCanvas.x}" y1="${startCanvas.y}" x2="${startGuideCanvas.x}" y2="${startGuideCanvas.y}" stroke="${color}" stroke-width="1.5" />`,
+                        `<line x1="${endCanvas.x}" y1="${endCanvas.y}" x2="${endGuideCanvas.x}" y2="${endGuideCanvas.y}" stroke="${color}" stroke-width="1.5" />`,
+                        `<line x1="${startGuideCanvas.x}" y1="${startGuideCanvas.y}" x2="${endGuideCanvas.x}" y2="${endGuideCanvas.y}" stroke="${color}" stroke-width="1.5" />`,
+                    `<text x="${labelCanvas.x}" y="${labelCanvas.y}" text-anchor="middle" dominant-baseline="middle" font-family="Helvetica, Arial, sans-serif" font-size="${guideFontSize}" font-weight="700" fill="${color}">${this.escapeSvgText(`${labels[axis] ?? 'X'}: ${size}`)}</text>`,
+                    );
+                });
+            }
+            if (this.state.showTensorNames) {
+                const tensorNameScale2D = (Math.max(1.25, Math.min(10, Math.max(outlineExtent2D.x, outlineExtent2D.y) * 0.05)) * 1.25) / 2;
+                const guideLabelScale2D = Math.max(1.25, Math.min(10, Math.max(outlineExtent2D.x, outlineExtent2D.y) * 0.05)) / 5;
+                const guideStartOffset2D = Math.max(1.15, guideLabelScale2D * 2.5);
+                const guideLevelStep2D = Math.max(0.75, guideLabelScale2D * 3.5);
+                const guideLabelOffset2D = Math.max(0.3, guideLabelScale2D * 1.2);
+                const topGuideCount = shape.reduce((sum, _size, axis) => (
+                    sum + Number(axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) === 0)
+                ), 0);
+                const guideClearance = this.state.showDimensionLines && labels.length > 0
+                    ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + tensorNameScale2D * 1.5
+                    : tensorNameScale2D * 1.75;
+                const nameCanvas = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance);
+                const tensorNameFontSize = Math.max(12, tensorNameScale2D * CANVAS_WORLD_SCALE * this.canvasZoom);
+                parts.push(
+                    `<text x="${nameCanvas.x}" y="${nameCanvas.y}" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${tensorNameFontSize}" font-weight="700" fill="#0f172a">${this.escapeSvgText(tensor.name)}</text>`,
+                );
+            }
+        });
+        parts.push('</svg>');
+        return new Blob(parts, { type: 'image/svg+xml;charset=utf-8' });
     }
 
     /** Dispose the renderer, listeners, and DOM nodes created by this viewer. */

@@ -58,8 +58,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         <div class="menu">
           <button class="menu-trigger" type="button">File</button>
           <div class="menu-list">
-            <button data-action="open" type="button">Open Tensor <span>Ctrl+O</span></button>
-            <button data-action="save" type="button">Save Tensor <span>Ctrl+S</span></button>
+            <button data-action="save-svg" type="button">Save as SVG <span>Ctrl+S</span></button>
           </div>
         </div>
         <div class="menu">

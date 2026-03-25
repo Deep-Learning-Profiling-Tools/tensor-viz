@@ -110,7 +110,7 @@ export function createLinearLayoutDocument(
         tensors: [
             {
                 id: 'tensor-1',
-                name: 'Hardware tensor',
+                name: 'Hardware Layout',
                 dtype: 'float32',
                 shape: hardwareLayout.shape,
                 axisLabels: hardwareLayout.axisLabels,
@@ -118,7 +118,7 @@ export function createLinearLayoutDocument(
             },
             {
                 id: 'tensor-2',
-                name: 'Logical tensor',
+                name: 'Logical Layout',
                 dtype: 'float32',
                 shape: logicalShape,
                 colorInstructions: [{ mode: 'rgb', kind: 'dense', values: Array.from(logicalRgb) }],

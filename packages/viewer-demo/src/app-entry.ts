@@ -115,6 +115,8 @@ type LinearLayoutCellTextState = {
 
 const LINEAR_LAYOUT_AXES = ['thread', 'warp', 'register'] as const;
 const LINEAR_LAYOUT_CHANNELS = ['H', 'S', 'L'] as const;
+const HARDWARE_LAYOUT_NAMES = new Set(['hardware tensor', 'hardware layout']);
+const LOGICAL_LAYOUT_NAMES = new Set(['logical tensor', 'logical layout']);
 const OUTPUT_AXIS_NAMES = [
     'x',
     'y',
@@ -365,7 +367,15 @@ function applyLabeledBasesText(value: string): void {
 
 function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
     const names = tab.manifest.tensors.map((tensor) => tensor.name.toLowerCase());
-    return names.includes('hardware tensor') && names.includes('logical tensor');
+    return names.some((name) => HARDWARE_LAYOUT_NAMES.has(name)) && names.some((name) => LOGICAL_LAYOUT_NAMES.has(name));
+}
+
+function hardwareLayoutTensor(tab: LoadedBundleDocument): BundleManifest['tensors'][number] | undefined {
+    return tab.manifest.tensors.find((tensor) => HARDWARE_LAYOUT_NAMES.has(tensor.name.toLowerCase()));
+}
+
+function logicalLayoutTensor(tab: LoadedBundleDocument): BundleManifest['tensors'][number] | undefined {
+    return tab.manifest.tensors.find((tensor) => LOGICAL_LAYOUT_NAMES.has(tensor.name.toLowerCase()));
 }
 
 function syncLinearLayoutState(tab: LoadedBundleDocument): void {
@@ -427,8 +437,8 @@ function linearLayoutSelectionMapForTab(tab: LoadedBundleDocument): LinearLayout
     if (cached) return cached;
     const spec = linearLayoutSpecForTab(tab);
     if (!spec) return null;
-    const hardwareTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'hardware tensor');
-    const logicalTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'logical tensor');
+    const hardwareTensor = hardwareLayoutTensor(tab);
+    const logicalTensor = logicalLayoutTensor(tab);
     if (!hardwareTensor || !logicalTensor) return null;
     const inputShape = spec.input_dims.map(({ bases }) => 2 ** bases.length);
     const outputAxisByName = new Map(spec.output_dims.map((dim, axis) => [dim.name, axis]));
@@ -538,8 +548,8 @@ function linearLayoutCellLabelsForTab(
     if (!state.warp && !state.thread && !state.register) return null;
     const spec = linearLayoutSpecForTab(tab);
     const mapping = linearLayoutSelectionMapForTab(tab);
-    const hardwareTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'hardware tensor');
-    const logicalTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'logical tensor');
+    const hardwareTensor = hardwareLayoutTensor(tab);
+    const logicalTensor = logicalLayoutTensor(tab);
     if (!spec || !mapping || !hardwareTensor || !logicalTensor) return null;
     const hardwareLabels = Array.from({ length: product(hardwareTensor.shape) }, (_entry, index) => {
         const coord = unravelIndex(index, hardwareTensor.shape);
@@ -568,8 +578,8 @@ function applyLinearLayoutCellText(): void {
         clearCellTextLabels();
         return;
     }
-    const hardwareTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'hardware tensor');
-    const logicalTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'logical tensor');
+    const hardwareTensor = hardwareLayoutTensor(tab);
+    const logicalTensor = logicalLayoutTensor(tab);
     const labels = linearLayoutCellLabelsForTab(tab, linearLayoutCellTextState);
     if (!labels) {
         if (hardwareTensor) viewer.setTensorCellLabels(hardwareTensor.id, null);
@@ -855,12 +865,15 @@ function colorRangesFromState(ranges: Record<LinearLayoutChannel, [string, strin
     return output;
 }
 
-async function applyLiveLinearLayoutColors(): Promise<void> {
-    if (!activeLinearLayoutTab()) return;
-    await applyLinearLayoutSpec({ silent: true });
-}
-
 function renderLinearLayoutColorWidget(): void {
+    const activeElement = document.activeElement;
+    const focusedInput = activeElement instanceof HTMLInputElement && linearLayoutColorWidget.contains(activeElement)
+        ? {
+            id: activeElement.id,
+            start: activeElement.selectionStart,
+            end: activeElement.selectionEnd,
+        }
+        : null;
     const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
     linearLayoutColorWidget.innerHTML = `
       ${titleWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.')}
@@ -878,6 +891,9 @@ function renderLinearLayoutColorWidget(): void {
             <input id="linear-layout-${channel.toLowerCase()}-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges[channel][1])}" />
           </div>
         `).join('')}
+        <div class="button-row">
+          <button class="primary-button" id="linear-layout-recolor" type="button">Recolor Layout</button>
+        </div>
       </div>
     `;
 
@@ -924,7 +940,6 @@ function renderLinearLayoutColorWidget(): void {
             linearLayoutState.mapping[sourceChannel] = linearLayoutState.mapping[targetChannel];
             linearLayoutState.mapping[targetChannel] = sourceAxis;
             renderLinearLayoutColorWidget();
-            void applyLiveLinearLayoutColors();
         });
     });
     const hueMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-h-min');
@@ -933,30 +948,35 @@ function renderLinearLayoutColorWidget(): void {
     const saturationMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-s-max');
     const lightnessMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-min');
     const lightnessMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-max');
+    const recolorButton = linearLayoutColorWidget.querySelector<HTMLButtonElement>('#linear-layout-recolor');
     hueMinInput?.addEventListener('input', () => {
         linearLayoutState.ranges.H[0] = hueMinInput.value;
-        void applyLiveLinearLayoutColors();
     });
     hueMaxInput?.addEventListener('input', () => {
         linearLayoutState.ranges.H[1] = hueMaxInput.value;
-        void applyLiveLinearLayoutColors();
     });
     saturationMinInput?.addEventListener('input', () => {
         linearLayoutState.ranges.S[0] = saturationMinInput.value;
-        void applyLiveLinearLayoutColors();
     });
     saturationMaxInput?.addEventListener('input', () => {
         linearLayoutState.ranges.S[1] = saturationMaxInput.value;
-        void applyLiveLinearLayoutColors();
     });
     lightnessMinInput?.addEventListener('input', () => {
         linearLayoutState.ranges.L[0] = lightnessMinInput.value;
-        void applyLiveLinearLayoutColors();
     });
     lightnessMaxInput?.addEventListener('input', () => {
         linearLayoutState.ranges.L[1] = lightnessMaxInput.value;
-        void applyLiveLinearLayoutColors();
     });
+    recolorButton?.addEventListener('click', async () => {
+        await applyLinearLayoutSpec({ silent: true });
+    });
+    if (focusedInput) {
+        const nextInput = linearLayoutColorWidget.querySelector<HTMLInputElement>(`#${focusedInput.id}`);
+        nextInput?.focus();
+        if (nextInput && focusedInput.start !== null && focusedInput.end !== null) {
+            nextInput.setSelectionRange(focusedInput.start, focusedInput.end);
+        }
+    }
 }
 
 function renderCellTextWidget(): void {
@@ -1136,8 +1156,7 @@ async function applyLinearLayoutSpec(
 function commandActions(): CommandAction[] {
     return [
         { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
-        { action: 'open', label: 'Open Tensor', shortcut: 'Ctrl+O', keywords: 'file open load tensor npy' },
-        { action: 'save', label: 'Save Tensor', shortcut: 'Ctrl+S', keywords: 'file save export tensor npy' },
+        { action: 'save-svg', label: 'Save as SVG', shortcut: 'Ctrl+S', keywords: 'file save export svg vector image 2d' },
         { action: '2d', label: 'Display as 2D', shortcut: 'Ctrl+2', keywords: 'display 2d orthographic' },
         { action: '3d', label: 'Display as 3D', shortcut: 'Ctrl+3', keywords: 'display 3d perspective' },
         { action: 'mapping-contiguous', label: 'Set Contiguous Axis Family Mapping', shortcut: '', keywords: 'display axis family mapping contiguous layout' },
@@ -1866,6 +1885,16 @@ async function saveTensorToDisk(): Promise<void> {
     URL.revokeObjectURL(url);
 }
 
+async function saveSvgToDisk(): Promise<void> {
+    const blob = viewer.saveSvg();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${sanitizeFilename(activeTab()?.title ?? 'tensor-view')}.svg`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
+
 /** loads one tab's raw tensor payloads from the local python session server. */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
     const entries = await Promise.all(tensors
@@ -1883,7 +1912,8 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
 /** loads one session tab from the raw manifest plus tensor-byte endpoints. */
 async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
     const tensorNames = tab.tensors.map((tensor) => tensor.name.toLowerCase());
-    const isLinearLayout = tensorNames.includes('hardware tensor') && tensorNames.includes('logical tensor');
+    const isLinearLayout = tensorNames.some((name) => HARDWARE_LAYOUT_NAMES.has(name))
+        && tensorNames.some((name) => LOGICAL_LAYOUT_NAMES.has(name));
     const viewerState = {
         ...tab.viewer,
         dimensionMappingScheme: isLinearLayout ? 'contiguous' : tab.viewer.dimensionMappingScheme,
@@ -1960,6 +1990,13 @@ async function runAction(action: string): Promise<void> {
             return;
         case 'save':
             await saveTensorToDisk();
+            return;
+        case 'save-svg':
+            try {
+                await saveSvgToDisk();
+            } catch (error) {
+                window.alert(error instanceof Error ? error.message : String(error));
+            }
             return;
         case '2d':
             viewer.setDisplayMode('2d');
@@ -2057,7 +2094,7 @@ window.addEventListener('keydown', async (event) => {
         await runAction('open');
     } else if (event.ctrlKey && event.key.toLowerCase() === 's') {
         event.preventDefault();
-        await runAction('save');
+        await runAction('save-svg');
     } else if (event.ctrlKey && event.key === '2') {
         event.preventDefault();
         await runAction('2d');
