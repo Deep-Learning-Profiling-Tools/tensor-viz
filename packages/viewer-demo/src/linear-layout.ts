@@ -12,6 +12,8 @@ const DEFAULT_COLOR_RANGES = {
     L: [0.25, 0.95],
 } as const;
 
+const OUTPUT_AXIS_NAMES = ['x', 'y', 'z', 'w', 'v', 'u', 't', 's', 'r', 'q', 'p', 'o', 'n', 'm'] as const;
+
 const DEFAULT_LINEAR_LAYOUT_JSON = {
     name: 'Blocked Layout',
     bases: [
@@ -109,7 +111,18 @@ export function defaultLinearLayoutSpecText(): string {
 }
 
 export function bakedLinearLayoutSpecTexts(): string[] {
-    return BAKED_LINEAR_LAYOUT_SPECS.map((spec) => JSON.stringify(spec));
+    return BAKED_LINEAR_LAYOUT_SPECS.map((spec) => {
+        let rank = 0;
+        spec.bases.forEach(([_name, bases]) => {
+            bases.forEach((basis) => {
+                rank = Math.max(rank, basis.length);
+            });
+        });
+        return JSON.stringify({
+            ...spec,
+            out_dims: OUTPUT_AXIS_NAMES.slice(0, rank || 1).reverse(),
+        });
+    });
 }
 
 /** Build one loaded viewer document from a parsed linear-layout spec. */
