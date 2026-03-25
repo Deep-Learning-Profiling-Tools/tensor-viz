@@ -2546,6 +2546,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     public loadBundleData(manifest: BundleManifest, tensors: Map<string, NumericArray>): void {
         const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
         this.resetLoadedState();
+        this.state.dimensionBlockGapMultiple = manifest.viewer.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
+        this.state.displayGaps = manifest.viewer.displayGaps ?? true;
+        this.state.collapseHiddenAxes = manifest.viewer.collapseHiddenAxes ?? manifest.viewer.showSlicesInSamePlace ?? false;
+        this.state.dimensionMappingScheme = manifest.viewer.dimensionMappingScheme ?? 'z-order';
         manifest.tensors.forEach((entry) => {
             const data = tensors.get(entry.id) ?? null;
             if (!data && !entry.placeholderData) {

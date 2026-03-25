@@ -64,6 +64,7 @@ const {
 
 const viewer = new TensorViewer(viewport);
 viewer.toggleSelectionPanel(false);
+(window as typeof window & { __viewer?: TensorViewer }).__viewer = viewer;
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
@@ -72,6 +73,7 @@ let showColorbarWidget = false;
 let inspectorReady = false;
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
+(window as typeof window & { __sessionTabs?: () => LoadedBundleDocument[] }).__sessionTabs = () => sessionTabs;
 let switchingTab = false;
 let resizingSidebar = false;
 let commandPaletteOpen = false;
@@ -231,6 +233,17 @@ function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
 
 function defaultLinearLayoutState(): LinearLayoutFormState {
     return stateFromLayoutSpec(JSON.parse(defaultLinearLayoutSpecText()));
+}
+
+function emptyLinearLayoutState(): LinearLayoutFormState {
+    const state = cloneLinearLayoutState(defaultLinearLayoutState());
+    state.bases = {
+        thread: '[[0,1],[0,2],[0,4],[0,8],[0,16]]',
+        warp: '[]',
+        register: '[[1,0],[2,0]]',
+    };
+    state.basesText = formatLabeledBasesText(state.bases);
+    return state;
 }
 
 function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
@@ -1373,11 +1386,21 @@ async function addNewTab(): Promise<void> {
     const id = `tab-${Date.now()}`;
     const title = nextTabTitle();
     if (!currentTab) {
+        linearLayoutState = emptyLinearLayoutState();
+        const bases = currentLinearLayoutBases();
         const document = createLinearLayoutDocument(
-            parseLinearLayoutSpec(defaultLinearLayoutSpecText()),
+            parseLinearLayoutSpec(JSON.stringify({
+                bases: [
+                    ['warp', bases.warp],
+                    ['thread', bases.thread],
+                    ['register', bases.register],
+                ],
+                out_dims: outputDimsFromBases(bases),
+                color_axes: colorAxesFromMapping(linearLayoutState.mapping),
+                color_ranges: colorRangesFromState(linearLayoutState.ranges),
+            })),
             viewer.getSnapshot(),
         );
-        linearLayoutState = defaultLinearLayoutState();
         linearLayoutCellTextState = defaultLinearLayoutCellTextState();
         linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutState));
         linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
@@ -1990,8 +2013,26 @@ async function loadBakedLinearLayoutTabs(): Promise<boolean> {
     const initialTabId = sessionTabs[0]?.id ?? null;
     if (!initialTabId) return false;
     await loadTab(initialTabId);
-    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    viewer.refitView();
+    const settle = async (): Promise<void> => {
+        if ('fonts' in document) {
+            try {
+                await (document as Document & { fonts: { ready: Promise<unknown> } }).fonts.ready;
+            } catch {
+                // ignore font-settlement errors
+            }
+        }
+        let stableFrames = 0;
+        let previousSize = '';
+        while (stableFrames < 2) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            const nextSize = `${viewport.clientWidth}x${viewport.clientHeight}`;
+            stableFrames = nextSize === previousSize ? stableFrames + 1 : 0;
+            previousSize = nextSize;
+        }
+        viewer.resize();
+        viewer.refitView();
+    };
+    await settle();
     return true;
 }
 
