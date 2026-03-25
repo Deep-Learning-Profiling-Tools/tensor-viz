@@ -90,14 +90,11 @@ type InspectorRefs = {
     logicalCoord: HTMLDivElement;
     hardwareCoordBinary: HTMLDivElement;
     logicalCoordBinary: HTMLDivElement;
-    value: HTMLDivElement;
     hoveredTensorValue: HTMLSpanElement;
     hardwareCoordValue: HTMLSpanElement;
     logicalCoordValue: HTMLSpanElement;
     hardwareCoordBinaryValue: HTMLSpanElement;
     logicalCoordBinaryValue: HTMLSpanElement;
-    valueField: HTMLSpanElement;
-    dtypeValue: HTMLSpanElement;
     tensorShapeValue: HTMLSpanElement;
     rankValue: HTMLSpanElement;
 };
@@ -1642,8 +1639,6 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
             <div id="inspector-logical-coord"><div class="label-row"><span class="meta-label">Logical Coord</span>${infoButton('Coordinate in logical tensor order. For linear-layout tabs this is the matching logical coordinate for the hovered hardware or logical cell.')}</div><span class="meta-value" id="inspector-logical-coord-value"></span></div>
             <div id="inspector-hardware-coord-binary"><div class="label-row"><span class="meta-label">Hardware Coord (Binary)</span>${infoButton('Hardware coordinate encoded in binary, padded per axis width.')}</div><span class="meta-value mono-value" id="inspector-hardware-coord-binary-value"></span></div>
             <div id="inspector-logical-coord-binary"><div class="label-row"><span class="meta-label">Logical Coord (Binary)</span>${infoButton('Logical coordinate encoded in binary, padded per axis width.')}</div><span class="meta-value mono-value" id="inspector-logical-coord-binary-value"></span></div>
-            <div id="inspector-value"><div class="label-row"><span class="meta-label">Value</span>${infoButton('Numeric value at the hovered tensor element.')}</div><span class="meta-value" id="inspector-value-field"></span></div>
-            <div><div class="label-row"><span class="meta-label">DType</span>${infoButton('Underlying numeric storage type for the active tensor.')}</div><span class="meta-value" id="inspector-dtype"></span></div>
             <div><div class="label-row"><span class="meta-label">Tensor Shape</span>${infoButton('Original tensor shape before Tensor View transformations.')}</div><span class="meta-value" id="inspector-tensor-shape"></span></div>
             <div><div class="label-row"><span class="meta-label">Rank</span>${infoButton('Number of dimensions in the original tensor.')}</div><span class="meta-value" id="inspector-rank"></span></div>
           </div>
@@ -1654,14 +1649,11 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
             logicalCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-logical-coord')!,
             hardwareCoordBinary: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hardware-coord-binary')!,
             logicalCoordBinary: inspectorWidget.querySelector<HTMLDivElement>('#inspector-logical-coord-binary')!,
-            value: inspectorWidget.querySelector<HTMLDivElement>('#inspector-value')!,
             hoveredTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hovered-tensor-value')!,
             hardwareCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hardware-coord-value')!,
             logicalCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-logical-coord-value')!,
             hardwareCoordBinaryValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hardware-coord-binary-value')!,
             logicalCoordBinaryValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-logical-coord-binary-value')!,
-            valueField: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-value-field')!,
-            dtypeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-dtype')!,
             tensorShapeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-tensor-shape')!,
             rankValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-rank')!,
         };
@@ -1701,7 +1693,6 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.logicalCoord.classList.toggle('hidden', !hover);
     inspectorRefs.hardwareCoordBinary.classList.toggle('hidden', !hover);
     inspectorRefs.logicalCoordBinary.classList.toggle('hidden', !hover);
-    inspectorRefs.value.classList.toggle('hidden', !hover);
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
     inspectorRefs.hardwareCoordValue.innerHTML = !hardwareCoord
         ? ''
@@ -1721,8 +1712,6 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
         );
     inspectorRefs.hardwareCoordBinaryValue.innerHTML = binaryCoord(hardwareCoord, hardwareStatus?.shape);
     inspectorRefs.logicalCoordBinaryValue.innerHTML = binaryCoord(logicalCoord, logicalStatus?.shape);
-    inspectorRefs.valueField.textContent = !hover ? '' : hover.value === null ? 'Unavailable' : String(hover.value);
-    inspectorRefs.dtypeValue.textContent = model.handle.dtype;
     inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(
         hoveredStatus?.shape ?? model.handle.shape,
         snapshot.displayMode,
@@ -1968,15 +1957,24 @@ function seedDemoTensor(): void {
 }
 
 async function loadBakedLinearLayoutTabs(): Promise<boolean> {
-    const specs = bakedLinearLayoutSpecTexts().map((text) => ({
-        text,
-        spec: parseLinearLayoutSpec(text),
-    }));
+    const specs = bakedLinearLayoutSpecTexts();
     if (specs.length === 0) return false;
     const baseViewer = viewer.getSnapshot();
-    sessionTabs = specs.map(({ text, spec }, index) => {
-        const document = createLinearLayoutDocument(spec, baseViewer);
+    sessionTabs = specs.map((text, index) => {
+        const parsed = parseLinearLayoutSpec(text);
         const linearLayoutState = stateFromLayoutSpec(JSON.parse(text));
+        const bases = parseLabeledBasesText(linearLayoutState.basesText);
+        const document = createLinearLayoutDocument(parseLinearLayoutSpec(JSON.stringify({
+            name: parsed.name,
+            bases: [
+                ['warp', bases.warp],
+                ['thread', bases.thread],
+                ['register', bases.register],
+            ],
+            out_dims: outputDimsFromBases(bases),
+            color_axes: colorAxesFromMapping(linearLayoutState.mapping),
+            color_ranges: colorRangesFromState(linearLayoutState.ranges),
+        })), baseViewer);
         (document.manifest.viewer as ViewerSnapshot & { linearLayoutState?: LinearLayoutFormState }).linearLayoutState = linearLayoutState;
         linearLayoutStates.set(`tab-${index + 1}`, cloneLinearLayoutState(linearLayoutState));
         return {
