@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    buildPreviewExpression,
     defaultTensorView,
     layoutAxisLabels,
     layoutCoordIsVisible,
@@ -135,5 +136,25 @@ describe('parseTensorView', () => {
         expect(supportsContiguousSelectionFastPath2D(fast.spec)).toBe(true);
         expect(supportsContiguousSelectionFastPath2D(slow.spec)).toBe(false);
         expect(supportsContiguousSelectionFastPath2D(fast.spec, true)).toBe(false);
+    });
+
+    it('shows hidden axes in preview slices using original tensor order', () => {
+        const allHidden = parseTensorView([2, 3, 4], 'a b c', [1, 2, 3]);
+        const middleHidden = parseTensorView([2, 3, 4], 'A b C', [0, 2, 0]);
+        expect(allHidden.ok).toBe(true);
+        expect(middleHidden.ok).toBe(true);
+        if (!allHidden.ok || !middleHidden.ok) return;
+        expect(buildPreviewExpression(allHidden.spec)).toBe('tensor[1, 2, 3]');
+        expect(buildPreviewExpression(middleHidden.spec)).toBe('tensor[:, 2, :]');
+    });
+
+    it('expands grouped hidden tokens into one preview index per axis', () => {
+        const hiddenGroup = parseTensorView([2, 3, 4], 'A bc', [0, 1, 2]);
+        const permuted = parseTensorView([2, 3, 4], 'a B c', [1, 0, 3]);
+        expect(hiddenGroup.ok).toBe(true);
+        expect(permuted.ok).toBe(true);
+        if (!hiddenGroup.ok || !permuted.ok) return;
+        expect(buildPreviewExpression(hiddenGroup.spec)).toBe('tensor.reshape(2, 3*4)[:, 1, 2]');
+        expect(buildPreviewExpression(permuted.spec)).toBe('tensor[1, :, 3]');
     });
 });

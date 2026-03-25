@@ -239,12 +239,16 @@ export function buildPreviewExpression(spec: TensorViewSpec): string {
         expr += `.reshape(${reshapeTerms.join(', ')})`;
     }
 
-    const sliceTerms = spec.tokens.flatMap((token) => {
-        if (token.visible) return [];
-        const sliceToken = spec.sliceTokens.find((entry) => entry.token === token.label.toLowerCase());
-        return [String(sliceToken?.value ?? 0)];
+    const sliceTerms = spec.tensorShape.map((_dim, axis) => ':');
+    let hasHiddenAxis = false;
+    spec.tokens.forEach((token) => {
+        if (token.kind !== 'axis_group' || token.visible) return;
+        hasHiddenAxis = true;
+        token.axes.forEach((axis) => {
+            sliceTerms[axis] = String(spec.hiddenIndices[axis] ?? 0);
+        });
     });
-    if (sliceTerms.length > 0) expr += `[${sliceTerms.join(', ')}]`;
+    if (hasHiddenAxis) expr += `[${sliceTerms.join(', ')}]`;
     return expr;
 }
 
