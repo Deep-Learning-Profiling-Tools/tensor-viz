@@ -227,7 +227,7 @@ def demo_large() -> None:
     viz(tensor)
 
 
-DEMO = 10 
+DEMO = 0 
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,

@@ -366,15 +366,17 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         ${error ? `<div class="error-box">${error}</div>` : ''}
         <div class="field">
           ${labelWithInfo('Preview', 'Shows the implied permute, reshape, and slice operations for the current Tensor View string.')}
-          <div class="mono-block">${model.preview}</div>
+          <div class="mono-block" id="view-preview"></div>
         </div>
         <div class="slider-list" id="slice-token-controls"></div>
       </div>
     `;
 
     const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
+    const preview = tensorViewWidget.querySelector<HTMLElement>('#view-preview');
     const select = tensorViewWidget.querySelector<HTMLSelectElement>('#tensor-select');
     const sliceHost = tensorViewWidget.querySelector<HTMLElement>('#slice-token-controls');
+    if (preview) preview.textContent = model.preview;
     select?.addEventListener('change', () => {
         logUi('tensor-select', select.value);
         viewer.setActiveTensor(select.value);
@@ -409,6 +411,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.token, nextValue);
+            if (preview) preview.textContent = viewer.getInspectorModel().preview;
         };
         slider?.addEventListener('pointerdown', () => {
             suspendTensorViewRender = true;
