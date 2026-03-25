@@ -47,6 +47,7 @@ const {
     tabStrip,
     sidebarSplitter,
     linearLayoutWidget,
+    cellTextWidget,
     linearLayoutColorWidget,
     tensorViewWidget,
     inspectorWidget,
@@ -106,6 +107,12 @@ type LinearLayoutNotice = {
     text: string;
 };
 
+type LinearLayoutCellTextState = {
+    thread: boolean;
+    warp: boolean;
+    register: boolean;
+};
+
 const LINEAR_LAYOUT_AXES = ['thread', 'warp', 'register'] as const;
 const LINEAR_LAYOUT_CHANNELS = ['H', 'S', 'L'] as const;
 const OUTPUT_AXIS_NAMES = [
@@ -151,6 +158,8 @@ type LinearLayoutFormState = {
 const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
 let linearLayoutState = loadLinearLayoutState();
 const linearLayoutStates = new Map<string, LinearLayoutFormState>();
+let linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+const linearLayoutCellTextStates = new Map<string, LinearLayoutCellTextState>();
 let linearLayoutNotice: LinearLayoutNotice | null = null;
 type LinearLayoutSelectionMap = {
     hardwareTensorId: string;
@@ -235,6 +244,26 @@ function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormS
             L: [...state.ranges.L],
         } as Record<LinearLayoutChannel, [string, string]>,
     };
+}
+
+function defaultLinearLayoutCellTextState(): LinearLayoutCellTextState {
+    return {
+        thread: false,
+        warp: false,
+        register: false,
+    };
+}
+
+function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState): LinearLayoutCellTextState {
+    return { ...state };
+}
+
+function isLinearLayoutCellTextState(value: unknown): value is LinearLayoutCellTextState {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as LinearLayoutCellTextState;
+    return typeof record.thread === 'boolean'
+        && typeof record.warp === 'boolean'
+        && typeof record.register === 'boolean';
 }
 
 function stateFromLayoutSpec(raw: any, fallback?: LinearLayoutFormState): LinearLayoutFormState {
@@ -362,6 +391,26 @@ function syncLinearLayoutState(tab: LoadedBundleDocument): void {
     renderLinearLayoutWidget();
 }
 
+function syncLinearLayoutCellTextState(tab: LoadedBundleDocument): void {
+    if (!isLinearLayoutTab(tab)) {
+        linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+        return;
+    }
+    const stored = linearLayoutCellTextStates.get(tab.id);
+    if (stored) {
+        linearLayoutCellTextState = cloneLinearLayoutCellTextState(stored);
+        return;
+    }
+    const candidate = (tab.manifest.viewer as { linearLayoutCellTextState?: unknown }).linearLayoutCellTextState;
+    if (isLinearLayoutCellTextState(candidate)) {
+        linearLayoutCellTextState = cloneLinearLayoutCellTextState(candidate);
+        linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(candidate));
+        return;
+    }
+    linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+    linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
+}
+
 function linearLayoutSpecForTab(tab: LoadedBundleDocument): LinearLayoutSpec | null {
     const candidate = (tab.manifest.viewer as { linearLayoutSpec?: unknown }).linearLayoutSpec;
     if (!candidate) return null;
@@ -451,6 +500,84 @@ function mapLogicalSelection(coords: number[][], mapping: LinearLayoutSelectionM
         mapped.forEach((hardwareKey) => hardwareKeys.add(hardwareKey));
     });
     return Array.from(hardwareKeys, (key) => coordFromKey(key));
+}
+
+function activeLinearLayoutTab(): LoadedBundleDocument | null {
+    const tab = activeTab();
+    return tab && isLinearLayoutTab(tab) ? tab : null;
+}
+
+function clearCellTextLabels(): void {
+    viewer.getInspectorModel().tensors.forEach((tensor) => {
+        viewer.setTensorCellLabels(tensor.id, null);
+    });
+}
+
+function linearLayoutCellTextForCoord(coord: number[], spec: LinearLayoutSpec, state: LinearLayoutCellTextState): string {
+    const axisOrder = linearLayoutAxisOrder(spec.input_dims);
+    const valuesByName = new Map<string, number>();
+    axisOrder.forEach((inputAxis, tensorAxis) => {
+        valuesByName.set(spec.input_dims[inputAxis]?.name ?? '', coord[tensorAxis] ?? 0);
+    });
+    return [
+        state.warp ? `W${valuesByName.get('warp') ?? 0}` : null,
+        state.thread ? `T${valuesByName.get('thread') ?? 0}` : null,
+        state.register ? `R${valuesByName.get('register') ?? 0}` : null,
+    ].filter((value): value is string => value !== null).join('\n');
+}
+
+function linearLayoutCellLabelsForTab(
+    tab: LoadedBundleDocument,
+    state: LinearLayoutCellTextState,
+): {
+    hardwareTensorId: string;
+    logicalTensorId: string;
+    hardwareLabels: Array<{ coord: number[]; text: string }>;
+    logicalLabels: Array<{ coord: number[]; text: string }>;
+} | null {
+    if (!state.warp && !state.thread && !state.register) return null;
+    const spec = linearLayoutSpecForTab(tab);
+    const mapping = linearLayoutSelectionMapForTab(tab);
+    const hardwareTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'hardware tensor');
+    const logicalTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'logical tensor');
+    if (!spec || !mapping || !hardwareTensor || !logicalTensor) return null;
+    const hardwareLabels = Array.from({ length: product(hardwareTensor.shape) }, (_entry, index) => {
+        const coord = unravelIndex(index, hardwareTensor.shape);
+        return { coord, text: linearLayoutCellTextForCoord(coord, spec, state) };
+    });
+    const logicalLabels = Array.from({ length: product(logicalTensor.shape) }, (_entry, index) => {
+        const coord = unravelIndex(index, logicalTensor.shape);
+        const hardwareKey = mapping.logicalToHardware.get(coordKey(coord))?.[0];
+        if (!hardwareKey) return null;
+        return {
+            coord,
+            text: linearLayoutCellTextForCoord(coordFromKey(hardwareKey), spec, state),
+        };
+    }).filter((entry): entry is { coord: number[]; text: string } => entry !== null);
+    return {
+        hardwareTensorId: mapping.hardwareTensorId,
+        logicalTensorId: mapping.logicalTensorId,
+        hardwareLabels,
+        logicalLabels,
+    };
+}
+
+function applyLinearLayoutCellText(): void {
+    const tab = activeLinearLayoutTab();
+    if (!tab) {
+        clearCellTextLabels();
+        return;
+    }
+    const hardwareTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'hardware tensor');
+    const logicalTensor = tab.manifest.tensors.find((tensor) => tensor.name.toLowerCase() === 'logical tensor');
+    const labels = linearLayoutCellLabelsForTab(tab, linearLayoutCellTextState);
+    if (!labels) {
+        if (hardwareTensor) viewer.setTensorCellLabels(hardwareTensor.id, null);
+        if (logicalTensor) viewer.setTensorCellLabels(logicalTensor.id, null);
+        return;
+    }
+    viewer.setTensorCellLabels(labels.hardwareTensorId, labels.hardwareLabels);
+    viewer.setTensorCellLabels(labels.logicalTensorId, labels.logicalLabels);
 }
 
 function slicedTensorCoords(tensorId: string): number[][] | null {
@@ -728,6 +855,11 @@ function colorRangesFromState(ranges: Record<LinearLayoutChannel, [string, strin
     return output;
 }
 
+async function applyLiveLinearLayoutColors(): Promise<void> {
+    if (!activeLinearLayoutTab()) return;
+    await applyLinearLayoutSpec({ silent: true });
+}
+
 function renderLinearLayoutColorWidget(): void {
     const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
     linearLayoutColorWidget.innerHTML = `
@@ -792,6 +924,7 @@ function renderLinearLayoutColorWidget(): void {
             linearLayoutState.mapping[sourceChannel] = linearLayoutState.mapping[targetChannel];
             linearLayoutState.mapping[targetChannel] = sourceAxis;
             renderLinearLayoutColorWidget();
+            void applyLiveLinearLayoutColors();
         });
     });
     const hueMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-h-min');
@@ -800,24 +933,73 @@ function renderLinearLayoutColorWidget(): void {
     const saturationMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-s-max');
     const lightnessMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-min');
     const lightnessMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-max');
-    hueMinInput?.addEventListener('change', () => {
+    hueMinInput?.addEventListener('input', () => {
         linearLayoutState.ranges.H[0] = hueMinInput.value;
+        void applyLiveLinearLayoutColors();
     });
-    hueMaxInput?.addEventListener('change', () => {
+    hueMaxInput?.addEventListener('input', () => {
         linearLayoutState.ranges.H[1] = hueMaxInput.value;
+        void applyLiveLinearLayoutColors();
     });
-    saturationMinInput?.addEventListener('change', () => {
+    saturationMinInput?.addEventListener('input', () => {
         linearLayoutState.ranges.S[0] = saturationMinInput.value;
+        void applyLiveLinearLayoutColors();
     });
-    saturationMaxInput?.addEventListener('change', () => {
+    saturationMaxInput?.addEventListener('input', () => {
         linearLayoutState.ranges.S[1] = saturationMaxInput.value;
+        void applyLiveLinearLayoutColors();
     });
-    lightnessMinInput?.addEventListener('change', () => {
+    lightnessMinInput?.addEventListener('input', () => {
         linearLayoutState.ranges.L[0] = lightnessMinInput.value;
+        void applyLiveLinearLayoutColors();
     });
-    lightnessMaxInput?.addEventListener('change', () => {
+    lightnessMaxInput?.addEventListener('input', () => {
         linearLayoutState.ranges.L[1] = lightnessMaxInput.value;
+        void applyLiveLinearLayoutColors();
     });
+}
+
+function renderCellTextWidget(): void {
+    const tab = activeLinearLayoutTab();
+    if (!tab) {
+        cellTextWidget.innerHTML = '';
+        return;
+    }
+    cellTextWidget.innerHTML = `
+      ${titleWithInfo('Cell Text', 'Overlay W, T, and R ids directly on hardware and logical tensor cells in 2D. Labels follow the current linear-layout tab and only appear when cells are large enough to read.')}
+      <div class="widget-body">
+        <p class="widget-copy">Choose which hardware ids to draw on each cell. Logical cells show the mapped hardware ids for the corresponding layout position.</p>
+        <div class="checklist-field">
+          <label class="checklist-row" for="cell-text-warp">
+            <span>Warp Id</span>
+            <input id="cell-text-warp" type="checkbox" ${linearLayoutCellTextState.warp ? 'checked' : ''} />
+          </label>
+          <label class="checklist-row" for="cell-text-thread">
+            <span>Thread Id</span>
+            <input id="cell-text-thread" type="checkbox" ${linearLayoutCellTextState.thread ? 'checked' : ''} />
+          </label>
+          <label class="checklist-row" for="cell-text-register">
+            <span>Register Id</span>
+            <input id="cell-text-register" type="checkbox" ${linearLayoutCellTextState.register ? 'checked' : ''} />
+          </label>
+        </div>
+      </div>
+    `;
+    const warpInput = cellTextWidget.querySelector<HTMLInputElement>('#cell-text-warp');
+    const threadInput = cellTextWidget.querySelector<HTMLInputElement>('#cell-text-thread');
+    const registerInput = cellTextWidget.querySelector<HTMLInputElement>('#cell-text-register');
+    const sync = (): void => {
+        linearLayoutCellTextState = {
+            warp: warpInput?.checked ?? false,
+            thread: threadInput?.checked ?? false,
+            register: registerInput?.checked ?? false,
+        };
+        if (tab) linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
+        applyLinearLayoutCellText();
+    };
+    warpInput?.addEventListener('change', sync);
+    threadInput?.addEventListener('change', sync);
+    registerInput?.addEventListener('change', sync);
 }
 
 function autosizeTextarea(textarea: HTMLTextAreaElement): void {
@@ -901,6 +1083,7 @@ async function upsertLinearLayoutTab(document: LoadedBundleDocument, replaceTabs
         title: targetTitle,
     };
     linearLayoutStates.set(targetId, cloneLinearLayoutState(linearLayoutState));
+    linearLayoutCellTextStates.set(targetId, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
     linearLayoutSelectionMaps.delete(targetId);
     if (replaceTabs || sessionTabs.length === 0) {
         sessionTabs = [nextDocument];
@@ -1113,11 +1296,15 @@ function captureActiveTabSnapshot(): void {
     const snapshot = viewer.getSnapshot() as ViewerSnapshot & {
         linearLayoutSpec?: LinearLayoutSpec;
         linearLayoutState?: LinearLayoutFormState;
+        linearLayoutCellTextState?: LinearLayoutCellTextState;
     };
     if (isLinearLayoutTab(tab)) {
         const cloned = cloneLinearLayoutState(linearLayoutState);
+        const clonedCellText = cloneLinearLayoutCellTextState(linearLayoutCellTextState);
         linearLayoutStates.set(tab.id, cloned);
+        linearLayoutCellTextStates.set(tab.id, clonedCellText);
         snapshot.linearLayoutState = cloned;
+        snapshot.linearLayoutCellTextState = clonedCellText;
         const linearLayoutSpec = (tab.manifest.viewer as { linearLayoutSpec?: LinearLayoutSpec }).linearLayoutSpec;
         if (linearLayoutSpec) snapshot.linearLayoutSpec = linearLayoutSpec;
     }
@@ -1174,7 +1361,9 @@ async function addNewTab(): Promise<void> {
             viewer.getSnapshot(),
         );
         linearLayoutState = defaultLinearLayoutState();
+        linearLayoutCellTextState = defaultLinearLayoutCellTextState();
         linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutState));
+        linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
         sessionTabs = [{ ...document, id, title }];
         await loadTab(id);
         return;
@@ -1184,6 +1373,10 @@ async function addNewTab(): Promise<void> {
     const currentLinearLayoutState = linearLayoutStates.get(currentTab.id);
     if (currentLinearLayoutState) {
         linearLayoutStates.set(id, cloneLinearLayoutState(currentLinearLayoutState));
+    }
+    const currentCellTextState = linearLayoutCellTextStates.get(currentTab.id);
+    if (currentCellTextState) {
+        linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(currentCellTextState));
     }
     linearLayoutSelectionMaps.delete(id);
     sessionTabs = [...sessionTabs, nextTab];
@@ -1198,6 +1391,7 @@ async function closeCurrentTab(): Promise<void> {
         ? sessionTabs[activeIndex + 1]?.id ?? null
         : sessionTabs[Math.max(0, activeIndex - 1)]?.id ?? null;
     linearLayoutStates.delete(activeTabId);
+    linearLayoutCellTextStates.delete(activeTabId);
     linearLayoutSelectionMaps.delete(activeTabId);
     sessionTabs = sessionTabs.filter((tab) => tab.id !== activeTabId);
     activeTabId = null;
@@ -1232,7 +1426,10 @@ async function loadTab(tabId: string): Promise<void> {
     switchingTab = false;
     renderTabStrip();
     syncLinearLayoutState(tab);
+    syncLinearLayoutCellTextState(tab);
+    renderCellTextWidget();
     syncLinearLayoutViewFilters();
+    applyLinearLayoutCellText();
     syncLinearLayoutSelectionPreview(new Map());
 }
 
@@ -1296,6 +1493,7 @@ commandPaletteInput.addEventListener('keydown', async (event) => {
 });
 
 function updateSidebar(snapshot: ViewerSnapshot): void {
+    cellTextWidget.classList.toggle('hidden', !activeLinearLayoutTab());
     tensorViewWidget.classList.toggle('hidden', !showTensorViewWidget);
     inspectorWidget.classList.toggle('hidden', !snapshot.showInspectorPanel);
     selectionWidget.classList.toggle('hidden', !snapshot.showSelectionPanel);
@@ -1646,6 +1844,7 @@ function render(snapshot: ViewerSnapshot): void {
     if (!switchingTab) captureActiveTabSnapshot();
     updateSidebar(snapshot);
     renderTabStrip();
+    renderCellTextWidget();
     renderTensorViewWidget(snapshot);
     renderInspectorWidget(snapshot);
     renderSelectionWidget(snapshot);
@@ -1693,6 +1892,10 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     const storedLinearLayoutState = (viewerState as { linearLayoutState?: unknown }).linearLayoutState;
     if (isLinearLayout && isLinearLayoutState(storedLinearLayoutState)) {
         linearLayoutStates.set(tab.id, cloneLinearLayoutState(storedLinearLayoutState));
+    }
+    const storedCellTextState = (viewerState as { linearLayoutCellTextState?: unknown }).linearLayoutCellTextState;
+    if (isLinearLayout && isLinearLayoutCellTextState(storedCellTextState)) {
+        linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(storedCellTextState));
     }
     return {
         id: tab.id,

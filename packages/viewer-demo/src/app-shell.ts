@@ -4,6 +4,7 @@ export type AppShellRefs = {
     tabStrip: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
     linearLayoutWidget: HTMLElement;
+    cellTextWidget: HTMLElement;
     linearLayoutColorWidget: HTMLElement;
     tensorViewWidget: HTMLElement;
     inspectorWidget: HTMLElement;
@@ -103,8 +104,9 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         <section class="widget" id="selection-widget"></section>
         <section class="widget" id="advanced-settings-widget"></section>
         <section class="widget" id="colorbar-widget"></section>
-        <section class="widget" id="linear-layout-color-widget"></section>
         <section class="widget" id="tensor-view-widget"></section>
+        <section class="widget" id="linear-layout-color-widget"></section>
+        <section class="widget" id="cell-text-widget"></section>
       </aside>
       <div class="command-palette hidden" id="command-palette">
         <div class="command-palette-backdrop" id="command-palette-backdrop"></div>
@@ -122,6 +124,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         tabStrip: requireElement(app, '#tab-strip', 'tab strip'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
         linearLayoutWidget: requireElement(app, '#linear-layout-widget', 'linear layout widget'),
+        cellTextWidget: requireElement(app, '#cell-text-widget', 'cell text widget'),
         linearLayoutColorWidget: requireElement(app, '#linear-layout-color-widget', 'linear layout color widget'),
         tensorViewWidget: requireElement(app, '#tensor-view-widget', 'tensor view widget'),
         inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),

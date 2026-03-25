@@ -214,6 +214,7 @@ export type TensorRecord = {
     customColors: Map<string, CustomColor>;
     markerCoords: Set<string> | null;
     visibleCoords: Set<string> | null;
+    cellLabels: Map<string, string> | null;
 };
 
 /** Internal mutable viewer state mirrored into public snapshots. */

@@ -108,6 +108,8 @@ import type {
 export type { ViewerOptions } from './viewer-config.js';
 
 const SELECTION_TINT_ALPHA = 0.4;
+const CELL_LABEL_DARK = 'rgba(15, 23, 42, 0.96)';
+const CELL_LABEL_LIGHT = 'rgba(255, 255, 255, 0.98)';
 
 /** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
@@ -1636,6 +1638,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.setTransform(1, 0, 0, 1, 0, 0);
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
         this.draw2DMarkers();
+        this.draw2DCellLabels();
     }
 
     private draw2DMarkers(): void {
@@ -1680,6 +1683,42 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.restore();
     }
 
+    private draw2DCellLabels(): void {
+        this.flatContext.save();
+        this.flatContext.textAlign = 'center';
+        this.flatContext.textBaseline = 'middle';
+        this.tensors.forEach((tensor) => {
+            if (!tensor.cellLabels || tensor.cellLabels.size === 0) return;
+            const instanceShape = this.instanceShape(tensor.view);
+            const count = product(instanceShape);
+            for (let index = 0; index < count; index += 1) {
+                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                const text = tensor.cellLabels.get(coordKey(tensorCoord));
+                if (!text || !this.tensorCoordVisible(tensor, tensorCoord)) continue;
+                const bounds = this.canvasCellBounds(tensor, this.mapViewCoordToLayoutCoord(viewCoord, tensor.view));
+                const lines = text.split('\n').filter(Boolean);
+                if (lines.length === 0) continue;
+                const width = bounds.right - bounds.left;
+                const height = bounds.bottom - bounds.top;
+                const maxChars = Math.max(...lines.map((line) => line.length), 1);
+                const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
+                if (fontSize < 7) continue;
+                const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
+                const centerX = (bounds.left + bounds.right) / 2;
+                const centerY = (bounds.top + bounds.bottom) / 2;
+                const startY = centerY - ((lines.length - 1) * lineHeight) / 2;
+                this.flatContext.font = `${fontSize}px "IBM Plex Mono", "SFMono-Regular", monospace`;
+                this.flatContext.fillStyle = this.cellLabelColor(tensor, tensorCoord);
+                lines.forEach((line, lineIndex) => {
+                    const y = startY + (lineIndex * lineHeight);
+                    this.flatContext.fillText(line, centerX, y);
+                });
+            }
+        });
+        this.flatContext.restore();
+    }
+
     private linearIndex(coord: number[], shape: number[]): number {
         let index = 0;
         coord.forEach((value, axis) => {
@@ -1696,6 +1735,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     ): Color {
         const color = this.baseCellColor(tensor, tensorCoord, value, heatmapRange);
         return this.isHighlightedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
+    }
+
+    private cellLabelColor(tensor: TensorRecord, tensorCoord: number[]): string {
+        const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
+        const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
+        const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
+        const luminance = (0.2126 * color.r) + (0.7152 * color.g) + (0.0722 * color.b);
+        return luminance > 0.5 ? CELL_LABEL_DARK : CELL_LABEL_LIGHT;
     }
 
     private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
@@ -1999,6 +2046,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             customColors: new Map(),
             markerCoords: null,
             visibleCoords: null,
+            cellLabels: null,
         };
         this.assignTensorData(tensor, data, dtype);
         tensor.offset = options.offset ?? this.autoTensorOffset(tensor, options.displayMode ?? this.state.displayMode);
@@ -2344,6 +2392,15 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         tensor.visibleCoords = coords ? new Set(coords.map((coord) => coordKey(coord))) : null;
         if (this.state.hover?.tensorId === tensorId || this.state.lastHover?.tensorId === tensorId) this.clearHover();
         this.rebuildAllMeshes();
+    }
+
+    /** Attach or clear 2D per-cell text labels for one tensor. */
+    public setTensorCellLabels(tensorId: string, labels: Array<{ coord: number[]; text: string }> | null): void {
+        const tensor = this.requireTensor(tensorId);
+        tensor.cellLabels = labels?.length
+            ? new Map(labels.map(({ coord, text }) => [coordKey(coord), text]))
+            : null;
+        this.requestRender();
     }
 
     /** Alias for {@link getSnapshot}. */
