@@ -173,6 +173,7 @@ export type BundleManifest = {
         offset?: Vec3;
         view: TensorViewSnapshot;
         colorInstructions?: ColorInstruction[];
+        markerCoords?: number[][];
     }>;
 };
 
@@ -211,6 +212,7 @@ export type TensorRecord = {
     offset: Vec3;
     view: TensorViewSpec;
     customColors: Map<string, CustomColor>;
+    markerCoords: Set<string> | null;
     visibleCoords: Set<string> | null;
 };
 

@@ -1635,6 +1635,49 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.renderer.render(this.scene, this.camera);
         this.flatContext.setTransform(1, 0, 0, 1, 0, 0);
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
+        this.draw2DMarkers();
+    }
+
+    private draw2DMarkers(): void {
+        this.flatContext.save();
+        this.tensors.forEach((tensor) => {
+            if (!tensor.markerCoords || tensor.markerCoords.size === 0) return;
+            const instanceShape = this.instanceShape(tensor.view);
+            const count = product(instanceShape);
+            for (let index = 0; index < count; index += 1) {
+                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                if (!tensor.markerCoords.has(coordKey(tensorCoord)) || !this.tensorCoordVisible(tensor, tensorCoord)) continue;
+                const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
+                const bounds = this.canvasCellBounds(tensor, layoutCoord);
+                if (!bounds) continue;
+                const outerInset = 1.5;
+                const innerInset = 3;
+                const outerLeft = bounds.left + outerInset;
+                const outerTop = bounds.top + outerInset;
+                const outerWidth = Math.max(0, bounds.right - bounds.left - outerInset * 2);
+                const outerHeight = Math.max(0, bounds.bottom - bounds.top - outerInset * 2);
+                const innerLeft = bounds.left + innerInset;
+                const innerTop = bounds.top + innerInset;
+                const innerWidth = Math.max(0, bounds.right - bounds.left - innerInset * 2);
+                const innerHeight = Math.max(0, bounds.bottom - bounds.top - innerInset * 2);
+                this.flatContext.fillStyle = 'rgba(229, 231, 235, 1)';
+                this.flatContext.fillRect(outerLeft, outerTop, outerWidth, outerHeight);
+                this.flatContext.strokeStyle = 'rgba(15, 23, 42, 0.65)';
+                this.flatContext.lineWidth = 2;
+                this.flatContext.strokeRect(outerLeft, outerTop, outerWidth, outerHeight);
+                this.flatContext.beginPath();
+                this.flatContext.moveTo(innerLeft, innerTop);
+                this.flatContext.lineTo(innerLeft + innerWidth, innerTop + innerHeight);
+                this.flatContext.moveTo(innerLeft + innerWidth, innerTop);
+                this.flatContext.lineTo(innerLeft, innerTop + innerHeight);
+                this.flatContext.stroke();
+                this.flatContext.strokeStyle = 'rgba(241, 245, 249, 0.8)';
+                this.flatContext.lineWidth = 1;
+                this.flatContext.strokeRect(innerLeft, innerTop, innerWidth, innerHeight);
+            }
+        });
+        this.flatContext.restore();
     }
 
     private linearIndex(coord: number[], shape: number[]): number {
@@ -1954,6 +1997,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             offset: [0, 0, 0],
             view: parsed.spec,
             customColors: new Map(),
+            markerCoords: null,
             visibleCoords: null,
         };
         this.assignTensorData(tensor, data, dtype);
@@ -2419,6 +2463,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 rebuild: false,
                 emit: false,
             });
+            const tensor = this.requireTensor(entry.id);
+            tensor.markerCoords = entry.markerCoords ? new Set(entry.markerCoords.map((coord) => coordKey(coord))) : null;
             if (entry.colorInstructions?.length) this.applyColorInstructions(entry.id, entry.colorInstructions);
         });
         this.applySnapshot(manifest.viewer);

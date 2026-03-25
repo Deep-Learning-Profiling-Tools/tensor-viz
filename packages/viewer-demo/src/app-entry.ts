@@ -61,10 +61,12 @@ const {
 } = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
+viewer.toggleSelectionPanel(false);
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
 let showAdvancedSettingsWidget = false;
+let showColorbarWidget = false;
 let inspectorReady = false;
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
@@ -73,6 +75,9 @@ let resizingSidebar = false;
 let commandPaletteOpen = false;
 let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
+let appliedStartupWidgetDefaults = false;
+let showLinearLayoutMatrix = false;
+let linearLayoutMatrixPreview = '';
 
 const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
@@ -138,6 +143,7 @@ type LinearLayoutMappingValue = LinearLayoutAxis | 'none';
 
 type LinearLayoutFormState = {
     bases: Record<LinearLayoutAxis, string>;
+    basesText: string;
     mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue>;
     ranges: Record<LinearLayoutChannel, [string, string]>;
 };
@@ -186,7 +192,7 @@ function loadLinearLayoutState(): LinearLayoutFormState {
         const stored = window.localStorage.getItem(LINEAR_LAYOUT_STORAGE_KEY);
         if (!stored) return fallback;
         const parsed = JSON.parse(stored);
-        if (isLinearLayoutState(parsed)) return parsed;
+        if (isLinearLayoutState(parsed)) return cloneLinearLayoutState(parsed);
         if (parsed && typeof parsed === 'object' && (parsed.bases || parsed.input_dims)) {
             return stateFromLayoutSpec(parsed, fallback);
         }
@@ -209,6 +215,7 @@ function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
     if (!value || typeof value !== 'object') return false;
     const record = value as LinearLayoutFormState;
     return LINEAR_LAYOUT_AXES.every((axis) => typeof record.bases?.[axis] === 'string')
+        && (record.basesText === undefined || typeof record.basesText === 'string')
         && LINEAR_LAYOUT_CHANNELS.every((channel) => typeof record.mapping?.[channel] === 'string')
         && LINEAR_LAYOUT_CHANNELS.every((channel) => Array.isArray(record.ranges?.[channel]));
 }
@@ -220,6 +227,7 @@ function defaultLinearLayoutState(): LinearLayoutFormState {
 function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
     return {
         bases: { ...state.bases },
+        basesText: state.basesText ?? formatLabeledBasesText(state.bases),
         mapping: { ...state.mapping },
         ranges: {
             H: [...state.ranges.H],
@@ -275,6 +283,7 @@ function stateFromLayoutSpec(raw: any, fallback?: LinearLayoutFormState): Linear
     }
     return {
         bases: axes,
+        basesText: formatLabeledBasesText(axes),
         mapping,
         ranges,
     };
@@ -282,6 +291,47 @@ function stateFromLayoutSpec(raw: any, fallback?: LinearLayoutFormState): Linear
 
 function formatBases(value: unknown): string {
     return JSON.stringify(value ?? []);
+}
+
+function formatLabeledBasesText(bases: Record<LinearLayoutAxis, string>): string {
+    return [
+        `T: ${bases.thread}`,
+        `W: ${bases.warp}`,
+        `R: ${bases.register}`,
+    ].join('\n');
+}
+
+function parseLabeledBasesText(value: string): Record<LinearLayoutAxis, number[][]> {
+    const grouped: Record<LinearLayoutAxis, number[][]> = {
+        thread: [],
+        warp: [],
+        register: [],
+    };
+    value.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const match = trimmed.match(/^([TWR])\s*:\s*(.+)$/i);
+        if (!match) {
+            throw new Error('Each bases line must look like T: [...], W: [...], or R: [...].');
+        }
+        const label = match[1]?.toUpperCase() ?? '';
+        const basisText = match[2] ?? '[]';
+        const axis = label.startsWith('T')
+            ? 'thread'
+            : label.startsWith('W')
+                ? 'warp'
+                : 'register';
+        grouped[axis].push(...parseBasesField(label, basisText));
+    });
+    return grouped;
+}
+
+function applyLabeledBasesText(value: string): void {
+    linearLayoutState.basesText = value;
+    const grouped = parseLabeledBasesText(value);
+    linearLayoutState.bases.thread = JSON.stringify(grouped.thread);
+    linearLayoutState.bases.warp = JSON.stringify(grouped.warp);
+    linearLayoutState.bases.register = JSON.stringify(grouped.register);
 }
 
 function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
@@ -294,6 +344,7 @@ function syncLinearLayoutState(tab: LoadedBundleDocument): void {
     const stored = linearLayoutStates.get(tab.id);
     if (stored) {
         linearLayoutState = cloneLinearLayoutState(stored);
+        refreshLinearLayoutMatrixPreview(linearLayoutState);
         renderLinearLayoutWidget();
         return;
     }
@@ -301,11 +352,13 @@ function syncLinearLayoutState(tab: LoadedBundleDocument): void {
     if (isLinearLayoutState(candidate)) {
         linearLayoutState = cloneLinearLayoutState(candidate);
         linearLayoutStates.set(tab.id, cloneLinearLayoutState(candidate));
+        refreshLinearLayoutMatrixPreview(linearLayoutState);
         renderLinearLayoutWidget();
         return;
     }
     linearLayoutState = defaultLinearLayoutState();
     linearLayoutStates.set(tab.id, cloneLinearLayoutState(linearLayoutState));
+    refreshLinearLayoutMatrixPreview(linearLayoutState);
     renderLinearLayoutWidget();
 }
 
@@ -535,6 +588,10 @@ function parseBasesField(label: string, value: string): number[][] {
     });
 }
 
+function currentLinearLayoutBases(): Record<LinearLayoutAxis, number[][]> {
+    return parseLabeledBasesText(linearLayoutState.basesText);
+}
+
 function outputDimsFromBases(bases: Record<LinearLayoutAxis, number[][]>): string[] {
     let outputRank = 0;
     LINEAR_LAYOUT_AXES.forEach((axis) => {
@@ -547,6 +604,86 @@ function outputDimsFromBases(bases: Record<LinearLayoutAxis, number[][]>): strin
         throw new Error(`Output rank ${rank} exceeds supported axes (${OUTPUT_AXIS_NAMES.length}).`);
     }
     return OUTPUT_AXIS_NAMES.slice(0, rank).reverse();
+}
+
+function pythonOutputDimsFromBases(bases: Record<LinearLayoutAxis, number[][]>): string[] {
+    let outputRank = 0;
+    LINEAR_LAYOUT_AXES.forEach((axis) => {
+        bases[axis].forEach((basis) => {
+            outputRank = Math.max(outputRank, basis.length);
+        });
+    });
+    const rank = outputRank || 1;
+    return Array.from({ length: rank }, (_entry, axis) => String.fromCharCode(65 + axis));
+}
+
+function pythonInitCodeFromBases(bases: Record<LinearLayoutAxis, number[][]>): string {
+    const outDims = pythonOutputDimsFromBases(bases);
+    return [
+        'LinearLayout.from_bases(',
+        '    [',
+        `        ("warp", ${JSON.stringify(bases.warp)}),`,
+        `        ("thread", ${JSON.stringify(bases.thread)}),`,
+        `        ("register", ${JSON.stringify(bases.register)}),`,
+        '    ],',
+        `    ${JSON.stringify(outDims)},`,
+        ')',
+    ].join('\n');
+}
+
+function matrixPreviewFromBases(bases: Record<LinearLayoutAxis, number[][]>): string {
+    const outputRank = Math.max(
+        1,
+        ...LINEAR_LAYOUT_AXES.flatMap((axis) => bases[axis].map((basis) => basis.length)),
+    );
+    const outputAxisNames = pythonOutputDimsFromBases(bases);
+    const rowEntries = outputAxisNames.flatMap((axisName, axis) => {
+        const bitCount = Math.max(
+            1,
+            ...LINEAR_LAYOUT_AXES.flatMap((layoutAxis) => bases[layoutAxis].map((basis) => (basis[axis] ?? 0).toString(2).length)),
+        );
+        return Array.from({ length: bitCount }, (_entry, bit) => ({ label: `${axisName}${bit}`, axis, bit }));
+    });
+    const columns = [
+        ...bases.warp.map((_basis, index) => ({ label: `W${index}`, basis: bases.warp[index] ?? [] })),
+        ...bases.thread.map((_basis, index) => ({ label: `T${index}`, basis: bases.thread[index] ?? [] })),
+        ...bases.register.map((_basis, index) => ({ label: `R${index}`, basis: bases.register[index] ?? [] })),
+    ];
+    if (columns.length === 0) return `${escapeInfo(rowEntries[0]?.label ?? 'A0')} | <span class="matrix-zero">0</span>`;
+    const labelWidth = Math.max(...rowEntries.map((entry) => entry.label.length), 1);
+    const columnWidths = columns.map((column) => Math.max(column.label.length, 1));
+    const header = `${' '.repeat(labelWidth)} | ${columns.map((column, index) => escapeInfo(column.label.padStart(columnWidths[index] ?? column.label.length))).join(' ')}`;
+    const rows = rowEntries.map(({ label, axis, bit }) => (
+        `${escapeInfo(label.padStart(labelWidth))} | ${columns.map((column, index) => {
+            const value = (((column.basis[axis] ?? 0) >> bit) & 1) === 0 ? '0' : '1';
+            const klass = value === '1' ? 'matrix-one' : 'matrix-zero';
+            return `<span class="${klass}">${value.padStart(columnWidths[index] ?? 1)}</span>`;
+        }).join(' ')}`
+    ));
+    return [header, ...rows].join('\n');
+}
+
+async function copyText(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const input = document.createElement('textarea');
+    input.value = text;
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+}
+
+function refreshLinearLayoutMatrixPreview(state = linearLayoutState): void {
+    try {
+        linearLayoutMatrixPreview = matrixPreviewFromBases(parseLabeledBasesText(state.basesText));
+    } catch {
+        linearLayoutMatrixPreview = '';
+    }
 }
 
 function colorAxesFromMapping(mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue>): Record<string, string> | undefined {
@@ -578,52 +715,78 @@ function colorRangesFromState(ranges: Record<LinearLayoutChannel, [string, strin
     return output;
 }
 
-function renderLinearLayoutColorWidget(axisOptions: (value: LinearLayoutMappingValue) => string): void {
+function renderLinearLayoutColorWidget(): void {
+    const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
     linearLayoutColorWidget.innerHTML = `
       ${titleWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.')}
       <div class="widget-body">
-        <div class="inline-row">
-          <span class="range-label">Hue</span>
-          <select id="linear-layout-hue-axis">${axisOptions(linearLayoutState.mapping.H)}</select>
-          <input id="linear-layout-hue-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[0])}" />
-          <span class="range-separator">to</span>
-          <input id="linear-layout-hue-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.H[1])}" />
-        </div>
-        <div class="inline-row">
-          <span class="range-label">Sat</span>
-          <select id="linear-layout-saturation-axis">${axisOptions(linearLayoutState.mapping.S)}</select>
-          <input id="linear-layout-saturation-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[0])}" />
-          <span class="range-separator">to</span>
-          <input id="linear-layout-saturation-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.S[1])}" />
-        </div>
-        <div class="inline-row">
-          <span class="range-label">Light</span>
-          <select id="linear-layout-lightness-axis">${axisOptions(linearLayoutState.mapping.L)}</select>
-          <input id="linear-layout-lightness-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[0])}" />
-          <span class="range-separator">to</span>
-          <input id="linear-layout-lightness-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges.L[1])}" />
-        </div>
+        ${LINEAR_LAYOUT_CHANNELS.map((channel) => `
+          <div class="inline-row mapping-row">
+            <span class="range-label">${channelLabels[channel]}</span>
+            <div class="mapping-drop-zone" data-channel="${channel}">
+              <button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${linearLayoutState.mapping[channel]}">
+                ${linearLayoutState.mapping[channel]}
+              </button>
+            </div>
+            <input id="linear-layout-${channel.toLowerCase()}-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges[channel][0])}" />
+            <span class="range-separator">to</span>
+            <input id="linear-layout-${channel.toLowerCase()}-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges[channel][1])}" />
+          </div>
+        `).join('')}
       </div>
     `;
 
-    const hueAxisInput = linearLayoutColorWidget.querySelector<HTMLSelectElement>('#linear-layout-hue-axis');
-    const saturationAxisInput = linearLayoutColorWidget.querySelector<HTMLSelectElement>('#linear-layout-saturation-axis');
-    const lightnessAxisInput = linearLayoutColorWidget.querySelector<HTMLSelectElement>('#linear-layout-lightness-axis');
-    const hueMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-hue-min');
-    const hueMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-hue-max');
-    const saturationMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-min');
-    const saturationMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-saturation-max');
-    const lightnessMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-min');
-    const lightnessMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-lightness-max');
-    hueAxisInput?.addEventListener('change', () => {
-        linearLayoutState.mapping.H = (hueAxisInput.value as LinearLayoutMappingValue) ?? 'none';
+    const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
+        event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));
+        event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    };
+    const readDragPayload = (event: DragEvent): Record<string, string> | null => {
+        const raw = event.dataTransfer?.getData('application/x-linear-layout-mapping')
+            || event.dataTransfer?.getData('text/plain');
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw) as Record<string, string>;
+        } catch {
+            return null;
+        }
+    };
+    linearLayoutColorWidget.querySelectorAll<HTMLElement>('[draggable="true"]').forEach((element) => {
+        element.addEventListener('dragstart', (event) => {
+            const channel = element.dataset.channel;
+            const axis = element.dataset.axis;
+            if (!axis) return;
+            writeDragPayload(event, channel ? { kind: 'channel', channel, axis } : { kind: 'axis', axis });
+        });
     });
-    saturationAxisInput?.addEventListener('change', () => {
-        linearLayoutState.mapping.S = (saturationAxisInput.value as LinearLayoutMappingValue) ?? 'none';
+    linearLayoutColorWidget.querySelectorAll<HTMLElement>('.mapping-drop-zone').forEach((element) => {
+        element.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            element.classList.add('drag-over');
+        });
+        element.addEventListener('dragleave', () => {
+            element.classList.remove('drag-over');
+        });
+        element.addEventListener('drop', (event) => {
+            event.preventDefault();
+            element.classList.remove('drag-over');
+            const payload = readDragPayload(event);
+            const targetChannel = element.dataset.channel as LinearLayoutChannel | undefined;
+            if (!payload || !targetChannel) return;
+            const sourceChannel = payload.channel as LinearLayoutChannel;
+            if (payload.kind !== 'channel' || sourceChannel === targetChannel) return;
+            const sourceAxis = linearLayoutState.mapping[sourceChannel];
+            linearLayoutState.mapping[sourceChannel] = linearLayoutState.mapping[targetChannel];
+            linearLayoutState.mapping[targetChannel] = sourceAxis;
+            renderLinearLayoutColorWidget();
+        });
     });
-    lightnessAxisInput?.addEventListener('change', () => {
-        linearLayoutState.mapping.L = (lightnessAxisInput.value as LinearLayoutMappingValue) ?? 'none';
-    });
+    const hueMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-h-min');
+    const hueMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-h-max');
+    const saturationMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-s-min');
+    const saturationMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-s-max');
+    const lightnessMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-min');
+    const lightnessMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-max');
     hueMinInput?.addEventListener('change', () => {
         linearLayoutState.ranges.H[0] = hueMinInput.value;
     });
@@ -644,61 +807,74 @@ function renderLinearLayoutColorWidget(axisOptions: (value: LinearLayoutMappingV
     });
 }
 
+function autosizeTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = '0';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
 /** Render the browser-side linear-layout editor that powers the Pages build. */
 function renderLinearLayoutWidget(): void {
     const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
     const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
-    const axisOptions = (value: LinearLayoutMappingValue): string => [
-        `<option value="none" ${value === 'none' ? 'selected' : ''}>None</option>`,
-        ...LINEAR_LAYOUT_AXES.map((axis) => `<option value="${axis}" ${value === axis ? 'selected' : ''}>${axis}</option>`),
-    ].join('');
+    const matrixBlock = !showLinearLayoutMatrix
+        ? ''
+        : `<div class="mono-block linear-layout-matrix-preview">${linearLayoutMatrixPreview}</div>`;
     linearLayoutWidget.innerHTML = `
       ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser. Output dims are inferred from the basis vector length.')}
       <div class="widget-body">
-        <p class="widget-copy">Enter basis vectors for each axis. Use the same JSON lists you would pass to <span class="inline-code">LinearLayout.from_bases</span>.</p>
+        <p class="widget-copy">Enter one labeled line for each axis: <span class="inline-code">T:</span> for thread, <span class="inline-code">W:</span> for warp, and <span class="inline-code">R:</span> for register. Each line value should be the same JSON list you would pass to <span class="inline-code">LinearLayout.from_bases</span>.</p>
         <div class="field">
-          ${labelWithInfo('Thread Bases', 'Basis vectors for the thread axis.', 'linear-layout-thread')}
-          <textarea id="linear-layout-thread" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.thread)}</textarea>
-        </div>
-        <div class="field">
-          ${labelWithInfo('Warp Bases', 'Basis vectors for the warp axis.', 'linear-layout-warp')}
-          <textarea id="linear-layout-warp" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.warp)}</textarea>
-        </div>
-        <div class="field">
-          ${labelWithInfo('Register Bases', 'Basis vectors for the register axis.', 'linear-layout-register')}
-          <textarea id="linear-layout-register" class="compact-textarea" rows="4" spellcheck="false">${escapeInfo(linearLayoutState.bases.register)}</textarea>
+          ${labelWithInfo('Bases', 'Use exactly three labeled lines: T: for thread, W: for warp, and R: for register. Each line must be a JSON array of basis vectors.', 'linear-layout-bases')}
+          <textarea id="linear-layout-bases" class="compact-textarea" rows="3" spellcheck="false">${escapeInfo(linearLayoutState.basesText)}</textarea>
         </div>
         <div class="button-row">
           <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
+          <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
+          <button class="secondary-button" id="linear-layout-matrix" type="button">${showLinearLayoutMatrix ? 'Hide Matrix' : 'Show Matrix'}</button>
           <button class="secondary-button" id="linear-layout-reset" type="button">Reset Example</button>
         </div>
+        ${matrixBlock}
         ${status}
       </div>
     `;
 
-    const threadInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-thread');
-    const warpInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-warp');
-    const registerInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-register');
+    const basesInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-bases');
     const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
+    const copy = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-copy');
+    const matrix = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-matrix');
     const reset = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-reset');
-    threadInput?.addEventListener('input', () => {
-        linearLayoutState.bases.thread = threadInput.value;
-    });
-    warpInput?.addEventListener('input', () => {
-        linearLayoutState.bases.warp = warpInput.value;
-    });
-    registerInput?.addEventListener('input', () => {
-        linearLayoutState.bases.register = registerInput.value;
+    if (basesInput) autosizeTextarea(basesInput);
+    basesInput?.addEventListener('input', () => {
+        try {
+            applyLabeledBasesText(basesInput.value);
+        } catch {
+            linearLayoutState.basesText = basesInput.value;
+        }
+        autosizeTextarea(basesInput);
     });
     apply?.addEventListener('click', async () => {
         await applyLinearLayoutSpec();
+    });
+    copy?.addEventListener('click', async () => {
+        try {
+            const code = pythonInitCodeFromBases(currentLinearLayoutBases());
+            await copyText(code);
+            linearLayoutNotice = { tone: 'success', text: 'Copied Python init code.' };
+        } catch (error) {
+            linearLayoutNotice = { tone: 'error', text: error instanceof Error ? error.message : String(error) };
+        }
+        renderLinearLayoutWidget();
+    });
+    matrix?.addEventListener('click', () => {
+        showLinearLayoutMatrix = !showLinearLayoutMatrix;
+        renderLinearLayoutWidget();
     });
     reset?.addEventListener('click', () => {
         linearLayoutState = defaultLinearLayoutState();
         linearLayoutNotice = null;
         renderLinearLayoutWidget();
     });
-    renderLinearLayoutColorWidget(axisOptions);
+    renderLinearLayoutColorWidget();
 }
 
 /** Add or replace the linear-layout tab and switch the viewer to it. */
@@ -729,11 +905,7 @@ async function applyLinearLayoutSpec(
     options: { replaceTabs?: boolean; silent?: boolean } = {},
 ): Promise<boolean> {
     try {
-        const bases = {
-            thread: parseBasesField('Thread', linearLayoutState.bases.thread),
-            warp: parseBasesField('Warp', linearLayoutState.bases.warp),
-            register: parseBasesField('Register', linearLayoutState.bases.register),
-        };
+        const bases = currentLinearLayoutBases();
         const spec = {
             bases: [
                 ['warp', bases.warp],
@@ -744,6 +916,7 @@ async function applyLinearLayoutSpec(
             color_axes: colorAxesFromMapping(linearLayoutState.mapping),
             color_ranges: colorRangesFromState(linearLayoutState.ranges),
         };
+        refreshLinearLayoutMatrixPreview();
         const document = createLinearLayoutDocument(
             parseLinearLayoutSpec(JSON.stringify(spec)),
             viewer.getSnapshot(),
@@ -777,11 +950,14 @@ function commandActions(): CommandAction[] {
         { action: 'collapse-hidden-axes', label: 'Toggle Collapse Hidden Axes', shortcut: '', keywords: 'display advanced collapse hidden axes slices same place' },
         { action: 'log-scale', label: 'Toggle Log Scale', shortcut: '', keywords: 'display advanced log scale heatmap colorbar' },
         { action: 'heatmap', label: 'Toggle Heatmap', shortcut: 'Ctrl+H', keywords: 'display heatmap colors' },
+        { action: 'add-tab', label: 'Add New Tab', shortcut: '', keywords: 'tabs add new create layout' },
+        { action: 'close-tab', label: 'Close Tab', shortcut: '', keywords: 'tabs close remove current layout' },
         { action: 'dims', label: 'Toggle Dimension Lines', shortcut: 'Ctrl+D', keywords: 'display dimensions guides labels' },
         { action: 'tensor-names', label: 'Toggle Tensor Names', shortcut: '', keywords: 'display tensor names labels title' },
         { action: 'tensor-view', label: 'Toggle Tensor View', shortcut: 'Ctrl+V', keywords: 'widgets tensor view panel' },
         { action: 'inspector', label: 'Toggle Inspector', shortcut: '', keywords: 'widgets inspector panel' },
         { action: 'selection', label: 'Toggle Selection', shortcut: '', keywords: 'widgets selection panel stats highlighted cells' },
+        { action: 'colorbar', label: 'Toggle Colorbar', shortcut: '', keywords: 'widgets colorbar panel heatmap range' },
         { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
         { action: 'view', label: 'Focus Tensor View Input', shortcut: '', keywords: 'focus tensor view input field' },
     ];
@@ -896,8 +1072,26 @@ function setSidebarWidth(width: number): void {
     viewer.resize();
 }
 
+setSidebarWidth(MAX_SIDEBAR_WIDTH);
+
 function activeTab(): LoadedBundleDocument | undefined {
     return sessionTabs.find((tab) => tab.id === activeTabId);
+}
+
+function nextTabTitle(): string {
+    const used = new Set(sessionTabs.map((tab) => tab.title));
+    let index = 1;
+    while (used.has(`Layout ${index}`)) index += 1;
+    return `Layout ${index}`;
+}
+
+function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string): LoadedBundleDocument {
+    return {
+        id,
+        title,
+        manifest: structuredClone(tab.manifest),
+        tensors: new Map(Array.from(tab.tensors.entries(), ([tensorId, data]) => [tensorId, data.slice()])),
+    };
 }
 
 function captureActiveTabSnapshot(): void {
@@ -918,22 +1112,94 @@ function captureActiveTabSnapshot(): void {
 }
 
 function renderTabStrip(): void {
-    tabStrip.classList.toggle('hidden', sessionTabs.length < 2);
-    if (sessionTabs.length < 2) {
-        tabStrip.replaceChildren();
-        return;
-    }
-    tabStrip.replaceChildren(...sessionTabs.map((tab) => {
+    tabStrip.classList.remove('hidden');
+    const tabs = sessionTabs.map((tab) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = `tab-item${tab.id === activeTabId ? ' active' : ''}`;
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = `tab-button${tab.id === activeTabId ? ' active' : ''}`;
+        button.className = 'tab-button';
         button.textContent = tab.title;
         button.addEventListener('click', async () => {
             if (tab.id === activeTabId) return;
             await loadTab(tab.id);
         });
-        return button;
-    }));
+        wrapper.append(button);
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'tab-close-button';
+        closeButton.textContent = 'x';
+        closeButton.setAttribute('aria-label', `Close ${tab.title}`);
+        closeButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            if (activeTabId !== tab.id) await loadTab(tab.id);
+            await closeCurrentTab();
+        });
+        wrapper.append(closeButton);
+        return wrapper;
+    });
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'tab-strip-action';
+    addButton.textContent = 'Add New Tab';
+    addButton.addEventListener('click', async () => {
+        await runAction('add-tab');
+    });
+    const actions = document.createElement('div');
+    actions.className = 'tab-strip-actions';
+    actions.append(addButton);
+    tabStrip.replaceChildren(...tabs, actions);
+}
+
+async function addNewTab(): Promise<void> {
+    const currentTab = activeTab();
+    const id = `tab-${Date.now()}`;
+    const title = nextTabTitle();
+    if (!currentTab) {
+        const document = createLinearLayoutDocument(
+            parseLinearLayoutSpec(defaultLinearLayoutSpecText()),
+            viewer.getSnapshot(),
+        );
+        linearLayoutState = defaultLinearLayoutState();
+        linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutState));
+        sessionTabs = [{ ...document, id, title }];
+        await loadTab(id);
+        return;
+    }
+    captureActiveTabSnapshot();
+    const nextTab = cloneTabDocument(currentTab, id, title);
+    const currentLinearLayoutState = linearLayoutStates.get(currentTab.id);
+    if (currentLinearLayoutState) {
+        linearLayoutStates.set(id, cloneLinearLayoutState(currentLinearLayoutState));
+    }
+    linearLayoutSelectionMaps.delete(id);
+    sessionTabs = [...sessionTabs, nextTab];
+    await loadTab(id);
+}
+
+async function closeCurrentTab(): Promise<void> {
+    if (!activeTabId) return;
+    const activeIndex = sessionTabs.findIndex((tab) => tab.id === activeTabId);
+    if (activeIndex === -1) return;
+    const nextActiveId = sessionTabs[Math.max(0, activeIndex - 1)]?.id === activeTabId
+        ? sessionTabs[activeIndex + 1]?.id ?? null
+        : sessionTabs[Math.max(0, activeIndex - 1)]?.id ?? null;
+    linearLayoutStates.delete(activeTabId);
+    linearLayoutSelectionMaps.delete(activeTabId);
+    sessionTabs = sessionTabs.filter((tab) => tab.id !== activeTabId);
+    activeTabId = null;
+    renderTabStrip();
+    if (nextActiveId) {
+        await loadTab(nextActiveId);
+        return;
+    }
+    const emptySnapshot = {
+        ...viewer.getSnapshot(),
+        activeTensorId: null,
+        tensors: [],
+    };
+    viewer.loadBundleData({ version: 1, viewer: emptySnapshot, tensors: [] }, new Map());
+    render(viewer.getSnapshot());
 }
 
 async function loadTab(tabId: string): Promise<void> {
@@ -945,6 +1211,10 @@ async function loadTab(tabId: string): Promise<void> {
     viewer.loadBundleData(tab.manifest, tab.tensors);
     if (tab.manifest.viewer.dimensionMappingScheme) {
         viewer.setDimensionMappingScheme(tab.manifest.viewer.dimensionMappingScheme);
+    }
+    if (!appliedStartupWidgetDefaults) {
+        viewer.toggleSelectionPanel(false);
+        appliedStartupWidgetDefaults = true;
     }
     switchingTab = false;
     renderTabStrip();
@@ -972,7 +1242,7 @@ sidebarSplitter.addEventListener('pointerdown', (event) => {
 });
 
 sidebarSplitter.addEventListener('dblclick', () => {
-    setSidebarWidth(360);
+    setSidebarWidth(MAX_SIDEBAR_WIDTH);
 });
 
 commandPaletteBackdrop.addEventListener('click', () => {
@@ -1018,7 +1288,7 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     selectionWidget.classList.toggle('hidden', !snapshot.showSelectionPanel);
     advancedSettingsWidget.classList.toggle('hidden', !showAdvancedSettingsWidget);
     const model = viewer.getInspectorModel();
-    colorbarWidget.classList.toggle('hidden', !snapshot.heatmap || model.colorRanges.length === 0);
+    colorbarWidget.classList.toggle('hidden', !showColorbarWidget || !snapshot.heatmap || model.colorRanges.length === 0);
 }
 
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
@@ -1405,6 +1675,7 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     const viewerState = {
         ...tab.viewer,
         dimensionMappingScheme: isLinearLayout ? 'contiguous' : tab.viewer.dimensionMappingScheme,
+        showSelectionPanel: false,
     };
     const storedLinearLayoutState = (viewerState as { linearLayoutState?: unknown }).linearLayoutState;
     if (isLinearLayout && isLinearLayoutState(storedLinearLayoutState)) {
@@ -1498,12 +1769,22 @@ async function runAction(action: string): Promise<void> {
         case 'heatmap':
             viewer.toggleHeatmap();
             return;
+        case 'add-tab':
+            await addNewTab();
+            return;
+        case 'close-tab':
+            await closeCurrentTab();
+            return;
         case 'tensor-view':
             showTensorViewWidget = !showTensorViewWidget;
             render(viewer.getSnapshot());
             return;
         case 'selection':
             viewer.toggleSelectionPanel();
+            return;
+        case 'colorbar':
+            showColorbarWidget = !showColorbarWidget;
+            render(viewer.getSnapshot());
             return;
         case 'advanced-settings':
             showAdvancedSettingsWidget = !showAdvancedSettingsWidget;

@@ -101,6 +101,9 @@ export function createLinearLayoutDocument(
         hardwareRgb.set(rgb, hardwareIndex * 3);
         logicalRgb.set(rgb, logicalIndex * 3);
     }
+    const logicalMarkerCoords = Array.from({ length: logicalTensor.length }, (_entry, index) => index)
+        .filter((index) => logicalTensor[index] < 0)
+        .map((index) => unravelIndex(index, logicalShape));
 
     const manifest = createBundleManifest({
         viewer: persistedViewerSettings(viewer),
@@ -119,6 +122,7 @@ export function createLinearLayoutDocument(
                 dtype: 'float32',
                 shape: logicalShape,
                 colorInstructions: [{ mode: 'rgb', kind: 'dense', values: Array.from(logicalRgb) }],
+                markerCoords: logicalMarkerCoords,
             },
         ],
     });
@@ -206,15 +210,17 @@ function parseOutputDims(
     if (outputDims.some(({ size }) => size !== null)) {
         throw new Error('Either specify sizes for every output dim or omit them for all output dims.');
     }
-    const inputShape = input_dims.map(({ bases }) => 2 ** bases.length);
-    const maxima = new Array(outputDims.length).fill(0);
-    for (let index = 0; index < product(inputShape); index += 1) {
-        const coord = mapLinearLayoutCoord(unravelIndex(index, inputShape), input_dims, outputDims.length);
-        coord.forEach((value, axis) => {
-            maxima[axis] = Math.max(maxima[axis], value);
+    const bitSizes = new Array(outputDims.length).fill(1);
+    input_dims.forEach(({ bases }) => {
+        bases.forEach((basis) => {
+            basis.forEach((value, axis) => {
+                if (axis >= bitSizes.length) return;
+                const size = value <= 0 ? 1 : 2 ** (Math.floor(Math.log2(value)) + 1);
+                bitSizes[axis] = Math.max(bitSizes[axis], size);
+            });
         });
-    }
-    return outputDims.map(({ name }, axis) => ({ name, size: maxima[axis] + 1 }));
+    });
+    return outputDims.map(({ name }, axis) => ({ name, size: bitSizes[axis] }));
 }
 
 /** Normalize one optional layout name. */
@@ -468,6 +474,7 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
         dimensionMappingScheme: 'contiguous',
         showDimensionLines: viewer.showDimensionLines,
         showInspectorPanel: viewer.showInspectorPanel,
+        showSelectionPanel: viewer.showSelectionPanel,
         showHoverDetailsPanel: viewer.showHoverDetailsPanel,
     };
 }

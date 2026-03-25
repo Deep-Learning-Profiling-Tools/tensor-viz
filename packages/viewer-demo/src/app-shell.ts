@@ -87,6 +87,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
             <button data-action="tensor-view" type="button">Toggle Tensor View <span>Ctrl+V</span></button>
             <button data-action="inspector" type="button">Toggle Inspector <span></span></button>
             <button data-action="selection" type="button">Toggle Selection <span></span></button>
+            <button data-action="colorbar" type="button">Toggle Colorbar <span></span></button>
             <button data-action="advanced-settings" type="button">Toggle Advanced Settings <span></span></button>
           </div>
         </div>
@@ -98,12 +99,12 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
         <section class="widget" id="linear-layout-widget"></section>
-        <section class="widget" id="tensor-view-widget"></section>
         <section class="widget" id="inspector-widget"></section>
         <section class="widget" id="selection-widget"></section>
         <section class="widget" id="advanced-settings-widget"></section>
         <section class="widget" id="colorbar-widget"></section>
         <section class="widget" id="linear-layout-color-widget"></section>
+        <section class="widget" id="tensor-view-widget"></section>
       </aside>
       <div class="command-palette hidden" id="command-palette">
         <div class="command-palette-backdrop" id="command-palette-backdrop"></div>

@@ -22,6 +22,7 @@ export type SessionTensorSpec = {
     offset?: Vec3;
     view?: TensorViewSnapshot;
     colorInstructions?: ColorInstruction[];
+    markerCoords?: number[][];
 };
 
 /** Input spec for one viewer document containing multiple tensors. */
@@ -95,6 +96,7 @@ export function createBundleManifest(spec: BundleDocumentSpec): BundleManifest {
             offset: tensor.offset,
             view,
             colorInstructions: tensor.colorInstructions,
+            markerCoords: tensor.markerCoords,
         };
     });
     const viewer = createViewerSnapshot(spec.viewer);
