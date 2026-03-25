@@ -64,7 +64,6 @@ const {
 
 const viewer = new TensorViewer(viewport);
 viewer.toggleSelectionPanel(false);
-(window as typeof window & { __viewer?: TensorViewer }).__viewer = viewer;
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
@@ -73,7 +72,6 @@ let showColorbarWidget = false;
 let inspectorReady = false;
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
-(window as typeof window & { __sessionTabs?: () => LoadedBundleDocument[] }).__sessionTabs = () => sessionTabs;
 let switchingTab = false;
 let resizingSidebar = false;
 let commandPaletteOpen = false;

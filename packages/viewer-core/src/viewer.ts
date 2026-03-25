@@ -189,7 +189,7 @@ export class TensorViewer {
         if ('outputEncoding' in this.renderer) (this.renderer as WebGLRenderer & { outputEncoding: number }).outputEncoding = 3001;
         if ('outputColorSpace' in this.renderer) this.renderer.outputColorSpace = SRGBColorSpace;
         this.renderer.toneMapping = NoToneMapping;
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        this.renderer.setPixelRatio(1);
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         initializeVertexColors(this.cubeGeometry);
         initializeVertexColors(this.planeGeometry);
@@ -276,7 +276,7 @@ export class TensorViewer {
         const width = this.container.clientWidth || 1;
         const height = this.container.clientHeight || 1;
         this.renderer.setSize(width, height);
-        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const pixelRatio = 1;
         const nextWidth = Math.floor(width * pixelRatio);
         const nextHeight = Math.floor(height * pixelRatio);
         this.flatCanvas.width = nextWidth;
