@@ -110,6 +110,8 @@ export type { ViewerOptions } from './viewer-config.js';
 const SELECTION_TINT_ALPHA = 0.4;
 const CELL_LABEL_DARK = 'rgba(15, 23, 42, 0.96)';
 const CELL_LABEL_LIGHT = 'rgba(255, 255, 255, 0.98)';
+const MIN_VISIBLE_CELL_LABEL_FONT_SIZE = 3;
+const MIN_SVG_CELL_LABEL_FONT_SIZE = 1;
 
 /** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
@@ -1734,7 +1736,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 const height = bounds.bottom - bounds.top;
                 const maxChars = Math.max(...lines.map((line) => line.length), 1);
                 const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
-                if (fontSize < 7) continue;
+                if (fontSize < MIN_VISIBLE_CELL_LABEL_FONT_SIZE) continue;
                 const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
                 const centerX = (bounds.left + bounds.right) / 2;
                 const centerY = (bounds.top + bounds.bottom) / 2;
@@ -2702,7 +2704,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 const height = bounds.bottom - bounds.top;
                 const maxChars = Math.max(...lines.map((line) => line.length), 1);
                 const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
-                if (fontSize < 7) continue;
+                if (fontSize < MIN_SVG_CELL_LABEL_FONT_SIZE) continue;
                 const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
                 const centerX = (bounds.left + bounds.right) / 2;
                 const centerY = (bounds.top + bounds.bottom) / 2;
