@@ -632,6 +632,13 @@ function pythonInitCodeFromBases(bases: Record<LinearLayoutAxis, number[][]>): s
 }
 
 function matrixPreviewFromBases(bases: Record<LinearLayoutAxis, number[][]>): string {
+    const logicalAxisColorClass = (axis: number): string => {
+        const worldAxis = axis % 3 === 0 ? 1 : axis % 3 === 1 ? 0 : 2;
+        return `matrix-axis-${worldAxis}`;
+    };
+    const hardwareAxisColorClass = (label: string): string => (
+        label.startsWith('W') ? 'matrix-axis-0' : label.startsWith('T') ? 'matrix-axis-1' : 'matrix-axis-2'
+    );
     const outputRank = Math.max(
         1,
         ...LINEAR_LAYOUT_AXES.flatMap((axis) => bases[axis].map((basis) => basis.length)),
@@ -649,12 +656,18 @@ function matrixPreviewFromBases(bases: Record<LinearLayoutAxis, number[][]>): st
         ...bases.thread.map((_basis, index) => ({ label: `T${index}`, basis: bases.thread[index] ?? [] })),
         ...bases.register.map((_basis, index) => ({ label: `R${index}`, basis: bases.register[index] ?? [] })),
     ];
-    if (columns.length === 0) return `${escapeInfo(rowEntries[0]?.label ?? 'A0')} | <span class="matrix-zero">0</span>`;
+    if (columns.length === 0) {
+        const rowLabel = rowEntries[0]?.label ?? 'A0';
+        const rowClass = logicalAxisColorClass(rowEntries[0]?.axis ?? 0);
+        return `<span class="matrix-label ${rowClass}">${escapeInfo(rowLabel)}</span> | <span class="matrix-zero">0</span>`;
+    }
     const labelWidth = Math.max(...rowEntries.map((entry) => entry.label.length), 1);
     const columnWidths = columns.map((column) => Math.max(column.label.length, 1));
-    const header = `${' '.repeat(labelWidth)} | ${columns.map((column, index) => escapeInfo(column.label.padStart(columnWidths[index] ?? column.label.length))).join(' ')}`;
+    const header = `${' '.repeat(labelWidth)} | ${columns.map((column, index) => (
+        `<span class="matrix-label ${hardwareAxisColorClass(column.label)}">${escapeInfo(column.label.padStart(columnWidths[index] ?? column.label.length))}</span>`
+    )).join(' ')}`;
     const rows = rowEntries.map(({ label, axis, bit }) => (
-        `${escapeInfo(label.padStart(labelWidth))} | ${columns.map((column, index) => {
+        `<span class="matrix-label ${logicalAxisColorClass(axis)}">${escapeInfo(label.padStart(labelWidth))}</span> | ${columns.map((column, index) => {
             const value = (((column.basis[axis] ?? 0) >> bit) & 1) === 0 ? '0' : '1';
             const klass = value === '1' ? 'matrix-one' : 'matrix-zero';
             return `<span class="${klass}">${value.padStart(columnWidths[index] ?? 1)}</span>`;

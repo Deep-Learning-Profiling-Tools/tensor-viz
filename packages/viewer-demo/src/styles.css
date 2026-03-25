@@ -444,6 +444,22 @@ textarea {
     overflow-x: auto;
 }
 
+.matrix-label {
+    font-weight: 700;
+}
+
+.matrix-axis-0 {
+    color: #dc2626;
+}
+
+.matrix-axis-1 {
+    color: #16a34a;
+}
+
+.matrix-axis-2 {
+    color: #2563eb;
+}
+
 .matrix-one {
     color: #b91c1c;
     font-weight: 700;
