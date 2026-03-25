@@ -26,6 +26,7 @@ import {
     titleWithInfo,
 } from './app-format.js';
 import {
+    bakedLinearLayoutSpecTexts,
     createLinearLayoutDocument,
     defaultLinearLayoutSpecText,
     linearLayoutAxisOrder,
@@ -1966,6 +1967,31 @@ function seedDemoTensor(): void {
     viewer.addTensor(shape, data, 'Sample');
 }
 
+async function loadBakedLinearLayoutTabs(): Promise<boolean> {
+    const specs = bakedLinearLayoutSpecTexts().map((text) => ({
+        text,
+        spec: parseLinearLayoutSpec(text),
+    }));
+    if (specs.length === 0) return false;
+    const baseViewer = viewer.getSnapshot();
+    sessionTabs = specs.map(({ text, spec }, index) => {
+        const document = createLinearLayoutDocument(spec, baseViewer);
+        const linearLayoutState = stateFromLayoutSpec(JSON.parse(text));
+        (document.manifest.viewer as ViewerSnapshot & { linearLayoutState?: LinearLayoutFormState }).linearLayoutState = linearLayoutState;
+        linearLayoutStates.set(`tab-${index + 1}`, cloneLinearLayoutState(linearLayoutState));
+        return {
+            ...document,
+            id: `tab-${index + 1}`,
+        };
+    });
+    activeTabId = null;
+    linearLayoutSelectionMaps.clear();
+    const initialTabId = sessionTabs[0]?.id ?? null;
+    if (!initialTabId) return false;
+    await loadTab(initialTabId);
+    return true;
+}
+
 async function openLocalFile(file: File): Promise<void> {
     sessionTabs = [];
     activeTabId = null;
@@ -2136,14 +2162,10 @@ renderLinearLayoutWidget();
 
 tryLoadSession().then(async (loaded) => {
     if (loaded) return;
-    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
-    linearLayoutState = defaultLinearLayoutState();
-    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
+    if (await loadBakedLinearLayoutTabs()) return;
     seedDemoTensor();
 }).catch(async () => {
-    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
-    linearLayoutState = defaultLinearLayoutState();
-    if (await applyLinearLayoutSpec({ replaceTabs: true, silent: true })) return;
+    if (await loadBakedLinearLayoutTabs()) return;
     seedDemoTensor();
 });
 }

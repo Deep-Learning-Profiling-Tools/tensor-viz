@@ -32,6 +32,54 @@ const DEFAULT_LINEAR_LAYOUT_JSON = {
     },
 };
 
+const BAKED_LINEAR_LAYOUT_SPECS = [
+    DEFAULT_LINEAR_LAYOUT_JSON,
+    {
+        name: 'MMA A Layout (m16n8k16)',
+        bases: [
+            ['warp', []],
+            ['thread', [[0, 2], [0, 4], [1, 0], [2, 0], [4, 0]]],
+            ['register', [[0, 1], [8, 0], [0, 8]]],
+        ],
+        out_dims: ['row', 'col'],
+        color_axes: { warp: 'H', thread: 'S', register: 'L' },
+        color_ranges: { H: [0, 0.8], S: [0, 0], L: [0, 1] },
+    },
+    {
+        name: 'MMA B Layout (m16n8k16)',
+        bases: [
+            ['warp', []],
+            ['thread', [[2, 0], [4, 0], [0, 1], [0, 2], [0, 4]]],
+            ['register', [[1, 0], [8, 0]]],
+        ],
+        out_dims: ['row', 'col'],
+        color_axes: { warp: 'H', thread: 'S', register: 'L' },
+        color_ranges: { H: [0, 0.8], S: [0, 0], L: [0, 1] },
+    },
+    {
+        name: 'MMA C Layout (m16n8k16)',
+        bases: [
+            ['warp', []],
+            ['thread', [[0, 2], [0, 4], [1, 0], [2, 0], [4, 0]]],
+            ['register', [[0, 1], [8, 0]]],
+        ],
+        out_dims: ['row', 'col'],
+        color_axes: { warp: 'H', thread: 'S', register: 'L' },
+        color_ranges: { H: [0, 0.8], S: [0, 0], L: [0, 1] },
+    },
+    {
+        name: 'Shared Memory 128B Swizzle',
+        bases: [
+            ['warp', []],
+            ['thread', [[1, 1], [2, 2], [4, 4]]],
+            ['register', [[0, 1], [0, 2], [0, 4]]],
+        ],
+        out_dims: ['row', 'col_chunk'],
+        color_axes: { warp: 'H', thread: 'S', register: 'L' },
+        color_ranges: { H: [0, 0.8], S: [0, 0], L: [0, 1] },
+    },
+] as const;
+
 export const LINEAR_LAYOUT_TAB_ID = 'custom-linear-layout';
 
 export type LinearLayoutColorAxes = Record<string, string>;
@@ -58,6 +106,10 @@ export type LinearLayoutSpec = {
 /** Return the default sidebar JSON shown by the static demo. */
 export function defaultLinearLayoutSpecText(): string {
     return JSON.stringify(DEFAULT_LINEAR_LAYOUT_JSON, null, 2);
+}
+
+export function bakedLinearLayoutSpecTexts(): string[] {
+    return BAKED_LINEAR_LAYOUT_SPECS.map((spec) => JSON.stringify(spec));
 }
 
 /** Build one loaded viewer document from a parsed linear-layout spec. */
