@@ -95,6 +95,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       <div class="tab-strip hidden" id="tab-strip"></div>
       <main class="viewport-wrap">
         <div id="viewport"></div>
+        <a class="manual-link" href="./manual/">Manual</a>
       </main>
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
