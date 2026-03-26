@@ -112,6 +112,7 @@ const CELL_LABEL_DARK = 'rgba(15, 23, 42, 0.96)';
 const CELL_LABEL_LIGHT = 'rgba(255, 255, 255, 0.98)';
 const MIN_VISIBLE_CELL_LABEL_FONT_SIZE = 3;
 const MIN_SVG_CELL_LABEL_FONT_SIZE = 1;
+const TENSOR_NAME_FONT_FAMILY = '"IBM Plex Sans", "Segoe UI", sans-serif';
 
 /** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
@@ -389,6 +390,18 @@ export class TensorViewer {
         }
         if (!Number.isFinite(maxRight)) return [0, 0, 0];
         return [maxRight + DEFAULT_TENSOR_SPACING + width / 2, 0, 0];
+    }
+
+    private relayoutAutoOffsets(): void {
+        let maxRight = Number.NEGATIVE_INFINITY;
+        this.tensors.forEach((tensor) => {
+            const [width] = this.tensorExtentForMode(tensor, this.state.displayMode);
+            if (tensor.autoOffset) {
+                const x = !Number.isFinite(maxRight) ? 0 : maxRight + DEFAULT_TENSOR_SPACING + width / 2;
+                tensor.offset = [x, tensor.offset[1], tensor.offset[2]];
+            }
+            maxRight = Math.max(maxRight, tensor.offset[0] + width / 2);
+        });
     }
 
     private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo, 'value' | 'colorSource'> {
@@ -1111,6 +1124,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         };
     }
 
+    /** Fit one tensor title to the tensor's visible width in 2d canvas pixels. */
+    private fitTensorNameFontSize(name: string, preferredFontSize: number, outlineExtent2D: Vector2): number {
+        const maxWidth = Math.max(1, outlineExtent2D.x * CANVAS_WORLD_SCALE * this.canvasZoom - 12);
+        this.flatContext.font = `700 ${preferredFontSize}px ${TENSOR_NAME_FONT_FAMILY}`;
+        const measuredWidth = this.flatContext.measureText(name).width;
+        return measuredWidth > maxWidth ? Math.max(1, preferredFontSize * (maxWidth / measuredWidth)) : preferredFontSize;
+    }
+
     private fitCanvasView(bounds: Box3 | null = null): void {
         if (!bounds) {
             this.canvasPan = { x: 0, y: 0 };
@@ -1359,6 +1380,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
 
     private rebuildAllMeshes(options: { fitCamera?: boolean } = {}): void {
         const shouldFitCamera = options.fitCamera ?? false;
+        this.relayoutAutoOffsets();
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
         this.tensorMeshes.clear();
         this.pickMeshes.length = 0;
@@ -1667,8 +1689,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + tensorNameScale2D * 1.5
                 : tensorNameScale2D * 1.75;
             const nameCanvas = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance);
-            const fontSize = Math.max(18, tensorNameScale2D * CANVAS_WORLD_SCALE * this.canvasZoom);
-            this.flatContext.font = `700 ${fontSize}px "IBM Plex Sans", "Segoe UI", sans-serif`;
+            const fontSize = this.fitTensorNameFontSize(
+                tensor.name,
+                Math.max(18, tensorNameScale2D * CANVAS_WORLD_SCALE * this.canvasZoom),
+                outlineExtent2D,
+            );
+            this.flatContext.font = `700 ${fontSize}px ${TENSOR_NAME_FONT_FAMILY}`;
             this.flatContext.fillText(tensor.name, nameCanvas.x, nameCanvas.y);
         });
         this.flatContext.restore();
@@ -2088,6 +2114,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             markerCoords: null,
             visibleCoords: null,
             cellLabels: null,
+            autoOffset: options.offset === undefined,
         };
         this.assignTensorData(tensor, data, dtype);
         tensor.offset = options.offset ?? this.autoTensorOffset(tensor, options.displayMode ?? this.state.displayMode);
@@ -2801,9 +2828,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                     ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + tensorNameScale2D * 1.5
                     : tensorNameScale2D * 1.75;
                 const nameCanvas = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance);
-                const tensorNameFontSize = Math.max(12, tensorNameScale2D * CANVAS_WORLD_SCALE * this.canvasZoom);
+                const tensorNameFontSize = this.fitTensorNameFontSize(
+                    tensor.name,
+                    Math.max(12, tensorNameScale2D * CANVAS_WORLD_SCALE * this.canvasZoom),
+                    outlineExtent2D,
+                );
                 parts.push(
-                    `<text x="${nameCanvas.x}" y="${nameCanvas.y}" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${tensorNameFontSize}" font-weight="700" fill="#0f172a">${this.escapeSvgText(tensor.name)}</text>`,
+                    `<text x="${nameCanvas.x}" y="${nameCanvas.y}" text-anchor="middle" dominant-baseline="middle" font-family='${TENSOR_NAME_FONT_FAMILY}' font-size="${tensorNameFontSize}" font-weight="700" fill="#0f172a">${this.escapeSvgText(tensor.name)}</text>`,
                 );
             }
         });

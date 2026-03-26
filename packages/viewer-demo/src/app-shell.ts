@@ -100,13 +100,13 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
         <section class="widget" id="linear-layout-widget"></section>
+        <section class="widget" id="linear-layout-color-widget"></section>
+        <section class="widget" id="cell-text-widget"></section>
         <section class="widget" id="inspector-widget"></section>
         <section class="widget" id="selection-widget"></section>
         <section class="widget" id="advanced-settings-widget"></section>
         <section class="widget" id="colorbar-widget"></section>
         <section class="widget" id="tensor-view-widget"></section>
-        <section class="widget" id="linear-layout-color-widget"></section>
-        <section class="widget" id="cell-text-widget"></section>
       </aside>
       <div class="command-palette hidden" id="command-palette">
         <div class="command-palette-backdrop" id="command-palette-backdrop"></div>

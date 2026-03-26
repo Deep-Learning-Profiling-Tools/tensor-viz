@@ -12,6 +12,7 @@ import {
     type NumericArray,
     type SessionBundleManifest,
     type SelectionCoords,
+    type TensorViewSnapshot,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import {
@@ -26,14 +27,19 @@ import {
     titleWithInfo,
 } from './app-format.js';
 import {
-    bakedLinearLayoutSpecTexts,
-    createLinearLayoutDocument,
-    defaultLinearLayoutSpecText,
-    linearLayoutAxisOrder,
-    logicalOutputDimsFor,
-    mapLinearLayoutCoord,
-    parseLinearLayoutSpec,
-    type LinearLayoutSpec,
+    bakedComposeLayoutExamples,
+    buildComposeRuntime,
+    cloneComposeLayoutState,
+    composeLayoutStateFromLegacySpec,
+    createComposeLayoutDocument,
+    defaultComposeLayoutState,
+    emptyComposeLayoutState,
+    isComposeLayoutMeta,
+    isComposeLayoutState,
+    type ComposeLayoutMeta,
+    type ComposeLayoutState,
+    type ComposeTensorMeta,
+    type MatrixBlock,
 } from './linear-layout.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
@@ -86,86 +92,49 @@ const MAX_SIDEBAR_WIDTH = 720;
 
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
-    hardwareCoord: HTMLDivElement;
-    logicalCoord: HTMLDivElement;
-    hardwareCoordBinary: HTMLDivElement;
-    logicalCoordBinary: HTMLDivElement;
+    coordList: HTMLDivElement;
     hoveredTensorValue: HTMLSpanElement;
-    hardwareCoordValue: HTMLSpanElement;
-    logicalCoordValue: HTMLSpanElement;
-    hardwareCoordBinaryValue: HTMLSpanElement;
-    logicalCoordBinaryValue: HTMLSpanElement;
     tensorShapeValue: HTMLSpanElement;
     rankValue: HTMLSpanElement;
 };
 
 let inspectorRefs: InspectorRefs | null = null;
+type InspectorCoordEntry = {
+    title: string;
+    labels: string[];
+    shape: number[];
+    coord: number[] | null;
+    hovered: boolean;
+};
 type LinearLayoutNotice = {
     tone: 'error' | 'success';
     text: string;
 };
 
-type LinearLayoutCellTextState = {
-    thread: boolean;
-    warp: boolean;
-    register: boolean;
-};
-
-const LINEAR_LAYOUT_AXES = ['thread', 'warp', 'register'] as const;
 const LINEAR_LAYOUT_CHANNELS = ['H', 'S', 'L'] as const;
-const HARDWARE_LAYOUT_NAMES = new Set(['hardware tensor', 'hardware layout']);
-const LOGICAL_LAYOUT_NAMES = new Set(['logical tensor', 'logical layout']);
-const OUTPUT_AXIS_NAMES = [
-    'x',
-    'y',
-    'z',
-    'w',
-    'v',
-    'u',
-    't',
-    's',
-    'r',
-    'q',
-    'p',
-    'o',
-    'n',
-    'm',
-    'l',
-    'k',
-    'j',
-    'i',
-    'h',
-    'g',
-    'f',
-    'e',
-    'd',
-    'c',
-    'b',
-    'a',
-] as const;
-
-type LinearLayoutAxis = typeof LINEAR_LAYOUT_AXES[number];
+type LinearLayoutCellTextState = Record<string, boolean>;
+type LinearLayoutTensorViewsState = Record<string, TensorViewSnapshot>;
 type LinearLayoutChannel = typeof LINEAR_LAYOUT_CHANNELS[number];
-type LinearLayoutMappingValue = LinearLayoutAxis | 'none';
-
-type LinearLayoutFormState = {
-    bases: Record<LinearLayoutAxis, string>;
-    basesText: string;
-    mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue>;
-    ranges: Record<LinearLayoutChannel, [string, string]>;
-};
+type LinearLayoutMappingValue = ComposeLayoutState['mapping'][LinearLayoutChannel];
+type LinearLayoutFormState = ComposeLayoutState;
 
 const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
 let linearLayoutState = loadLinearLayoutState();
 const linearLayoutStates = new Map<string, LinearLayoutFormState>();
 let linearLayoutCellTextState = defaultLinearLayoutCellTextState();
 const linearLayoutCellTextStates = new Map<string, LinearLayoutCellTextState>();
+const linearLayoutTensorViewsStates = new Map<string, LinearLayoutTensorViewsState>();
 let linearLayoutNotice: LinearLayoutNotice | null = null;
 type LinearLayoutSelectionMap = {
-    hardwareTensorId: string;
-    logicalTensorId: string;
-    hardwareToLogical: Map<string, string>;
-    logicalToHardware: Map<string, string[]>;
+    rootInputLabels: string[];
+    rootInputShape: number[];
+    rootKeyToIndex: Map<string, number>;
+    tensors: Map<string, {
+        meta: ComposeTensorMeta;
+        rootToTensorKeys: string[];
+        tensorToRoot: Map<string, string>;
+    }>;
+    orderedTensorIds: string[];
 };
 
 const linearLayoutSelectionMaps = new Map<string, LinearLayoutSelectionMap>();
@@ -202,8 +171,17 @@ function loadLinearLayoutState(): LinearLayoutFormState {
         if (!stored) return fallback;
         const parsed = JSON.parse(stored);
         if (isLinearLayoutState(parsed)) return cloneLinearLayoutState(parsed);
-        if (parsed && typeof parsed === 'object' && (parsed.bases || parsed.input_dims)) {
-            return stateFromLayoutSpec(parsed, fallback);
+        if (parsed && typeof parsed === 'object' && ('specsText' in parsed || 'operationText' in parsed)) {
+            return {
+                ...fallback,
+                ...(parsed as Partial<LinearLayoutFormState>),
+            };
+        }
+        if (parsed && typeof parsed === 'object' && (parsed.basesText || parsed.bases)) {
+            return legacyEditorState(parsed as Record<string, unknown>, fallback);
+        }
+        if (parsed && typeof parsed === 'object' && (parsed.input_dims || parsed.bases)) {
+            return composeLayoutStateFromLegacySpec(parsed, 'Layout_1');
         }
     } catch {
         return fallback;
@@ -221,170 +199,122 @@ function storeLinearLayoutState(): void {
 }
 
 function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
-    if (!value || typeof value !== 'object') return false;
-    const record = value as LinearLayoutFormState;
-    return LINEAR_LAYOUT_AXES.every((axis) => typeof record.bases?.[axis] === 'string')
-        && (record.basesText === undefined || typeof record.basesText === 'string')
-        && LINEAR_LAYOUT_CHANNELS.every((channel) => typeof record.mapping?.[channel] === 'string')
-        && LINEAR_LAYOUT_CHANNELS.every((channel) => Array.isArray(record.ranges?.[channel]));
+    return isComposeLayoutState(value);
 }
 
 function defaultLinearLayoutState(): LinearLayoutFormState {
-    return stateFromLayoutSpec(JSON.parse(defaultLinearLayoutSpecText()));
+    return defaultComposeLayoutState();
 }
 
 function emptyLinearLayoutState(): LinearLayoutFormState {
-    const state = cloneLinearLayoutState(defaultLinearLayoutState());
-    state.bases = {
-        thread: '[[0,1],[0,2],[0,4],[0,8],[0,16]]',
-        warp: '[]',
-        register: '[[1,0],[2,0]]',
-    };
-    state.basesText = formatLabeledBasesText(state.bases);
-    return state;
+    return emptyComposeLayoutState();
 }
 
 function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
-    return {
-        bases: { ...state.bases },
-        basesText: state.basesText ?? formatLabeledBasesText(state.bases),
-        mapping: { ...state.mapping },
-        ranges: {
-            H: [...state.ranges.H],
-            S: [...state.ranges.S],
-            L: [...state.ranges.L],
-        } as Record<LinearLayoutChannel, [string, string]>,
-    };
+    return cloneComposeLayoutState(state);
 }
 
 function defaultLinearLayoutCellTextState(): LinearLayoutCellTextState {
-    return {
-        thread: false,
-        warp: false,
-        register: false,
-    };
+    return {};
 }
 
 function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState): LinearLayoutCellTextState {
     return { ...state };
 }
 
-function isLinearLayoutCellTextState(value: unknown): value is LinearLayoutCellTextState {
-    if (!value || typeof value !== 'object') return false;
-    const record = value as LinearLayoutCellTextState;
-    return typeof record.thread === 'boolean'
-        && typeof record.warp === 'boolean'
-        && typeof record.register === 'boolean';
+function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViewsState): LinearLayoutTensorViewsState {
+    return Object.fromEntries(Object.entries(state).map(([tensorId, view]) => [
+        tensorId,
+        {
+            view: view.view,
+            hiddenIndices: view.hiddenIndices.slice(),
+        },
+    ]));
 }
 
-function stateFromLayoutSpec(raw: any, fallback?: LinearLayoutFormState): LinearLayoutFormState {
-    const axes = {
-        thread: formatBases([]),
-        warp: formatBases([]),
-        register: formatBases([]),
-    } satisfies Record<LinearLayoutAxis, string>;
-    const entries = Array.isArray(raw?.input_dims)
-        ? raw.input_dims
-        : Array.isArray(raw?.bases)
-            ? raw.bases
-            : [];
-    entries.forEach((entry: any) => {
-        const pair = Array.isArray(entry) ? entry : [entry?.name, entry?.bases];
-        const [name, bases] = pair;
-        if (typeof name !== 'string' || !(name in axes)) return;
-        axes[name as LinearLayoutAxis] = formatBases(bases ?? []);
-    });
-    const mappingFallback = fallback?.mapping ?? {
-        H: 'warp',
-        S: 'thread',
-        L: 'register',
+function isLinearLayoutCellTextState(value: unknown): value is LinearLayoutCellTextState {
+    if (!value || typeof value !== 'object') return false;
+    return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'boolean');
+}
+
+function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTensorViewsState {
+    return Object.fromEntries(snapshot.tensors.map((tensor) => [
+        tensor.id,
+        {
+            view: tensor.view.view,
+            hiddenIndices: tensor.view.hiddenIndices.slice(),
+        },
+    ]));
+}
+
+function preservedLinearLayoutTensorViews(tabId: string | null = activeTabId): LinearLayoutTensorViewsState {
+    const stored = tabId ? cloneLinearLayoutTensorViewsState(linearLayoutTensorViewsStates.get(tabId) ?? {}) : {};
+    if (!tabId || activeTabId !== tabId) return stored;
+    return {
+        ...stored,
+        ...snapshotTensorViews(viewer.getSnapshot()),
     };
-    const rangesFallback = fallback?.ranges ?? {
-        H: ['0', '0.85'],
-        S: ['0.35', '0.95'],
-        L: ['0.25', '0.95'],
-    };
-    const mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue> = { ...mappingFallback };
-    if (raw?.color_axes && typeof raw.color_axes === 'object') {
-        Object.entries(raw.color_axes).forEach(([axisName, channelName]) => {
-            const channel = String(channelName).toUpperCase();
-            if (!LINEAR_LAYOUT_CHANNELS.includes(channel as LinearLayoutChannel)) return;
-            if (!LINEAR_LAYOUT_AXES.includes(axisName as LinearLayoutAxis)) return;
-            mapping[channel as LinearLayoutChannel] = axisName as LinearLayoutAxis;
+}
+
+function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutFormState): LinearLayoutFormState {
+    const textByLabel = new Map<string, string>([['T', '[]'], ['W', '[]'], ['R', '[]']]);
+    if (typeof raw.basesText === 'string') {
+        raw.basesText.split('\n').forEach((line) => {
+            const match = line.trim().match(/^([TWR])\s*:\s*(.+)$/i);
+            if (!match) return;
+            textByLabel.set(match[1]!.toUpperCase(), match[2]!.trim());
         });
     }
-    const ranges: Record<LinearLayoutChannel, [string, string]> = { ...rangesFallback };
-    if (raw?.color_ranges && typeof raw.color_ranges === 'object') {
-        Object.entries(raw.color_ranges).forEach(([channelName, range]) => {
-            if (!LINEAR_LAYOUT_CHANNELS.includes(channelName.toUpperCase() as LinearLayoutChannel)) return;
-            if (!Array.isArray(range) || range.length !== 2) return;
-            ranges[channelName.toUpperCase() as LinearLayoutChannel] = [String(range[0]), String(range[1])];
+    if (raw.bases && typeof raw.bases === 'object') {
+        const bases = raw.bases as Record<string, unknown>;
+        if (typeof bases.thread === 'string') textByLabel.set('T', bases.thread);
+        if (typeof bases.warp === 'string') textByLabel.set('W', bases.warp);
+        if (typeof bases.register === 'string') textByLabel.set('R', bases.register);
+    }
+    const rows = ['T', 'W', 'R'].map((label) => parseBasesField(label, textByLabel.get(label) ?? '[]'));
+    const outputRank = Math.max(1, ...rows.flatMap((entry) => entry.map((basis) => basis.length)));
+    const outputs = Array.from({ length: outputRank }, (_entry, axis) => String.fromCharCode(65 + axis));
+    const mapping = { ...fallback.mapping };
+    if (raw.mapping && typeof raw.mapping === 'object') {
+        Object.entries(raw.mapping as Record<string, unknown>).forEach(([channel, axisName]) => {
+            const normalized = String(channel).toUpperCase() as LinearLayoutChannel;
+            if (!LINEAR_LAYOUT_CHANNELS.includes(normalized) || typeof axisName !== 'string') return;
+            mapping[normalized] = axisName === 'thread' ? 'T' : axisName === 'warp' ? 'W' : axisName === 'register' ? 'R' : 'none';
+        });
+    }
+    const ranges = {
+        H: [...fallback.ranges.H],
+        S: [...fallback.ranges.S],
+        L: [...fallback.ranges.L],
+    } as Record<LinearLayoutChannel, [string, string]>;
+    if (raw.ranges && typeof raw.ranges === 'object') {
+        Object.entries(raw.ranges as Record<string, unknown>).forEach(([channel, range]) => {
+            const normalized = String(channel).toUpperCase() as LinearLayoutChannel;
+            if (!LINEAR_LAYOUT_CHANNELS.includes(normalized) || !Array.isArray(range) || range.length !== 2) return;
+            ranges[normalized] = [String(range[0]), String(range[1])];
         });
     }
     return {
-        bases: axes,
-        basesText: formatLabeledBasesText(axes),
+        specsText: [
+            `Layout_1: [T,W,R] -> [${outputs.join(',')}]`,
+            ...rows.map((row) => JSON.stringify(row)),
+        ].join('\n'),
+        operationText: 'Layout_1',
+        inputName: fallback.inputName,
+        visibleTensors: {},
         mapping,
         ranges,
     };
 }
 
-function formatBases(value: unknown): string {
-    return JSON.stringify(value ?? []);
-}
-
-function formatLabeledBasesText(bases: Record<LinearLayoutAxis, string>): string {
-    return [
-        `T: ${bases.thread}`,
-        `W: ${bases.warp}`,
-        `R: ${bases.register}`,
-    ].join('\n');
-}
-
-function parseLabeledBasesText(value: string): Record<LinearLayoutAxis, number[][]> {
-    const grouped: Record<LinearLayoutAxis, number[][]> = {
-        thread: [],
-        warp: [],
-        register: [],
-    };
-    value.split('\n').forEach((line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        const match = trimmed.match(/^([TWR])\s*:\s*(.+)$/i);
-        if (!match) {
-            throw new Error('Each bases line must look like T: [...], W: [...], or R: [...].');
-        }
-        const label = match[1]?.toUpperCase() ?? '';
-        const basisText = match[2] ?? '[]';
-        const axis = label.startsWith('T')
-            ? 'thread'
-            : label.startsWith('W')
-                ? 'warp'
-                : 'register';
-        grouped[axis].push(...parseBasesField(label, basisText));
-    });
-    return grouped;
-}
-
-function applyLabeledBasesText(value: string): void {
-    linearLayoutState.basesText = value;
-    const grouped = parseLabeledBasesText(value);
-    linearLayoutState.bases.thread = JSON.stringify(grouped.thread);
-    linearLayoutState.bases.warp = JSON.stringify(grouped.warp);
-    linearLayoutState.bases.register = JSON.stringify(grouped.register);
+function composeLayoutMetaForTab(tab: LoadedBundleDocument): ComposeLayoutMeta | null {
+    const candidate = (tab.manifest.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
+    if (!isComposeLayoutMeta(candidate)) return null;
+    return candidate;
 }
 
 function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
-    const names = tab.manifest.tensors.map((tensor) => tensor.name.toLowerCase());
-    return names.some((name) => HARDWARE_LAYOUT_NAMES.has(name)) && names.some((name) => LOGICAL_LAYOUT_NAMES.has(name));
-}
-
-function hardwareLayoutTensor(tab: LoadedBundleDocument): BundleManifest['tensors'][number] | undefined {
-    return tab.manifest.tensors.find((tensor) => HARDWARE_LAYOUT_NAMES.has(tensor.name.toLowerCase()));
-}
-
-function logicalLayoutTensor(tab: LoadedBundleDocument): BundleManifest['tensors'][number] | undefined {
-    return tab.manifest.tensors.find((tensor) => LOGICAL_LAYOUT_NAMES.has(tensor.name.toLowerCase()));
+    return composeLayoutMetaForTab(tab) !== null;
 }
 
 function syncLinearLayoutState(tab: LoadedBundleDocument): void {
@@ -396,15 +326,24 @@ function syncLinearLayoutState(tab: LoadedBundleDocument): void {
         renderLinearLayoutWidget();
         return;
     }
-    const candidate = (tab.manifest.viewer as { linearLayoutState?: unknown }).linearLayoutState;
-    if (isLinearLayoutState(candidate)) {
+    const candidate = (tab.manifest.viewer as { composeLayoutState?: unknown }).composeLayoutState;
+    if (isComposeLayoutState(candidate)) {
         linearLayoutState = cloneLinearLayoutState(candidate);
         linearLayoutStates.set(tab.id, cloneLinearLayoutState(candidate));
         refreshLinearLayoutMatrixPreview(linearLayoutState);
         renderLinearLayoutWidget();
         return;
     }
-    linearLayoutState = defaultLinearLayoutState();
+    const meta = composeLayoutMetaForTab(tab);
+    linearLayoutState = meta
+        ? {
+            ...defaultLinearLayoutState(),
+            specsText: meta.specsText,
+            operationText: meta.operationText,
+            inputName: meta.inputName ?? defaultLinearLayoutState().inputName,
+            visibleTensors: Object.fromEntries(meta.tensors.map((tensor) => [tensor.id, tensor.visible])),
+        }
+        : defaultLinearLayoutState();
     linearLayoutStates.set(tab.id, cloneLinearLayoutState(linearLayoutState));
     refreshLinearLayoutMatrixPreview(linearLayoutState);
     renderLinearLayoutWidget();
@@ -430,52 +369,45 @@ function syncLinearLayoutCellTextState(tab: LoadedBundleDocument): void {
     linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
 }
 
-function linearLayoutSpecForTab(tab: LoadedBundleDocument): LinearLayoutSpec | null {
-    const candidate = (tab.manifest.viewer as { linearLayoutSpec?: unknown }).linearLayoutSpec;
-    if (!candidate) return null;
-    try {
-        return parseLinearLayoutSpec(JSON.stringify(candidate));
-    } catch (error) {
-        logUi('linear-layout:spec-error', error);
-        return null;
-    }
+function normalizeCellTextState(
+    state: LinearLayoutCellTextState,
+    labels: string[],
+): LinearLayoutCellTextState {
+    return Object.fromEntries(labels.map((label) => [label, state[label] ?? false]));
 }
 
 function linearLayoutSelectionMapForTab(tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = linearLayoutSelectionMaps.get(tab.id);
     if (cached) return cached;
-    const spec = linearLayoutSpecForTab(tab);
-    if (!spec) return null;
-    const hardwareTensor = hardwareLayoutTensor(tab);
-    const logicalTensor = logicalLayoutTensor(tab);
-    if (!hardwareTensor || !logicalTensor) return null;
-    const inputShape = spec.input_dims.map(({ bases }) => 2 ** bases.length);
-    const outputAxisByName = new Map(spec.output_dims.map((dim, axis) => [dim.name, axis]));
-    const logicalOutputDims = logicalOutputDimsFor(spec.output_dims);
-    const hardwareAxisOrder = linearLayoutAxisOrder(spec.input_dims);
-    const hardwareToLogical = new Map<string, string>();
-    const logicalToHardware = new Map<string, string[]>();
-    const total = product(inputShape);
-    for (let index = 0; index < total; index += 1) {
-        const inputCoord = unravelIndex(index, inputShape);
-        const outputCoord = mapLinearLayoutCoord(inputCoord, spec.input_dims, spec.output_dims.length);
-        const logicalCoord = logicalOutputDims.map(({ name }) => {
-            const axis = outputAxisByName.get(name);
-            return axis === undefined ? 0 : (outputCoord[axis] ?? 0);
+    const meta = composeLayoutMetaForTab(tab);
+    if (!meta || meta.tensors.length === 0) return null;
+    const rootInputShape = meta.rootInputBitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
+    const rootKeys = meta.tensors[0]!.rootToTensor.map((coord) => coordKey(coord));
+    const loadedTensorIds = new Set(tab.manifest.tensors.map((tensor) => tensor.id));
+    const tensors = new Map<string, {
+        meta: ComposeTensorMeta;
+        rootToTensorKeys: string[];
+        tensorToRoot: Map<string, string>;
+    }>();
+    meta.tensors.forEach((tensorMeta) => {
+        if (!loadedTensorIds.has(tensorMeta.id)) return;
+        const rootToTensorKeys = tensorMeta.rootToTensor.map((coord) => coordKey(coord));
+        const tensorToRoot = new Map<string, string>();
+        rootToTensorKeys.forEach((tensorKey, rootIndex) => {
+            tensorToRoot.set(tensorKey, rootKeys[rootIndex]!);
         });
-        const hardwareCoord = hardwareAxisOrder.map((axis) => inputCoord[axis] ?? 0);
-        const hardwareKey = coordKey(hardwareCoord);
-        const logicalKey = coordKey(logicalCoord);
-        hardwareToLogical.set(hardwareKey, logicalKey);
-        const bucket = logicalToHardware.get(logicalKey) ?? [];
-        bucket.push(hardwareKey);
-        logicalToHardware.set(logicalKey, bucket);
-    }
+        tensors.set(tensorMeta.id, {
+            meta: tensorMeta,
+            rootToTensorKeys,
+            tensorToRoot,
+        });
+    });
     const map = {
-        hardwareTensorId: hardwareTensor.id,
-        logicalTensorId: logicalTensor.id,
-        hardwareToLogical,
-        logicalToHardware,
+        rootInputLabels: meta.rootInputLabels.slice(),
+        rootInputShape,
+        rootKeyToIndex: new Map(rootKeys.map((key, index) => [key, index])),
+        tensors,
+        orderedTensorIds: meta.tensors.map((tensor) => tensor.id).filter((id) => tensors.has(id)),
     };
     linearLayoutSelectionMaps.set(tab.id, map);
     return map;
@@ -500,25 +432,36 @@ function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>):
     return true;
 }
 
-function mapHardwareSelection(coords: number[][], mapping: LinearLayoutSelectionMap): number[][] {
-    const logicalKeys = new Set<string>();
-    coords.forEach((coord) => {
-        const key = coordKey(coord);
-        const mapped = mapping.hardwareToLogical.get(key);
-        if (mapped) logicalKeys.add(mapped);
+/** Build inspector coord rows for the hovered cell across every visible tensor in a compose chain. */
+function inspectorCoordEntries(
+    hover: ReturnType<TensorViewer['getHover']>,
+    hoveredStatus: ReturnType<TensorViewer['getTensorStatus']>,
+    linearLayout: LinearLayoutSelectionMap | null,
+): InspectorCoordEntry[] {
+    if (!hover) return [];
+    if (!linearLayout) {
+        return [{
+            title: hover.tensorName,
+            labels: hoveredStatus?.axisLabels ?? [],
+            shape: hoveredStatus?.shape ?? [],
+            coord: hover.tensorCoord,
+            hovered: true,
+        }];
+    }
+    const rootKey = linearLayout.tensors.get(hover.tensorId)?.tensorToRoot.get(coordKey(hover.tensorCoord));
+    if (!rootKey) return [];
+    const rootIndex = linearLayout.rootKeyToIndex.get(rootKey);
+    if (rootIndex === undefined) return [];
+    return linearLayout.orderedTensorIds.map((tensorId) => {
+        const entry = linearLayout.tensors.get(tensorId)!;
+        return {
+            title: entry.meta.title,
+            labels: entry.meta.axisLabels,
+            shape: entry.meta.shape,
+            coord: coordFromKey(entry.rootToTensorKeys[rootIndex] ?? ''),
+            hovered: tensorId === hover.tensorId,
+        };
     });
-    return Array.from(logicalKeys, (key) => coordFromKey(key));
-}
-
-function mapLogicalSelection(coords: number[][], mapping: LinearLayoutSelectionMap): number[][] {
-    const hardwareKeys = new Set<string>();
-    coords.forEach((coord) => {
-        const key = coordKey(coord);
-        const mapped = mapping.logicalToHardware.get(key);
-        if (!mapped) return;
-        mapped.forEach((hardwareKey) => hardwareKeys.add(hardwareKey));
-    });
-    return Array.from(hardwareKeys, (key) => coordFromKey(key));
 }
 
 function activeLinearLayoutTab(): LoadedBundleDocument | null {
@@ -532,53 +475,86 @@ function clearCellTextLabels(): void {
     });
 }
 
-function linearLayoutCellTextForCoord(coord: number[], spec: LinearLayoutSpec, state: LinearLayoutCellTextState): string {
-    const axisOrder = linearLayoutAxisOrder(spec.input_dims);
-    const valuesByName = new Map<string, number>();
-    axisOrder.forEach((inputAxis, tensorAxis) => {
-        valuesByName.set(spec.input_dims[inputAxis]?.name ?? '', coord[tensorAxis] ?? 0);
+function rootKeysForCoords(
+    coords: number[][],
+    tensor: {
+        tensorToRoot: Map<string, string>;
+    },
+): Set<string> {
+    return new Set(coords.flatMap((coord) => {
+        const rootKey = tensor.tensorToRoot.get(coordKey(coord));
+        return rootKey ? [rootKey] : [];
+    }));
+}
+
+function coordsForRootKeys(
+    rootKeys: Set<string>,
+    mapping: LinearLayoutSelectionMap,
+    tensorId: string,
+): number[][] {
+    const tensor = mapping.tensors.get(tensorId);
+    if (!tensor || rootKeys.size === 0) return [];
+    return Array.from(rootKeys, (rootKey) => {
+        const rootIndex = mapping.rootKeyToIndex.get(rootKey);
+        return rootIndex === undefined ? null : coordFromKey(tensor.rootToTensorKeys[rootIndex]!);
+    }).filter((coord): coord is number[] => coord !== null);
+}
+
+function selectionSourceTensorId(selection: SelectionCoords, mapping: LinearLayoutSelectionMap): string | null {
+    const nonEmpty = mapping.orderedTensorIds.filter((tensorId) => (selection.get(tensorId)?.length ?? 0) > 0);
+    if (nonEmpty.length === 0) return null;
+    if (nonEmpty.length === 1) return nonEmpty[0]!;
+    const activeId = viewer.getState().activeTensorId;
+    return activeId && nonEmpty.includes(activeId) ? activeId : nonEmpty[0]!;
+}
+
+function mappedSelectionFromSource(
+    selection: SelectionCoords,
+    mapping: LinearLayoutSelectionMap,
+): SelectionCoords {
+    const sourceTensorId = selectionSourceTensorId(selection, mapping);
+    if (!sourceTensorId) return new Map();
+    const sourceTensor = mapping.tensors.get(sourceTensorId);
+    const sourceCoords = selection.get(sourceTensorId) ?? [];
+    if (!sourceTensor || sourceCoords.length === 0) return new Map();
+    const rootKeys = rootKeysForCoords(sourceCoords, sourceTensor);
+    const nextSelection = new Map<string, number[][]>();
+    mapping.orderedTensorIds.forEach((tensorId) => {
+        const coords = coordsForRootKeys(rootKeys, mapping, tensorId);
+        if (coords.length) nextSelection.set(tensorId, coords);
     });
-    return [
-        state.warp ? `W${valuesByName.get('warp') ?? 0}` : null,
-        state.thread ? `T${valuesByName.get('thread') ?? 0}` : null,
-        state.register ? `R${valuesByName.get('register') ?? 0}` : null,
-    ].filter((value): value is string => value !== null).join('\n');
+    return nextSelection;
+}
+
+function linearLayoutCellTextForCoord(
+    coord: number[],
+    labels: string[],
+    state: LinearLayoutCellTextState,
+): string {
+    return labels
+        .filter((label, axis) => state[label] && axis < coord.length)
+        .map((label, axis) => `${label}${coord[axis] ?? 0}`)
+        .join('\n');
 }
 
 function linearLayoutCellLabelsForTab(
     tab: LoadedBundleDocument,
     state: LinearLayoutCellTextState,
-): {
-    hardwareTensorId: string;
-    logicalTensorId: string;
-    hardwareLabels: Array<{ coord: number[]; text: string }>;
-    logicalLabels: Array<{ coord: number[]; text: string }>;
-} | null {
-    if (!state.warp && !state.thread && !state.register) return null;
-    const spec = linearLayoutSpecForTab(tab);
+): Array<{ tensorId: string; labels: Array<{ coord: number[]; text: string }> }> | null {
     const mapping = linearLayoutSelectionMapForTab(tab);
-    const hardwareTensor = hardwareLayoutTensor(tab);
-    const logicalTensor = logicalLayoutTensor(tab);
-    if (!spec || !mapping || !hardwareTensor || !logicalTensor) return null;
-    const hardwareLabels = Array.from({ length: product(hardwareTensor.shape) }, (_entry, index) => {
-        const coord = unravelIndex(index, hardwareTensor.shape);
-        return { coord, text: linearLayoutCellTextForCoord(coord, spec, state) };
+    if (!mapping || !mapping.rootInputLabels.some((label) => state[label])) return null;
+    return mapping.orderedTensorIds.map((tensorId) => {
+        const tensor = mapping.tensors.get(tensorId)!;
+        const labels = tensor.rootToTensorKeys.map((tensorKey) => {
+            const rootKey = tensor.tensorToRoot.get(tensorKey);
+            if (!rootKey) return null;
+            return {
+                coord: coordFromKey(tensorKey),
+                text: linearLayoutCellTextForCoord(coordFromKey(rootKey), mapping.rootInputLabels, state),
+            };
+        }).filter((entry): entry is { coord: number[]; text: string } => entry !== null);
+        return { tensorId, labels };
     });
-    const logicalLabels = Array.from({ length: product(logicalTensor.shape) }, (_entry, index) => {
-        const coord = unravelIndex(index, logicalTensor.shape);
-        const hardwareKey = mapping.logicalToHardware.get(coordKey(coord))?.[0];
-        if (!hardwareKey) return null;
-        return {
-            coord,
-            text: linearLayoutCellTextForCoord(coordFromKey(hardwareKey), spec, state),
-        };
-    }).filter((entry): entry is { coord: number[]; text: string } => entry !== null);
-    return {
-        hardwareTensorId: mapping.hardwareTensorId,
-        logicalTensorId: mapping.logicalTensorId,
-        hardwareLabels,
-        logicalLabels,
-    };
 }
 
 function applyLinearLayoutCellText(): void {
@@ -587,16 +563,15 @@ function applyLinearLayoutCellText(): void {
         clearCellTextLabels();
         return;
     }
-    const hardwareTensor = hardwareLayoutTensor(tab);
-    const logicalTensor = logicalLayoutTensor(tab);
     const labels = linearLayoutCellLabelsForTab(tab, linearLayoutCellTextState);
     if (!labels) {
-        if (hardwareTensor) viewer.setTensorCellLabels(hardwareTensor.id, null);
-        if (logicalTensor) viewer.setTensorCellLabels(logicalTensor.id, null);
+        const mapping = linearLayoutSelectionMapForTab(tab);
+        mapping?.orderedTensorIds.forEach((tensorId) => viewer.setTensorCellLabels(tensorId, null));
         return;
     }
-    viewer.setTensorCellLabels(labels.hardwareTensorId, labels.hardwareLabels);
-    viewer.setTensorCellLabels(labels.logicalTensorId, labels.logicalLabels);
+    labels.forEach(({ tensorId, labels: tensorLabels }) => {
+        viewer.setTensorCellLabels(tensorId, tensorLabels);
+    });
 }
 
 function slicedTensorCoords(tensorId: string): number[][] | null {
@@ -627,12 +602,22 @@ function syncLinearLayoutViewFilters(): void {
     if (!tab || !isLinearLayoutTab(tab)) return;
     const mapping = linearLayoutSelectionMapForTab(tab);
     if (!mapping) return;
-    const hardwareSlice = slicedTensorCoords(mapping.hardwareTensorId);
-    const logicalSlice = slicedTensorCoords(mapping.logicalTensorId);
-    const hardwareMask = logicalSlice ? mapLogicalSelection(logicalSlice, mapping) : null;
-    const logicalMask = hardwareSlice ? mapHardwareSelection(hardwareSlice, mapping) : null;
-    viewer.setTensorVisibleCoords(mapping.hardwareTensorId, hardwareMask);
-    viewer.setTensorVisibleCoords(mapping.logicalTensorId, logicalMask);
+    let allowedRootKeys: Set<string> | null = null;
+    mapping.orderedTensorIds.forEach((tensorId) => {
+        const coords = slicedTensorCoords(tensorId);
+        if (!coords) return;
+        const tensor = mapping.tensors.get(tensorId)!;
+        const rootKeys = rootKeysForCoords(coords, tensor);
+        allowedRootKeys = allowedRootKeys
+            ? new Set(Array.from(allowedRootKeys).filter((key) => rootKeys.has(key)))
+            : rootKeys;
+    });
+    mapping.orderedTensorIds.forEach((tensorId) => {
+        viewer.setTensorVisibleCoords(
+            tensorId,
+            allowedRootKeys ? coordsForRootKeys(allowedRootKeys, mapping, tensorId) : null,
+        );
+    });
 }
 
 function syncLinearLayoutSelection(selection: SelectionCoords): void {
@@ -641,31 +626,8 @@ function syncLinearLayoutSelection(selection: SelectionCoords): void {
     if (!tab || !isLinearLayoutTab(tab)) return;
     const mapping = linearLayoutSelectionMapForTab(tab);
     if (!mapping) return;
-    const hardwareCoords = selection.get(mapping.hardwareTensorId) ?? [];
-    const logicalCoords = selection.get(mapping.logicalTensorId) ?? [];
-    if (hardwareCoords.length === 0 && logicalCoords.length === 0) return;
-    const activeId = viewer.getState().activeTensorId;
-    const source = selection.size === 1
-        ? (hardwareCoords.length ? 'hardware' : 'logical')
-        : activeId === mapping.hardwareTensorId
-            ? 'hardware'
-            : activeId === mapping.logicalTensorId
-                ? 'logical'
-                : hardwareCoords.length && !logicalCoords.length
-                    ? 'hardware'
-                    : logicalCoords.length
-                        ? 'logical'
-                        : 'hardware';
-    const nextSelection = new Map<string, number[][]>();
-    if (source === 'hardware') {
-        if (hardwareCoords.length) nextSelection.set(mapping.hardwareTensorId, hardwareCoords);
-        const mapped = mapHardwareSelection(hardwareCoords, mapping);
-        if (mapped.length) nextSelection.set(mapping.logicalTensorId, mapped);
-    } else {
-        if (logicalCoords.length) nextSelection.set(mapping.logicalTensorId, logicalCoords);
-        const mapped = mapLogicalSelection(logicalCoords, mapping);
-        if (mapped.length) nextSelection.set(mapping.hardwareTensorId, mapped);
-    }
+    const nextSelection = mappedSelectionFromSource(selection, mapping);
+    if (nextSelection.size === 0) return;
     if (selectionsMatch(selection, nextSelection)) return;
     syncingLinearLayoutSelection = true;
     viewer.setSelectedCoords(nextSelection);
@@ -683,35 +645,7 @@ function syncLinearLayoutSelectionPreview(selection: SelectionCoords): void {
         viewer.setPreviewSelectedCoords(selection);
         return;
     }
-    const hardwareCoords = selection.get(mapping.hardwareTensorId) ?? [];
-    const logicalCoords = selection.get(mapping.logicalTensorId) ?? [];
-    if (hardwareCoords.length === 0 && logicalCoords.length === 0) {
-        viewer.setPreviewSelectedCoords(new Map());
-        return;
-    }
-    const activeId = viewer.getState().activeTensorId;
-    const source = selection.size === 1
-        ? (hardwareCoords.length ? 'hardware' : 'logical')
-        : activeId === mapping.hardwareTensorId
-            ? 'hardware'
-            : activeId === mapping.logicalTensorId
-                ? 'logical'
-                : hardwareCoords.length && !logicalCoords.length
-                    ? 'hardware'
-                    : logicalCoords.length
-                        ? 'logical'
-                        : 'hardware';
-    const nextSelection = new Map<string, number[][]>();
-    if (source === 'hardware') {
-        if (hardwareCoords.length) nextSelection.set(mapping.hardwareTensorId, hardwareCoords);
-        const mapped = mapHardwareSelection(hardwareCoords, mapping);
-        if (mapped.length) nextSelection.set(mapping.logicalTensorId, mapped);
-    } else {
-        if (logicalCoords.length) nextSelection.set(mapping.logicalTensorId, logicalCoords);
-        const mapped = mapLogicalSelection(logicalCoords, mapping);
-        if (mapped.length) nextSelection.set(mapping.hardwareTensorId, mapped);
-    }
-    viewer.setPreviewSelectedCoords(nextSelection);
+    viewer.setPreviewSelectedCoords(mappedSelectionFromSource(selection, mapping));
 }
 
 function parseBasesField(label: string, value: string): number[][] {
@@ -734,92 +668,38 @@ function parseBasesField(label: string, value: string): number[][] {
     });
 }
 
-function currentLinearLayoutBases(): Record<LinearLayoutAxis, number[][]> {
-    return parseLabeledBasesText(linearLayoutState.basesText);
+function matrixAxisColorClass(axis: number): string {
+    return `matrix-axis-${axis % 3}`;
 }
 
-function outputDimsFromBases(bases: Record<LinearLayoutAxis, number[][]>): string[] {
-    let outputRank = 0;
-    LINEAR_LAYOUT_AXES.forEach((axis) => {
-        bases[axis].forEach((basis) => {
-            outputRank = Math.max(outputRank, basis.length);
-        });
-    });
-    const rank = outputRank || 1;
-    if (rank > OUTPUT_AXIS_NAMES.length) {
-        throw new Error(`Output rank ${rank} exceeds supported axes (${OUTPUT_AXIS_NAMES.length}).`);
-    }
-    return OUTPUT_AXIS_NAMES.slice(0, rank).reverse();
-}
-
-function pythonOutputDimsFromBases(bases: Record<LinearLayoutAxis, number[][]>): string[] {
-    let outputRank = 0;
-    LINEAR_LAYOUT_AXES.forEach((axis) => {
-        bases[axis].forEach((basis) => {
-            outputRank = Math.max(outputRank, basis.length);
-        });
-    });
-    const rank = outputRank || 1;
-    return Array.from({ length: rank }, (_entry, axis) => String.fromCharCode(65 + axis));
-}
-
-function pythonInitCodeFromBases(bases: Record<LinearLayoutAxis, number[][]>): string {
-    const outDims = pythonOutputDimsFromBases(bases);
-    return [
-        'LinearLayout.from_bases(',
-        '    [',
-        `        ("warp", ${JSON.stringify(bases.warp)}),`,
-        `        ("thread", ${JSON.stringify(bases.thread)}),`,
-        `        ("register", ${JSON.stringify(bases.register)}),`,
-        '    ],',
-        `    ${JSON.stringify(outDims)},`,
-        ')',
-    ].join('\n');
-}
-
-function matrixPreviewFromBases(bases: Record<LinearLayoutAxis, number[][]>): string {
-    const logicalAxisColorClass = (axis: number): string => {
-        const worldAxis = axis % 3 === 0 ? 1 : axis % 3 === 1 ? 0 : 2;
-        return `matrix-axis-${worldAxis}`;
-    };
-    const hardwareAxisColorClass = (label: string): string => (
-        label.startsWith('W') ? 'matrix-axis-0' : label.startsWith('T') ? 'matrix-axis-1' : 'matrix-axis-2'
-    );
-    const outputRank = Math.max(
-        1,
-        ...LINEAR_LAYOUT_AXES.flatMap((axis) => bases[axis].map((basis) => basis.length)),
-    );
-    const outputAxisNames = pythonOutputDimsFromBases(bases);
-    const rowEntries = outputAxisNames.flatMap((axisName, axis) => {
-        const bitCount = Math.max(
-            1,
-            ...LINEAR_LAYOUT_AXES.flatMap((layoutAxis) => bases[layoutAxis].map((basis) => (basis[axis] ?? 0).toString(2).length)),
-        );
-        return Array.from({ length: bitCount }, (_entry, bit) => ({ label: `${axisName}${bit}`, axis, bit }));
-    });
-    const columns = [
-        ...bases.warp.map((_basis, index) => ({ label: `W${index}`, basis: bases.warp[index] ?? [] })),
-        ...bases.thread.map((_basis, index) => ({ label: `T${index}`, basis: bases.thread[index] ?? [] })),
-        ...bases.register.map((_basis, index) => ({ label: `R${index}`, basis: bases.register[index] ?? [] })),
-    ];
-    if (columns.length === 0) {
-        const rowLabel = rowEntries[0]?.label ?? 'A0';
-        const rowClass = logicalAxisColorClass(rowEntries[0]?.axis ?? 0);
-        return `<span class="matrix-label ${rowClass}">${escapeInfo(rowLabel)}</span> | <span class="matrix-zero">0</span>`;
-    }
-    const labelWidth = Math.max(...rowEntries.map((entry) => entry.label.length), 1);
-    const columnWidths = columns.map((column) => Math.max(column.label.length, 1));
-    const header = `${' '.repeat(labelWidth)} | ${columns.map((column, index) => (
-        `<span class="matrix-label ${hardwareAxisColorClass(column.label)}">${escapeInfo(column.label.padStart(columnWidths[index] ?? column.label.length))}</span>`
-    )).join(' ')}`;
-    const rows = rowEntries.map(({ label, axis, bit }) => (
-        `<span class="matrix-label ${logicalAxisColorClass(axis)}">${escapeInfo(label.padStart(labelWidth))}</span> | ${columns.map((column, index) => {
-            const value = (((column.basis[axis] ?? 0) >> bit) & 1) === 0 ? '0' : '1';
-            const klass = value === '1' ? 'matrix-one' : 'matrix-zero';
-            return `<span class="${klass}">${value.padStart(columnWidths[index] ?? 1)}</span>`;
-        }).join(' ')}`
-    ));
-    return [header, ...rows].join('\n');
+function matrixPreviewFromBlocks(blocks: MatrixBlock[]): string {
+    return blocks.map((block) => {
+        const labelWidth = Math.max(1, ...block.rows.map((row) => row.label.length));
+        const columnWidths = block.columns.map((column) => Math.max(1, column.label.length));
+        const header = block.columns.length === 0
+            ? '<span class="matrix-zero">0</span>'
+            : `${' '.repeat(labelWidth)} | ${block.columns.map((column, index) => (
+                `<span class="matrix-label ${matrixAxisColorClass(column.axis)}">${escapeInfo(column.label.padStart(columnWidths[index] ?? 1))}</span>`
+            )).join(' ')}`;
+        const rows = block.rows.length === 0
+            ? []
+            : block.rows.map((row, rowIndex) => (
+                `<span class="matrix-label ${matrixAxisColorClass(row.axis)}">${escapeInfo(row.label.padStart(labelWidth))}</span> | ${block.columns.map((_column, columnIndex) => {
+                    const value = block.values[rowIndex]?.[columnIndex] === 1 ? '1' : '0';
+                    const klass = value === '1' ? 'matrix-one' : 'matrix-zero';
+                    return `<span class="${klass}">${value.padStart(columnWidths[columnIndex] ?? 1)}</span>`;
+                }).join(' ')}`
+            ));
+        return [
+            '<div class="matrix-block">',
+            `<div class="matrix-block-title">${escapeInfo(block.title)}</div>`,
+            '<div class="matrix-block-body">',
+            header,
+            ...rows,
+            '</div>',
+            '</div>',
+        ].join('\n');
+    }).join('\n');
 }
 
 async function copyText(text: string): Promise<void> {
@@ -839,39 +719,21 @@ async function copyText(text: string): Promise<void> {
 
 function refreshLinearLayoutMatrixPreview(state = linearLayoutState): void {
     try {
-        linearLayoutMatrixPreview = matrixPreviewFromBases(parseLabeledBasesText(state.basesText));
+        linearLayoutMatrixPreview = matrixPreviewFromBlocks(buildComposeRuntime(state).matrixBlocks);
     } catch {
         linearLayoutMatrixPreview = '';
     }
 }
 
-function colorAxesFromMapping(mapping: Record<LinearLayoutChannel, LinearLayoutMappingValue>): Record<string, string> | undefined {
-    const entries: Array<[string, string]> = [];
-    const used = new Set<string>();
-    LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
-        const axis = mapping[channel];
-        if (axis === 'none') return;
-        if (used.has(axis)) {
-            throw new Error(`Each axis can map to only one color channel (duplicate ${axis}).`);
-        }
-        used.add(axis);
-        entries.push([axis, channel]);
-    });
-    return entries.length ? Object.fromEntries(entries) : undefined;
-}
-
-function colorRangesFromState(ranges: Record<LinearLayoutChannel, [string, string]>): Record<string, [number, number]> {
-    const output: Record<string, [number, number]> = {};
-    LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
-        const [start, end] = ranges[channel];
-        const startValue = Number(start);
-        const endValue = Number(end);
-        if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
-            throw new Error(`${channel} range must contain two numbers.`);
-        }
-        output[channel] = [startValue, endValue];
-    });
-    return output;
+function linearLayoutRootLabels(): string[] {
+    const tab = activeLinearLayoutTab();
+    const meta = tab ? composeLayoutMetaForTab(tab) : null;
+    if (meta) return meta.rootInputLabels.slice();
+    try {
+        return buildComposeRuntime(linearLayoutState).inputLabels;
+    } catch {
+        return [];
+    }
 }
 
 function renderLinearLayoutColorWidget(): void {
@@ -884,16 +746,34 @@ function renderLinearLayoutColorWidget(): void {
         }
         : null;
     const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
+    const rootLabels = linearLayoutRootLabels();
+    const assignedLabels = new Set(
+        LINEAR_LAYOUT_CHANNELS
+            .map((channel) => linearLayoutState.mapping[channel])
+            .filter((label): label is string => label !== 'none' && rootLabels.includes(label)),
+    );
+    const availableLabels = rootLabels.filter((label) => !assignedLabels.has(label));
     linearLayoutColorWidget.innerHTML = `
-      ${titleWithInfo('HSL Mapping', 'Select which axis drives each color channel and set channel ranges.')}
+      ${titleWithInfo('Color Mapping', 'Select which root-input axis drives each color channel and set channel ranges.')}
       <div class="widget-body">
+        <div class="field">
+          ${labelWithInfo('Available Axes', 'Drag one root-input axis onto H, S, or L. Drag a colored axis back here to clear that channel.')}
+          <div class="mapping-pool mapping-drop-zone" data-pool="true">
+            ${availableLabels.map((label) => `
+              <button class="mapping-chip" type="button" draggable="true" data-axis="${label}">${label}</button>
+            `).join('')}
+            ${availableLabels.length === 0 ? '<span class="mapping-empty">all axes assigned</span>' : ''}
+          </div>
+        </div>
         ${LINEAR_LAYOUT_CHANNELS.map((channel) => `
           <div class="inline-row mapping-row">
             <span class="range-label">${channelLabels[channel]}</span>
             <div class="mapping-drop-zone" data-channel="${channel}">
-              <button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${linearLayoutState.mapping[channel]}">
+              ${linearLayoutState.mapping[channel] !== 'none' && rootLabels.includes(linearLayoutState.mapping[channel] as string)
+        ? `<button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${linearLayoutState.mapping[channel]}">
                 ${linearLayoutState.mapping[channel]}
-              </button>
+              </button>`
+        : '<span class="mapping-empty">none</span>'}
             </div>
             <input id="linear-layout-${channel.toLowerCase()}-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges[channel][0])}" />
             <span class="range-separator">to</span>
@@ -942,12 +822,30 @@ function renderLinearLayoutColorWidget(): void {
             element.classList.remove('drag-over');
             const payload = readDragPayload(event);
             const targetChannel = element.dataset.channel as LinearLayoutChannel | undefined;
-            if (!payload || !targetChannel) return;
-            const sourceChannel = payload.channel as LinearLayoutChannel;
-            if (payload.kind !== 'channel' || sourceChannel === targetChannel) return;
-            const sourceAxis = linearLayoutState.mapping[sourceChannel];
-            linearLayoutState.mapping[sourceChannel] = linearLayoutState.mapping[targetChannel];
-            linearLayoutState.mapping[targetChannel] = sourceAxis;
+            if (!payload) return;
+            if (element.dataset.pool === 'true') {
+                if (payload.kind !== 'channel') return;
+                const sourceChannel = payload.channel as LinearLayoutChannel;
+                if (!sourceChannel) return;
+                linearLayoutState.mapping[sourceChannel] = 'none';
+                renderLinearLayoutColorWidget();
+                return;
+            }
+            if (!targetChannel) return;
+            if (payload.kind === 'channel') {
+                const sourceChannel = payload.channel as LinearLayoutChannel;
+                if (!sourceChannel || sourceChannel === targetChannel) return;
+                const sourceAxis = linearLayoutState.mapping[sourceChannel];
+                linearLayoutState.mapping[sourceChannel] = linearLayoutState.mapping[targetChannel];
+                linearLayoutState.mapping[targetChannel] = sourceAxis;
+            } else {
+                const axis = payload.axis;
+                if (!axis) return;
+                LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
+                    if (linearLayoutState.mapping[channel] === axis) linearLayoutState.mapping[channel] = 'none';
+                });
+                linearLayoutState.mapping[targetChannel] = axis;
+            }
             renderLinearLayoutColorWidget();
         });
     });
@@ -977,7 +875,7 @@ function renderLinearLayoutColorWidget(): void {
         linearLayoutState.ranges.L[1] = lightnessMaxInput.value;
     });
     recolorButton?.addEventListener('click', async () => {
-        await applyLinearLayoutSpec({ silent: true });
+        await applyLinearLayoutSpec({ silent: true, preserveTensorViews: true });
     });
     if (focusedInput) {
         const nextInput = linearLayoutColorWidget.querySelector<HTMLInputElement>(`#${focusedInput.id}`);
@@ -989,46 +887,37 @@ function renderLinearLayoutColorWidget(): void {
 }
 
 function renderCellTextWidget(): void {
-    const tab = activeLinearLayoutTab();
-    if (!tab) {
+    const labels = linearLayoutRootLabels();
+    if (labels.length === 0) {
         cellTextWidget.innerHTML = '';
         return;
     }
     cellTextWidget.innerHTML = `
-      ${titleWithInfo('Cell Text', 'Overlay W, T, and R ids directly on hardware and logical tensor cells in 2D. Labels follow the current linear-layout tab and only appear when cells are large enough to read.')}
+      ${titleWithInfo('Cell Text', 'Overlay selected root-input label values directly on every visible tensor cell in 2D. Labels only appear when cells are large enough to read.')}
       <div class="widget-body">
-        <p class="widget-copy">Choose which hardware ids to draw on each cell. Logical cells show the mapped hardware ids for the corresponding layout position.</p>
+        <p class="widget-copy">Choose which root-input label values to draw on each cell. Every visible tensor shows the values of the root coordinate that maps to that cell.</p>
         <div class="checklist-field">
-          <label class="checklist-row" for="cell-text-warp">
-            <span>Warp Id</span>
-            <input id="cell-text-warp" type="checkbox" ${linearLayoutCellTextState.warp ? 'checked' : ''} />
-          </label>
-          <label class="checklist-row" for="cell-text-thread">
-            <span>Thread Id</span>
-            <input id="cell-text-thread" type="checkbox" ${linearLayoutCellTextState.thread ? 'checked' : ''} />
-          </label>
-          <label class="checklist-row" for="cell-text-register">
-            <span>Register Id</span>
-            <input id="cell-text-register" type="checkbox" ${linearLayoutCellTextState.register ? 'checked' : ''} />
-          </label>
+          ${labels.map((label) => `
+            <label class="checklist-row" for="cell-text-${label}">
+              <span>${label}</span>
+              <input id="cell-text-${label}" type="checkbox" ${linearLayoutCellTextState[label] ? 'checked' : ''} />
+            </label>
+          `).join('')}
         </div>
       </div>
     `;
-    const warpInput = cellTextWidget.querySelector<HTMLInputElement>('#cell-text-warp');
-    const threadInput = cellTextWidget.querySelector<HTMLInputElement>('#cell-text-thread');
-    const registerInput = cellTextWidget.querySelector<HTMLInputElement>('#cell-text-register');
     const sync = (): void => {
-        linearLayoutCellTextState = {
-            warp: warpInput?.checked ?? false,
-            thread: threadInput?.checked ?? false,
-            register: registerInput?.checked ?? false,
-        };
+        linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
+            label,
+            cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.checked ?? false,
+        ]));
+        const tab = activeLinearLayoutTab();
         if (tab) linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
         applyLinearLayoutCellText();
     };
-    warpInput?.addEventListener('change', sync);
-    threadInput?.addEventListener('change', sync);
-    registerInput?.addEventListener('change', sync);
+    labels.forEach((label) => {
+        cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', sync);
+    });
 }
 
 function autosizeTextarea(textarea: HTMLTextAreaElement): void {
@@ -1040,48 +929,83 @@ function autosizeTextarea(textarea: HTMLTextAreaElement): void {
 function renderLinearLayoutWidget(): void {
     const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
     const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
+    const tab = activeLinearLayoutTab();
+    const meta = tab ? composeLayoutMetaForTab(tab) : null;
+    const visibilityField = !meta ? '' : `
+      <div class="field">
+        ${labelWithInfo('Visible Tensors', 'Toggle which tensors in the render chain stay visible for the current tab.')}
+        <div class="checklist-field">
+          ${meta.tensors.map((tensor) => `
+            <label class="checklist-row" for="linear-layout-visible-${tensor.id}">
+              <span>${escapeInfo(tensor.title)}</span>
+              <input id="linear-layout-visible-${tensor.id}" type="checkbox" ${linearLayoutState.visibleTensors[tensor.id] !== false ? 'checked' : ''} />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
     const matrixBlock = !showLinearLayoutMatrix
         ? ''
         : `<div class="mono-block linear-layout-matrix-preview">${linearLayoutMatrixPreview}</div>`;
     linearLayoutWidget.innerHTML = `
-      ${titleWithInfo('Linear Layout', 'Build hardware and logical tensors directly in the browser. Output dims are inferred from the basis vector length.')}
+      ${titleWithInfo('Linear Layout Specifications', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
       <div class="widget-body">
-        <p class="widget-copy">Enter one labeled line for each axis: <span class="inline-code">T:</span> for thread, <span class="inline-code">W:</span> for warp, and <span class="inline-code">R:</span> for register. Each line value should be the same JSON list you would pass to <span class="inline-code">LinearLayout.from_bases</span>.</p>
+        <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one JSON basis row per input label. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
         <div class="field">
-          ${labelWithInfo('Bases', 'Use exactly three labeled lines: T: for thread, W: for warp, and R: for register. Each line must be a JSON array of basis vectors.', 'linear-layout-bases')}
-          <textarea id="linear-layout-bases" class="compact-textarea" rows="3" spellcheck="false">${escapeInfo(linearLayoutState.basesText)}</textarea>
+          ${labelWithInfo('Linear Layout Specifications', 'Enter one or more specification blocks. Each block has one signature line plus one basis row per input label.', 'linear-layout-specs')}
+          <textarea id="linear-layout-specs" class="compact-textarea" rows="8" spellcheck="false">${escapeInfo(linearLayoutState.specsText)}</textarea>
         </div>
+        <div class="field">
+          ${labelWithInfo('Layout Operation', 'Enter the layout expression to visualize, such as A(B), inv(A), A * B, or parenthesized combinations.', 'linear-layout-operation')}
+          <textarea id="linear-layout-operation" class="compact-textarea" rows="2" spellcheck="false">${escapeInfo(linearLayoutState.operationText)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Input Tensor Name', 'Sets the display name of the root tensor at the start of the rendered chain.', 'linear-layout-input-name')}
+          <input id="linear-layout-input-name" type="text" value="${escapeInfo(linearLayoutState.inputName)}" />
+        </div>
+        ${visibilityField}
         <div class="button-row">
           <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
           <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
           <button class="secondary-button" id="linear-layout-matrix" type="button">${showLinearLayoutMatrix ? 'Hide Matrix' : 'Show Matrix'}</button>
-          <button class="secondary-button" id="linear-layout-reset" type="button">Reset Example</button>
         </div>
         ${matrixBlock}
         ${status}
       </div>
     `;
 
-    const basesInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-bases');
+    const specsInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-specs');
+    const operationInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-operation');
+    const inputNameInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-input-name');
     const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
     const copy = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-copy');
     const matrix = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-matrix');
-    const reset = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-reset');
-    if (basesInput) autosizeTextarea(basesInput);
-    basesInput?.addEventListener('input', () => {
-        try {
-            applyLabeledBasesText(basesInput.value);
-        } catch {
-            linearLayoutState.basesText = basesInput.value;
-        }
-        autosizeTextarea(basesInput);
+    if (specsInput) autosizeTextarea(specsInput);
+    if (operationInput) autosizeTextarea(operationInput);
+    specsInput?.addEventListener('input', () => {
+        linearLayoutState.specsText = specsInput.value;
+        autosizeTextarea(specsInput);
+    });
+    operationInput?.addEventListener('input', () => {
+        linearLayoutState.operationText = operationInput.value;
+        autosizeTextarea(operationInput);
+    });
+    inputNameInput?.addEventListener('input', () => {
+        linearLayoutState.inputName = inputNameInput.value;
+    });
+    meta?.tensors.forEach((tensor) => {
+        linearLayoutWidget.querySelector<HTMLInputElement>(`#linear-layout-visible-${CSS.escape(tensor.id)}`)?.addEventListener('change', async (event) => {
+            const target = event.currentTarget as HTMLInputElement;
+            linearLayoutState.visibleTensors[tensor.id] = target.checked;
+            await applyLinearLayoutSpec({ silent: true, preserveTensorViews: true });
+        });
     });
     apply?.addEventListener('click', async () => {
         await applyLinearLayoutSpec();
     });
     copy?.addEventListener('click', async () => {
         try {
-            const code = pythonInitCodeFromBases(currentLinearLayoutBases());
+            const code = buildComposeRuntime(linearLayoutState).pythonCode;
             await copyText(code);
             linearLayoutNotice = { tone: 'success', text: 'Copied Python init code.' };
         } catch (error) {
@@ -1091,11 +1015,6 @@ function renderLinearLayoutWidget(): void {
     });
     matrix?.addEventListener('click', () => {
         showLinearLayoutMatrix = !showLinearLayoutMatrix;
-        renderLinearLayoutWidget();
-    });
-    reset?.addEventListener('click', () => {
-        linearLayoutState = defaultLinearLayoutState();
-        linearLayoutNotice = null;
         renderLinearLayoutWidget();
     });
     renderLinearLayoutColorWidget();
@@ -1127,25 +1046,18 @@ async function upsertLinearLayoutTab(document: LoadedBundleDocument, replaceTabs
 
 /** Parse the sidebar JSON, rebuild the layout tensors, and load them into the viewer. */
 async function applyLinearLayoutSpec(
-    options: { replaceTabs?: boolean; silent?: boolean } = {},
+    options: { replaceTabs?: boolean; silent?: boolean; preserveTensorViews?: boolean } = {},
 ): Promise<boolean> {
     try {
-        const bases = currentLinearLayoutBases();
-        const spec = {
-            bases: [
-                ['warp', bases.warp],
-                ['thread', bases.thread],
-                ['register', bases.register],
-            ],
-            out_dims: outputDimsFromBases(bases),
-            color_axes: colorAxesFromMapping(linearLayoutState.mapping),
-            color_ranges: colorRangesFromState(linearLayoutState.ranges),
-        };
         refreshLinearLayoutMatrixPreview();
-        const document = createLinearLayoutDocument(
-            parseLinearLayoutSpec(JSON.stringify(spec)),
+        const document = createComposeLayoutDocument(
+            linearLayoutState,
             viewer.getSnapshot(),
+            undefined,
+            options.preserveTensorViews ? preservedLinearLayoutTensorViews() : undefined,
         );
+        const runtime = buildComposeRuntime(linearLayoutState);
+        linearLayoutCellTextState = normalizeCellTextState(linearLayoutCellTextState, runtime.inputLabels);
         storeLinearLayoutState();
         await upsertLinearLayoutTab(document, options.replaceTabs);
         const activeTitle = sessionTabs.find((tab) => tab.id === activeTabId)?.title ?? document.title;
@@ -1322,19 +1234,23 @@ function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
     const snapshot = viewer.getSnapshot() as ViewerSnapshot & {
-        linearLayoutSpec?: LinearLayoutSpec;
-        linearLayoutState?: LinearLayoutFormState;
+        composeLayoutMeta?: ComposeLayoutMeta;
+        composeLayoutState?: LinearLayoutFormState;
         linearLayoutCellTextState?: LinearLayoutCellTextState;
+        composeLayoutTensorViews?: LinearLayoutTensorViewsState;
     };
     if (isLinearLayoutTab(tab)) {
         const cloned = cloneLinearLayoutState(linearLayoutState);
         const clonedCellText = cloneLinearLayoutCellTextState(linearLayoutCellTextState);
+        const tensorViews = preservedLinearLayoutTensorViews(tab.id);
         linearLayoutStates.set(tab.id, cloned);
         linearLayoutCellTextStates.set(tab.id, clonedCellText);
-        snapshot.linearLayoutState = cloned;
+        linearLayoutTensorViewsStates.set(tab.id, tensorViews);
+        snapshot.composeLayoutState = cloned;
         snapshot.linearLayoutCellTextState = clonedCellText;
-        const linearLayoutSpec = (tab.manifest.viewer as { linearLayoutSpec?: LinearLayoutSpec }).linearLayoutSpec;
-        if (linearLayoutSpec) snapshot.linearLayoutSpec = linearLayoutSpec;
+        snapshot.composeLayoutTensorViews = cloneLinearLayoutTensorViewsState(tensorViews);
+        const composeLayoutMeta = composeLayoutMetaForTab(tab);
+        if (composeLayoutMeta) snapshot.composeLayoutMeta = composeLayoutMeta;
     }
     tab.manifest.viewer = snapshot;
 }
@@ -1385,23 +1301,11 @@ async function addNewTab(): Promise<void> {
     const title = nextTabTitle();
     if (!currentTab) {
         linearLayoutState = emptyLinearLayoutState();
-        const bases = currentLinearLayoutBases();
-        const document = createLinearLayoutDocument(
-            parseLinearLayoutSpec(JSON.stringify({
-                bases: [
-                    ['warp', bases.warp],
-                    ['thread', bases.thread],
-                    ['register', bases.register],
-                ],
-                out_dims: outputDimsFromBases(bases),
-                color_axes: colorAxesFromMapping(linearLayoutState.mapping),
-                color_ranges: colorRangesFromState(linearLayoutState.ranges),
-            })),
-            viewer.getSnapshot(),
-        );
+        const document = createComposeLayoutDocument(linearLayoutState, viewer.getSnapshot(), title);
         linearLayoutCellTextState = defaultLinearLayoutCellTextState();
         linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutState));
         linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
+        linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
         sessionTabs = [{ ...document, id, title }];
         await loadTab(id);
         return;
@@ -1415,6 +1319,10 @@ async function addNewTab(): Promise<void> {
     const currentCellTextState = linearLayoutCellTextStates.get(currentTab.id);
     if (currentCellTextState) {
         linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(currentCellTextState));
+    }
+    const currentTensorViewsState = linearLayoutTensorViewsStates.get(currentTab.id);
+    if (currentTensorViewsState) {
+        linearLayoutTensorViewsStates.set(id, cloneLinearLayoutTensorViewsState(currentTensorViewsState));
     }
     linearLayoutSelectionMaps.delete(id);
     sessionTabs = [...sessionTabs, nextTab];
@@ -1430,6 +1338,7 @@ async function closeCurrentTab(): Promise<void> {
         : sessionTabs[Math.max(0, activeIndex - 1)]?.id ?? null;
     linearLayoutStates.delete(activeTabId);
     linearLayoutCellTextStates.delete(activeTabId);
+    linearLayoutTensorViewsStates.delete(activeTabId);
     linearLayoutSelectionMaps.delete(activeTabId);
     sessionTabs = sessionTabs.filter((tab) => tab.id !== activeTabId);
     activeTabId = null;
@@ -1659,25 +1568,15 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
           ${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}
           <div class="widget-body meta-grid">
             <div id="inspector-hovered-tensor"><div class="label-row"><span class="meta-label">Hovered Tensor</span>${infoButton('The loaded tensor currently under the cursor.')}</div><span class="meta-value" id="inspector-hovered-tensor-value"></span></div>
-            <div id="inspector-hardware-coord"><div class="label-row"><span class="meta-label">Hardware Coord</span>${infoButton('Coordinate in hardware tensor order. For linear-layout tabs this is the T/W/R coordinate for the hovered logical or hardware cell.')}</div><span class="meta-value" id="inspector-hardware-coord-value"></span></div>
-            <div id="inspector-logical-coord"><div class="label-row"><span class="meta-label">Logical Coord</span>${infoButton('Coordinate in logical tensor order. For linear-layout tabs this is the matching logical coordinate for the hovered hardware or logical cell.')}</div><span class="meta-value" id="inspector-logical-coord-value"></span></div>
-            <div id="inspector-hardware-coord-binary"><div class="label-row"><span class="meta-label">Hardware Coord (Binary)</span>${infoButton('Hardware coordinate encoded in binary, padded per axis width.')}</div><span class="meta-value mono-value" id="inspector-hardware-coord-binary-value"></span></div>
-            <div id="inspector-logical-coord-binary"><div class="label-row"><span class="meta-label">Logical Coord (Binary)</span>${infoButton('Logical coordinate encoded in binary, padded per axis width.')}</div><span class="meta-value mono-value" id="inspector-logical-coord-binary-value"></span></div>
+            <div id="inspector-coords"><div class="label-row"><span class="meta-label">Visible Tensor Coords</span>${infoButton('Coordinates for every visible tensor in the active layout chain. The hovered tensor title is highlighted.')}</div><div class="inspector-coord-list" id="inspector-coord-list"></div></div>
             <div><div class="label-row"><span class="meta-label">Tensor Shape</span>${infoButton('Original tensor shape before Tensor View transformations.')}</div><span class="meta-value" id="inspector-tensor-shape"></span></div>
             <div><div class="label-row"><span class="meta-label">Rank</span>${infoButton('Number of dimensions in the original tensor.')}</div><span class="meta-value" id="inspector-rank"></span></div>
           </div>
         `;
         inspectorRefs = {
             hoveredTensor: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hovered-tensor')!,
-            hardwareCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hardware-coord')!,
-            logicalCoord: inspectorWidget.querySelector<HTMLDivElement>('#inspector-logical-coord')!,
-            hardwareCoordBinary: inspectorWidget.querySelector<HTMLDivElement>('#inspector-hardware-coord-binary')!,
-            logicalCoordBinary: inspectorWidget.querySelector<HTMLDivElement>('#inspector-logical-coord-binary')!,
+            coordList: inspectorWidget.querySelector<HTMLDivElement>('#inspector-coords')!,
             hoveredTensorValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hovered-tensor-value')!,
-            hardwareCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hardware-coord-value')!,
-            logicalCoordValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-logical-coord-value')!,
-            hardwareCoordBinaryValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-hardware-coord-binary-value')!,
-            logicalCoordBinaryValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-logical-coord-binary-value')!,
             tensorShapeValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-tensor-shape')!,
             rankValue: inspectorWidget.querySelector<HTMLSpanElement>('#inspector-rank')!,
         };
@@ -1687,20 +1586,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
     const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutTab) : null;
-    const hardwareStatus = linearLayout ? viewer.getTensorStatus(linearLayout.hardwareTensorId) : null;
-    const logicalStatus = linearLayout ? viewer.getTensorStatus(linearLayout.logicalTensorId) : null;
-    const hardwareCoord = !hover || !linearLayout
-        ? hover?.layoutCoord ?? null
-        : hover.tensorId === linearLayout.hardwareTensorId
-            ? hover.tensorCoord
-            : coordFromKey(linearLayout.logicalToHardware.get(coordKey(hover.tensorCoord))?.[0] ?? '');
-    const logicalCoord = !hover || !linearLayout
-        ? hover?.tensorCoord ?? null
-        : hover.tensorId === linearLayout.logicalTensorId
-            ? hover.tensorCoord
-            : coordFromKey(linearLayout.hardwareToLogical.get(coordKey(hover.tensorCoord)) ?? '');
-    const hardwareLabels = hardwareStatus?.axisLabels ?? [];
-    const logicalLabels = logicalStatus?.axisLabels ?? [];
+    const coordEntries = inspectorCoordEntries(hover, hoveredStatus, linearLayout);
     const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
         if (!coord || !shape) return '';
         return formatAxisTokens(
@@ -1713,29 +1599,18 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
         );
     };
     inspectorRefs.hoveredTensor.classList.toggle('hidden', !hover);
-    inspectorRefs.hardwareCoord.classList.toggle('hidden', !hover);
-    inspectorRefs.logicalCoord.classList.toggle('hidden', !hover);
-    inspectorRefs.hardwareCoordBinary.classList.toggle('hidden', !hover);
-    inspectorRefs.logicalCoordBinary.classList.toggle('hidden', !hover);
+    inspectorRefs.coordList.classList.toggle('hidden', !hover);
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
-    inspectorRefs.hardwareCoordValue.innerHTML = !hardwareCoord
-        ? ''
-        : formatNamedAxisValues(
-            hardwareLabels,
-            hardwareCoord,
-            snapshot.displayMode,
-            dimensionMappingScheme,
-        );
-    inspectorRefs.logicalCoordValue.innerHTML = !logicalCoord
-        ? ''
-        : formatNamedAxisValues(
-            logicalLabels,
-            logicalCoord,
-            snapshot.displayMode,
-            dimensionMappingScheme,
-        );
-    inspectorRefs.hardwareCoordBinaryValue.innerHTML = binaryCoord(hardwareCoord, hardwareStatus?.shape);
-    inspectorRefs.logicalCoordBinaryValue.innerHTML = binaryCoord(logicalCoord, logicalStatus?.shape);
+    const coordList = inspectorWidget.querySelector<HTMLDivElement>('#inspector-coord-list');
+    if (coordList) {
+        coordList.innerHTML = coordEntries.map((entry) => `
+            <div class="inspector-coord-item">
+              <span class="meta-label inspector-coord-title${entry.hovered ? ' is-hovered-tensor' : ''}">${escapeInfo(entry.title)}</span>
+              <span class="meta-value">${entry.coord ? formatNamedAxisValues(entry.labels, entry.coord, snapshot.displayMode, dimensionMappingScheme) : ''}</span>
+              <span class="meta-value mono-value">${binaryCoord(entry.coord, entry.shape)}</span>
+            </div>
+        `).join('');
+    }
     inspectorRefs.tensorShapeValue.innerHTML = formatAxisValues(
         hoveredStatus?.shape ?? model.handle.shape,
         snapshot.displayMode,
@@ -1925,17 +1800,44 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
 
 /** loads one session tab from the raw manifest plus tensor-byte endpoints. */
 async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
-    const tensorNames = tab.tensors.map((tensor) => tensor.name.toLowerCase());
-    const isLinearLayout = tensorNames.some((name) => HARDWARE_LAYOUT_NAMES.has(name))
-        && tensorNames.some((name) => LOGICAL_LAYOUT_NAMES.has(name));
+    const legacySpec = (tab.viewer as { linearLayoutSpec?: unknown }).linearLayoutSpec;
+    const storedComposeState = (tab.viewer as { composeLayoutState?: unknown }).composeLayoutState;
+    const storedTensorViews = (tab.viewer as { composeLayoutTensorViews?: unknown }).composeLayoutTensorViews;
+    const composeMeta = (tab.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
+    if (legacySpec) {
+        const state = isLinearLayoutState(storedComposeState)
+            ? cloneLinearLayoutState(storedComposeState)
+            : composeLayoutStateFromLegacySpec(legacySpec, tab.title);
+        const document = createComposeLayoutDocument(state, {
+            ...tab.viewer,
+            showSelectionPanel: false,
+        }, tab.title);
+        linearLayoutStates.set(tab.id, cloneLinearLayoutState(state));
+        if (storedTensorViews && typeof storedTensorViews === 'object') {
+            linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
+        } else {
+            linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(document.manifest.viewer));
+        }
+        return {
+            ...document,
+            id: tab.id,
+            title: tab.title,
+        };
+    }
+    const isLinearLayout = isComposeLayoutMeta(composeMeta);
     const viewerState = {
         ...tab.viewer,
         dimensionMappingScheme: isLinearLayout ? 'contiguous' : tab.viewer.dimensionMappingScheme,
         showSelectionPanel: false,
     };
-    const storedLinearLayoutState = (viewerState as { linearLayoutState?: unknown }).linearLayoutState;
+    const storedLinearLayoutState = (viewerState as { composeLayoutState?: unknown }).composeLayoutState;
     if (isLinearLayout && isLinearLayoutState(storedLinearLayoutState)) {
         linearLayoutStates.set(tab.id, cloneLinearLayoutState(storedLinearLayoutState));
+    }
+    if (isLinearLayout && storedTensorViews && typeof storedTensorViews === 'object') {
+        linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
+    } else if (isLinearLayout) {
+        linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(viewerState));
     }
     const storedCellTextState = (viewerState as { linearLayoutCellTextState?: unknown }).linearLayoutCellTextState;
     if (isLinearLayout && isLinearLayoutCellTextState(storedCellTextState)) {
@@ -1981,29 +1883,17 @@ function seedDemoTensor(): void {
 }
 
 async function loadBakedLinearLayoutTabs(): Promise<boolean> {
-    const specs = bakedLinearLayoutSpecTexts();
-    if (specs.length === 0) return false;
+    const examples = bakedComposeLayoutExamples();
+    if (examples.length === 0) return false;
     const baseViewer = viewer.getSnapshot();
-    sessionTabs = specs.map((text, index) => {
-        const parsed = parseLinearLayoutSpec(text);
-        const linearLayoutState = stateFromLayoutSpec(JSON.parse(text));
-        const bases = parseLabeledBasesText(linearLayoutState.basesText);
-        const document = createLinearLayoutDocument(parseLinearLayoutSpec(JSON.stringify({
-            name: parsed.name,
-            bases: [
-                ['warp', bases.warp],
-                ['thread', bases.thread],
-                ['register', bases.register],
-            ],
-            out_dims: outputDimsFromBases(bases),
-            color_axes: colorAxesFromMapping(linearLayoutState.mapping),
-            color_ranges: colorRangesFromState(linearLayoutState.ranges),
-        })), baseViewer);
-        (document.manifest.viewer as ViewerSnapshot & { linearLayoutState?: LinearLayoutFormState }).linearLayoutState = linearLayoutState;
-        linearLayoutStates.set(`tab-${index + 1}`, cloneLinearLayoutState(linearLayoutState));
+    sessionTabs = examples.map(({ state, title }, index) => {
+        const document = createComposeLayoutDocument(state, baseViewer, title);
+        linearLayoutStates.set(`tab-${index + 1}`, cloneLinearLayoutState(state));
+        linearLayoutTensorViewsStates.set(`tab-${index + 1}`, snapshotTensorViews(document.manifest.viewer));
         return {
             ...document,
             id: `tab-${index + 1}`,
+            title,
         };
     });
     activeTabId = null;

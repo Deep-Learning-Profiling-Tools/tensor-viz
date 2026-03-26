@@ -410,8 +410,16 @@ textarea {
 }
 
 .mapping-pool {
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.35rem;
+    min-height: 2.5rem;
+}
+
+.mapping-empty {
+    color: #94a3b8;
+    font-size: 0.84rem;
+    text-transform: uppercase;
 }
 
 .mapping-chip-row {
@@ -481,8 +489,26 @@ textarea {
 }
 
 .linear-layout-matrix-preview {
-    white-space: pre;
+    display: grid;
+    gap: 0.9rem;
+    white-space: normal;
     overflow-x: auto;
+}
+
+.matrix-block {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.matrix-block-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #334155;
+}
+
+.matrix-block-body {
+    line-height: 1.3;
+    white-space: pre;
 }
 
 .matrix-label {
@@ -532,6 +558,21 @@ textarea {
 .meta-grid > div {
     display: grid;
     gap: 0.2rem;
+}
+
+.inspector-coord-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.inspector-coord-item {
+    display: grid;
+    gap: 0.18rem;
+    padding-top: 0.1rem;
+}
+
+.inspector-coord-title.is-hovered-tensor {
+    color: #ca8a04;
 }
 
 .axis-value {

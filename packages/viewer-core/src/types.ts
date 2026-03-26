@@ -215,6 +215,7 @@ export type TensorRecord = {
     markerCoords: Set<string> | null;
     visibleCoords: Set<string> | null;
     cellLabels: Map<string, string> | null;
+    autoOffset: boolean;
 };
 
 /** Internal mutable viewer state mirrored into public snapshots. */
