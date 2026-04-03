@@ -521,7 +521,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             id: 'pan',
             label: 'Pan',
             description: 'Left click and drag to move the viewport without changing the tensor data.',
-            shortcut: 'P',
+            shortcut: 'W',
             active: interactionMode === 'pan',
             content: iconPan(),
             onClick: () => viewer.setInteractionMode('pan'),
@@ -1249,7 +1249,7 @@ window.addEventListener('keydown', async (event) => {
     } else if (event.ctrlKey && event.key === '3') {
         event.preventDefault();
         await runAction('3d');
-    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'p') {
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'w') {
         event.preventDefault();
         viewer.setInteractionMode('pan');
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 's') {
