@@ -148,13 +148,13 @@ describe('parseTensorView', () => {
         expect(buildPreviewExpression(middleHidden.spec)).toBe('tensor[:, 2, :]');
     });
 
-    it('expands grouped hidden tokens into one preview index per axis', () => {
+    it('uses one preview index per hidden grouped token', () => {
         const hiddenGroup = parseTensorView([2, 3, 4], 'A bc', [0, 1, 2]);
         const permuted = parseTensorView([2, 3, 4], 'a B c', [1, 0, 3]);
         expect(hiddenGroup.ok).toBe(true);
         expect(permuted.ok).toBe(true);
         if (!hiddenGroup.ok || !permuted.ok) return;
-        expect(buildPreviewExpression(hiddenGroup.spec)).toBe('tensor.reshape(2, 3*4)[:, 1, 2]');
+        expect(buildPreviewExpression(hiddenGroup.spec)).toBe('tensor.reshape(2, 3*4)[:, 6]');
         expect(buildPreviewExpression(permuted.spec)).toBe('tensor[1, :, 3]');
     });
 });

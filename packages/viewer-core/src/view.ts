@@ -239,14 +239,15 @@ export function buildPreviewExpression(spec: TensorViewSpec): string {
         expr += `.reshape(${reshapeTerms.join(', ')})`;
     }
 
-    const sliceTerms = spec.tensorShape.map((_dim, axis) => ':');
+    const sliceTokens = new Map(spec.sliceTokens.map((token) => [token.token, token.value]));
+    const sliceTerms = spec.tokens.map((token) => {
+        if (token.kind !== 'axis_group' || token.visible) return ':';
+        return String(sliceTokens.get(token.label.toLowerCase()) ?? 0);
+    });
     let hasHiddenAxis = false;
     spec.tokens.forEach((token) => {
         if (token.kind !== 'axis_group' || token.visible) return;
         hasHiddenAxis = true;
-        token.axes.forEach((axis) => {
-            sliceTerms[axis] = String(spec.hiddenIndices[axis] ?? 0);
-        });
     });
     if (hasHiddenAxis) expr += `[${sliceTerms.join(', ')}]`;
     return expr;

@@ -82,8 +82,8 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         <div class="menu">
           <button class="menu-trigger" type="button">Widgets</button>
           <div class="menu-list">
-            <button data-action="tensor-view" type="button">Toggle Tensor View <span>Ctrl+V</span></button>
-            <button data-action="inspector" type="button">Toggle Inspector <span></span></button>
+            <button data-action="tensor-view" type="button">Toggle Permute/Slice <span>Ctrl+V</span></button>
+            <button data-action="inspector" type="button">Toggle Hover Info <span></span></button>
             <button data-action="selection" type="button">Toggle Selection <span></span></button>
             <button data-action="advanced-settings" type="button">Toggle Advanced Settings <span></span></button>
           </div>

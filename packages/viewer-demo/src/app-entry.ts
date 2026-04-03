@@ -106,8 +106,8 @@ const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
 };
 
 const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
-    'tensor-view': 'Tensor View',
-    inspector: 'Inspector',
+    'tensor-view': 'Permute/Slice',
+    inspector: 'Hover Info',
     selection: 'Selection',
     'advanced-settings': 'Advanced Settings',
     colorbar: 'Heatmap',
@@ -148,11 +148,11 @@ function commandActions(): CommandAction[] {
         { action: 'heatmap', label: 'Toggle Heatmap', shortcut: 'Ctrl+H', keywords: 'display heatmap colors' },
         { action: 'dims', label: 'Toggle Dimension Lines', shortcut: 'Ctrl+D', keywords: 'display dimensions guides labels' },
         { action: 'tensor-names', label: 'Toggle Tensor Names', shortcut: '', keywords: 'display tensor names labels title' },
-        { action: 'tensor-view', label: 'Toggle Tensor View', shortcut: 'Ctrl+V', keywords: 'widgets tensor view panel' },
-        { action: 'inspector', label: 'Toggle Inspector', shortcut: '', keywords: 'widgets inspector panel' },
+        { action: 'tensor-view', label: 'Toggle Permute/Slice', shortcut: 'Ctrl+V', keywords: 'widgets permute slice tensor permutation slicing tensor view panel' },
+        { action: 'inspector', label: 'Toggle Hover Info', shortcut: '', keywords: 'widgets hover info inspector panel' },
         { action: 'selection', label: 'Toggle Selection', shortcut: '', keywords: 'widgets selection panel stats highlighted cells' },
         { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
-        { action: 'view', label: 'Focus Tensor View Input', shortcut: '', keywords: 'focus tensor view input field' },
+        { action: 'view', label: 'Focus Permute/Slice Input', shortcut: '', keywords: 'focus permute slice tensor permutation slicing tensor view input field' },
     ];
 }
 

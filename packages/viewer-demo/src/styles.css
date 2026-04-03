@@ -363,7 +363,7 @@ select {
     padding: 0;
     background: #fff;
     border: 1px solid rgba(15, 23, 42, 0.26);
-    overflow: hidden;
+    overflow: visible;
 }
 
 .widget::before,
