@@ -239,7 +239,17 @@ def demo_large() -> None:
     viz(tensor)
 
 
-DEMO = 5
+def demo_long_name() -> None:
+    """Make sure tensor are wider than their names so they don't overlap."""
+
+    tensors = {
+        "A very long name 0": np.arange(1),
+        "A very long name 1": np.arange(1),
+        "A very long name 2": np.arange(1),
+    }
+    viz(tensors, name="Long Tensor Names")
+
+DEMO = 11
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,
@@ -252,6 +262,7 @@ DEMOS = {
     8: demo_metadata_only,
     9: demo_coloring,
     10: demo_large,
+    11: demo_long_name,
 }
 
 

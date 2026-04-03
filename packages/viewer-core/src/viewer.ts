@@ -2376,15 +2376,21 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             }
 
             if (this.state.showTensorNames) {
+                const tensorName = tensor.name || tensor.id;
                 const topGuideCount = shape.reduce((countByAxis, _size, axis) => (
                     countByAxis + Number(axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) === 0)
                 ), 0);
+                const fittedTensorNameScale2D = this.fittedSvgFontSize(
+                    tensorName,
+                    tensorNameScale2D * worldScale,
+                    Math.max(1, extent.x * worldScale * 0.95),
+                ) / worldScale;
                 const guideClearance = this.state.showDimensionLines && labels.length > 0
-                    ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + tensorNameScale2D * 1.5
-                    : tensorNameScale2D * 1.75;
+                    ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + fittedTensorNameScale2D * 1.5
+                    : fittedTensorNameScale2D * 1.75;
                 const namePoint = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + extent.y / 2 + guideClearance);
                 parts.push(
-                    `<text x="${namePoint.x}" y="${namePoint.y}" fill="#0f172a" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${tensorNameScale2D * worldScale}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${this.svgEscape(tensor.name || tensor.id)}</text>`,
+                    `<text x="${namePoint.x}" y="${namePoint.y}" fill="#0f172a" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${fittedTensorNameScale2D * worldScale}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${this.svgEscape(tensorName)}</text>`,
                 );
             }
         });
@@ -2422,6 +2428,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             .replaceAll('>', '&gt;')
             .replaceAll('"', '&quot;')
             .replaceAll("'", '&apos;');
+    }
+
+    /** Fit a 2D SVG label font size into the given pixel width. */
+    private fittedSvgFontSize(text: string, baseSize: number, maxWidth: number): number {
+        this.flatContext.font = `700 ${baseSize}px "IBM Plex Sans", "Segoe UI", sans-serif`;
+        const measuredWidth = this.flatContext.measureText(text).width;
+        return measuredWidth > 0 ? Math.min(baseSize, (maxWidth / measuredWidth) * baseSize) : baseSize;
     }
 
     /** Restore a previously captured viewer snapshot. */
