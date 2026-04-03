@@ -1154,7 +1154,9 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     const isLinearLayout = isComposeLayoutMeta(composeMeta);
     const viewerState = {
         ...tab.viewer,
-        dimensionMappingScheme: isLinearLayout ? 'contiguous' : tab.viewer.dimensionMappingScheme,
+        dimensionMappingScheme: isLinearLayout
+            ? (tab.viewer.dimensionMappingScheme ?? 'contiguous')
+            : tab.viewer.dimensionMappingScheme,
         showSelectionPanel: false,
     };
     const storedLinearLayoutState = (viewerState as { composeLayoutState?: unknown }).composeLayoutState;

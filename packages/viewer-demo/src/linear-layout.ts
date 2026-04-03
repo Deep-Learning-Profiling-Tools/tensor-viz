@@ -1202,7 +1202,7 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
         displayGaps: viewer.displayGaps,
         logScale: viewer.logScale,
         collapseHiddenAxes: viewer.collapseHiddenAxes,
-        dimensionMappingScheme: 'contiguous',
+        dimensionMappingScheme: viewer.dimensionMappingScheme ?? 'contiguous',
         showDimensionLines: viewer.showDimensionLines,
         showTensorNames: viewer.showTensorNames,
         showInspectorPanel: viewer.showInspectorPanel,
