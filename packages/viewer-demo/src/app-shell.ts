@@ -4,6 +4,7 @@ export type AppShellRefs = {
     tabStrip: HTMLDivElement;
     controlDock: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
+    sidebarHeader: HTMLDivElement;
     tensorViewWidget: HTMLElement;
     inspectorWidget: HTMLElement;
     selectionWidget: HTMLElement;
@@ -95,6 +96,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       </main>
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">Widgets</div>
         <section class="widget" id="tensor-view-widget"></section>
         <section class="widget" id="inspector-widget"></section>
         <section class="widget" id="selection-widget"></section>
@@ -116,6 +118,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         tabStrip: requireElement(app, '#tab-strip', 'tab strip'),
         controlDock: requireElement(app, '#control-dock', 'control dock'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
+        sidebarHeader: requireElement(app, '.sidebar-header', 'sidebar header'),
         tensorViewWidget: requireElement(app, '#tensor-view-widget', 'tensor view widget'),
         inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),
         selectionWidget: requireElement(app, '#selection-widget', 'selection widget'),

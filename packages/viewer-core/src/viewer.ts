@@ -2183,7 +2183,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
                     : tensorNameScale2D * 1.75;
                 const namePoint = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + extent.y / 2 + guideClearance);
                 parts.push(
-                    `<text x="${namePoint.x}" y="${namePoint.y}" fill="#0f172a" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${tensorNameScale2D * worldScale}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${this.svgEscape(tensor.name)}</text>`,
+                    `<text x="${namePoint.x}" y="${namePoint.y}" fill="#0f172a" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${tensorNameScale2D * worldScale}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${this.svgEscape(tensor.name || tensor.id)}</text>`,
                 );
             }
         });

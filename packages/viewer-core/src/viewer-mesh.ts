@@ -379,7 +379,7 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
             const topGuideCount = shape.reduce((count, _size, axis) => (
                 count + Number(axisWorldKeyForMode('2d', shape.length, axis, viewer.state.dimensionMappingScheme) === 0)
             ), 0);
-            const nameLabel = createTextLabel(tensor.name, '#0f172a');
+            const nameLabel = createTextLabel(tensor.name || tensor.id, '#0f172a');
             const guideClearance = showDimensionGuides
                 ? guideStartOffset2D
                     + Math.max(0, topGuideCount - 1) * guideLevelStep2D

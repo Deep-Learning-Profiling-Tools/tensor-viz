@@ -18,7 +18,6 @@ import {
     infoButton,
     labelWithInfo,
     selectionEnabled,
-    titleWithInfo,
 } from './app-format.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
@@ -33,6 +32,7 @@ const {
     tabStrip,
     controlDock,
     sidebarSplitter,
+    sidebarHeader,
     tensorViewWidget,
     inspectorWidget,
     selectionWidget,
@@ -45,6 +45,7 @@ const {
 } = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
+const sidebar = tensorViewWidget.parentElement as HTMLElement;
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let showTensorViewWidget = true;
@@ -93,6 +94,28 @@ type ControlSpec = {
     content: string;
     onClick: () => void | Promise<void>;
 };
+
+type SidebarWidgetId = 'tensor-view' | 'inspector' | 'selection' | 'advanced-settings' | 'colorbar';
+
+const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
+    'tensor-view': tensorViewWidget,
+    inspector: inspectorWidget,
+    selection: selectionWidget,
+    'advanced-settings': advancedSettingsWidget,
+    colorbar: colorbarWidget,
+};
+
+const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
+    'tensor-view': 'Tensor View',
+    inspector: 'Inspector',
+    selection: 'Selection',
+    'advanced-settings': 'Advanced Settings',
+    colorbar: 'Heatmap',
+};
+
+let widgetOrder: SidebarWidgetId[] = ['tensor-view', 'inspector', 'selection', 'advanced-settings', 'colorbar'];
+let draggedWidgetId: SidebarWidgetId | null = null;
+const collapsedWidgets = new Set<SidebarWidgetId>(widgetOrder);
 
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
@@ -176,6 +199,102 @@ function filteredCommandActions(): CommandAction[] {
         .filter((entry): entry is { entry: CommandAction; score: number } => entry.score !== null)
         .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label))
         .map(({ entry }) => entry);
+}
+
+function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
+    const model = viewer.getInspectorModel();
+    return widgetOrder.filter((widgetId) => (
+        (widgetId === 'tensor-view' && showTensorViewWidget)
+        || (widgetId === 'inspector' && snapshot.showInspectorPanel)
+        || (widgetId === 'selection'
+            && snapshot.showSelectionPanel
+            && (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select')
+        || (widgetId === 'advanced-settings' && showAdvancedSettingsWidget)
+        || (widgetId === 'colorbar' && snapshot.heatmap && model.colorRanges.length !== 0)
+    ));
+}
+
+function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
+    const title = sidebarWidgetLabels[widgetId];
+    const collapsed = collapsedWidgets.has(widgetId);
+    return `
+      <div class="title-row widget-title-row" draggable="true" data-widget-handle="${widgetId}">
+        <div class="widget-title-main">
+          <button class="widget-collapse-button" data-widget-collapse="${widgetId}" type="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${title}">
+            ${collapsed ? '▸' : '▾'}
+          </button>
+          <h2>${title}</h2>
+        </div>
+        <div class="widget-title-controls">
+          <span class="widget-title-icon" aria-hidden="true">${widgetIcon(widgetId)}</span>
+          <button class="widget-move-button" data-widget-move="${widgetId}:-1" type="button" aria-label="Move ${title} up">↑</button>
+          <button class="widget-move-button" data-widget-move="${widgetId}:1" type="button" aria-label="Move ${title} down">↓</button>
+          ${infoButton(info)}
+        </div>
+      </div>
+    `;
+}
+
+function applySidebarOrder(): void {
+    sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]));
+}
+
+function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): void {
+    const collapsed = collapsedWidgets.has(widgetId);
+    const button = widget.querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
+    if (!button) return;
+    button.textContent = collapsed ? '▸' : '▾';
+    button.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${sidebarWidgetLabels[widgetId]}`);
+}
+
+function moveSidebarWidget(widgetId: SidebarWidgetId, direction: -1 | 1): void {
+    const visible = visibleSidebarWidgets(viewer.getSnapshot());
+    const visibleIndex = visible.indexOf(widgetId);
+    if (visibleIndex < 0) return;
+    const neighbor = visible[Math.max(0, Math.min(visible.length - 1, visibleIndex + direction))];
+    if (!neighbor || neighbor === widgetId) return;
+    const index = widgetOrder.indexOf(widgetId);
+    const neighborIndex = widgetOrder.indexOf(neighbor);
+    if (index < 0 || neighborIndex < 0) return;
+    [widgetOrder[index], widgetOrder[neighborIndex]] = [widgetOrder[neighborIndex]!, widgetOrder[index]!];
+    applySidebarOrder();
+}
+
+function moveSidebarWidgetTo(widgetId: SidebarWidgetId, targetIndex: number): void {
+    const index = widgetOrder.indexOf(widgetId);
+    if (index < 0) return;
+    const boundedIndex = Math.max(0, Math.min(widgetOrder.length - 1, targetIndex));
+    if (boundedIndex === index) return;
+    const [widget] = widgetOrder.splice(index, 1);
+    widgetOrder.splice(boundedIndex, 0, widget);
+    applySidebarOrder();
+}
+
+function widgetIcon(widgetId: SidebarWidgetId): string {
+    switch (widgetId) {
+        case 'tensor-view':
+            return '<span class="widget-title-text-icon widget-title-text-icon-wide">A<sup>T</sup>[i,:]</span>';
+        case 'inspector':
+            return `
+              <svg viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="5.5" />
+                <path d="M15 15l4 4" />
+              </svg>
+            `;
+        case 'selection':
+            return iconSelection();
+        case 'advanced-settings':
+            return `
+              <svg viewBox="0 0 24 24">
+                <path d="M5 6h14M8 12h11M5 18h14" />
+                <circle cx="8" cy="6" r="1.7" fill="currentColor" stroke="none" />
+                <circle cx="13" cy="12" r="1.7" fill="currentColor" stroke="none" />
+                <circle cx="10" cy="18" r="1.7" fill="currentColor" stroke="none" />
+              </svg>
+            `;
+        case 'colorbar':
+            return iconHeatmap();
+    }
 }
 
 function renderCommandPalette(): void {
@@ -609,20 +728,68 @@ commandPaletteInput.addEventListener('keydown', async (event) => {
     await runAction(action.action);
 });
 
+sidebar.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const collapse = target?.closest<HTMLElement>('[data-widget-collapse]');
+    if (collapse?.dataset.widgetCollapse) {
+        const widgetId = collapse.dataset.widgetCollapse as SidebarWidgetId;
+        if (collapsedWidgets.has(widgetId)) collapsedWidgets.delete(widgetId);
+        else collapsedWidgets.add(widgetId);
+        render(viewer.getSnapshot());
+        return;
+    }
+    const move = target?.closest<HTMLElement>('[data-widget-move]');
+    if (!move?.dataset.widgetMove) return;
+    const [widgetId, delta] = move.dataset.widgetMove.split(':') as [SidebarWidgetId, string];
+    moveSidebarWidget(widgetId, Number(delta) < 0 ? -1 : 1);
+});
+
+sidebar.addEventListener('dragstart', (event) => {
+    const handle = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-widget-handle]');
+    const widgetId = handle?.dataset.widgetHandle as SidebarWidgetId | undefined;
+    if (!widgetId) return;
+    draggedWidgetId = widgetId;
+    event.dataTransfer?.setData('text/plain', widgetId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+});
+
+sidebar.addEventListener('dragover', (event) => {
+    const handle = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-widget-handle]');
+    if (!draggedWidgetId || !handle) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+});
+
+sidebar.addEventListener('drop', (event) => {
+    const handle = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-widget-handle]');
+    const targetId = handle?.dataset.widgetHandle as SidebarWidgetId | undefined;
+    if (!draggedWidgetId || !targetId || !handle) return;
+    event.preventDefault();
+    const targetIndex = widgetOrder.indexOf(targetId);
+    const targetRect = handle.getBoundingClientRect();
+    moveSidebarWidgetTo(draggedWidgetId, targetIndex + Number(event.clientY > targetRect.top + targetRect.height / 2));
+    draggedWidgetId = null;
+});
+
+sidebar.addEventListener('dragend', () => {
+    draggedWidgetId = null;
+});
+
 function updateSidebar(snapshot: ViewerSnapshot): void {
-    tensorViewWidget.classList.toggle('hidden', !showTensorViewWidget);
-    inspectorWidget.classList.toggle('hidden', !snapshot.showInspectorPanel);
-    selectionWidget.classList.toggle('hidden', !snapshot.showSelectionPanel);
-    advancedSettingsWidget.classList.toggle('hidden', !showAdvancedSettingsWidget);
-    const model = viewer.getInspectorModel();
-    colorbarWidget.classList.toggle('hidden', !snapshot.heatmap || model.colorRanges.length === 0);
+    const visible = new Set(visibleSidebarWidgets(snapshot));
+    applySidebarOrder();
+    (Object.entries(sidebarWidgets) as [SidebarWidgetId, HTMLElement][]).forEach(([widgetId, widget]) => {
+        widget.classList.toggle('hidden', !visible.has(widgetId));
+        widget.classList.toggle('collapsed', collapsedWidgets.has(widgetId));
+        syncWidgetHeaderState(widgetId, widget);
+    });
 }
 
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
     if (!model.handle) {
-        tensorViewWidget.innerHTML = `${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}<div class="widget-body">No tensor loaded.</div>`;
+        tensorViewWidget.innerHTML = `${widgetTitle('tensor-view', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
 
@@ -631,10 +798,10 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const visibleTokens = parsedView.ok ? parsedView.spec.tokens.filter((token) => token.visible).map((token) => token.label) : [];
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     const tensorOptions = model.tensors.map((tensor) => `
-      <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.id} (${tensor.name})</option>
+      <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.name || tensor.id}</option>
     `).join('');
     tensorViewWidget.innerHTML = `
-      ${titleWithInfo('Tensor View', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}
+      ${widgetTitle('tensor-view', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}
       <div class="widget-body">
         <div class="field">
           ${labelWithInfo('Tensor', 'Choose which loaded tensor the Tensor View editor controls.', 'tensor-select')}
@@ -725,12 +892,12 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     if (!model.handle) {
         inspectorReady = false;
         inspectorRefs = null;
-        inspectorWidget.innerHTML = `${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}<div class="widget-body">No tensor loaded.</div>`;
+        inspectorWidget.innerHTML = `${widgetTitle('inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
     if (!inspectorReady) {
         inspectorWidget.innerHTML = `
-          ${titleWithInfo('Inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}
+          ${widgetTitle('inspector', 'Shows metadata for the active tensor and hover data for the current cell.')}
           <div class="widget-body meta-grid">
             <div id="inspector-hovered-tensor"><div class="label-row"><span class="meta-label">Hovered Tensor</span>${infoButton('The loaded tensor currently under the cursor.')}</div><span class="meta-value" id="inspector-hovered-tensor-value"></span></div>
             <div id="inspector-layout-coord"><div class="label-row"><span class="meta-label">Layout Coord</span>${infoButton('Coordinate in the rendered layout after grouping and optional slice collapsing.')}</div><span class="meta-value" id="inspector-layout-coord-value"></span></div>
@@ -778,17 +945,20 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
 
 function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
+    const selectionModeActive = (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select';
     if (!model.handle) {
-        selectionWidget.innerHTML = `${titleWithInfo('Selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}<div class="widget-body">No tensor loaded.</div>`;
+        selectionWidget.innerHTML = `${widgetTitle('selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
     const summary = viewer.getSelectionSummary();
-    const enabled = selectionEnabled(snapshot);
-    const note = enabled
+    const enabled = selectionEnabled(snapshot) && selectionModeActive;
+    const note = !selectionModeActive
+        ? 'Switch to Selection mode from the bottom toolbar to enable this panel.'
+        : enabled
         ? 'Left-click and drag to draw a selection box, then release to apply it. Hold Shift to add cells, or hold Ctrl to remove cells.'
         : 'Selection is only available in 2D contiguous mapping.';
     selectionWidget.innerHTML = `
-      ${titleWithInfo('Selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}
+      ${widgetTitle('selection', 'Shows how many cells are highlighted and summary statistics across their loaded numeric values. Selection is only available in 2D contiguous mapping.')}
       <div class="widget-body meta-grid">
         <div><div class="label-row"><span class="meta-label">Highlighted Cells</span>${infoButton(note)}</div><span class="meta-value">${selectionCountValue(summary, enabled)}</span></div>
         <div><div class="label-row"><span class="meta-label">Min</span>${infoButton('Minimum across the selected cells with loaded values.')}</div><span class="meta-value">${selectionStatValue(summary, enabled, 'min')}</span></div>
@@ -811,7 +981,7 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
     const scaleMode = snapshot.logScale ? '<div class="colorbar-mode">Log Scale</div>' : '<div class="colorbar-mode">Linear Scale</div>';
     const sections = model.colorRanges.map((range) => `
       <div class="colorbar-section">
-        <div class="colorbar-title">${range.id} (${range.name})</div>
+        <div class="colorbar-title">${range.name || range.id}</div>
         <div class="colorbar"></div>
         <div class="colorbar-labels">
           <span>${formatRangeValue(range.min)}</span>
@@ -820,7 +990,7 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
       </div>
     `).join('');
     colorbarWidget.innerHTML = `
-      ${titleWithInfo('Colorbar', 'Shows the heatmap range for each loaded tensor using its current minimum and maximum values. The gradient can be linear or signed-log depending on Advanced Settings.')}
+      ${widgetTitle('colorbar', 'Shows the heatmap range for each loaded tensor using its current minimum and maximum values. The gradient can be linear or signed-log depending on Advanced Settings.')}
       <div class="widget-body">
         ${scaleMode}
         ${sections}
@@ -835,7 +1005,7 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const collapseHiddenAxes = snapshot.collapseHiddenAxes ?? snapshot.showSlicesInSamePlace ?? false;
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     advancedSettingsWidget.innerHTML = `
-      ${titleWithInfo('Advanced Settings', 'Adjust lower-level layout tuning that changes how tensor dimension blocks are spaced and assigned to x, y, and z families.')}
+      ${widgetTitle('advanced-settings', 'Adjust lower-level layout tuning that changes how tensor dimension blocks are spaced and assigned to x, y, and z families.')}
       <div class="widget-body">
         <div class="field">
           ${labelWithInfo('Block Gap Scale', 'Sets the factor used to grow the gap between higher-level dimension blocks in both 2D and 3D layouts.', 'dimension-block-gap-multiple')}
