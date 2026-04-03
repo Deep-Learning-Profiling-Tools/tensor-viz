@@ -10,6 +10,7 @@ import {
     LineBasicMaterial,
     LineSegments,
     Matrix4,
+    Mesh,
     MeshBasicMaterial,
     Sphere,
     Vector3,
@@ -380,14 +381,21 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
                 count + Number(axisWorldKeyForMode('2d', shape.length, axis, viewer.state.dimensionMappingScheme) === 0)
             ), 0);
             const nameLabel = createTextLabel(tensor.name || tensor.id, '#0f172a');
+            const nameMesh = nameLabel.children[0];
+            const nameGeometry = nameMesh instanceof Mesh ? nameMesh.geometry : null;
+            nameGeometry?.computeBoundingBox();
+            const nameWidth = nameGeometry?.boundingBox?.getSize(new Vector3()).x ?? 0;
+            const fittedTensorNameScale2D = nameWidth > 0
+                ? Math.min(tensorNameScale2D, (outlineExtent2D.x * 0.95) / nameWidth)
+                : tensorNameScale2D;
             const guideClearance = showDimensionGuides
                 ? guideStartOffset2D
                     + Math.max(0, topGuideCount - 1) * guideLevelStep2D
                     + guideLabelOffset2D
-                    + tensorNameScale2D * 1.5
-                : tensorNameScale2D * 1.75;
+                    + fittedTensorNameScale2D * 1.5
+                : fittedTensorNameScale2D * 1.75;
             nameLabel.position.set(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance, 0.02);
-            nameLabel.scale.setScalar(tensorNameScale2D);
+            nameLabel.scale.setScalar(fittedTensorNameScale2D);
             group.add(nameLabel);
         }
     } else {
