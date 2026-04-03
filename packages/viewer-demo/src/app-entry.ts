@@ -52,6 +52,7 @@ if (!supportsWebGL()) {
 const {
     viewport,
     tabStrip,
+    controlDock,
     sidebarSplitter,
     linearLayoutWidget,
     cellTextWidget,
@@ -145,6 +146,17 @@ type CommandAction = {
     label: string;
     shortcut: string;
     keywords: string;
+};
+
+type ControlSpec = {
+    id: string;
+    label: string;
+    description: string;
+    shortcut: string;
+    active: boolean;
+    disabled?: boolean;
+    content: string;
+    onClick: () => void | Promise<void>;
 };
 
 function logUi(event: string, details?: unknown): void {
@@ -1201,7 +1213,7 @@ function closeCommandPalette(): void {
 }
 
 function setSidebarWidth(width: number): void {
-    const maxWidth = Math.max(0, Math.min(MAX_SIDEBAR_WIDTH, app.clientWidth - MIN_VIEWPORT_WIDTH));
+    const maxWidth = Math.max(0, app.clientWidth - MIN_VIEWPORT_WIDTH);
     const clamped = Math.max(0, Math.min(maxWidth, width));
     app.style.setProperty('--sidebar-width', `${clamped}px`);
     viewer.resize();
@@ -1254,32 +1266,67 @@ function captureActiveTabSnapshot(): void {
     tab.manifest.viewer = snapshot;
 }
 
+async function closeTab(tabId: string): Promise<void> {
+    const index = sessionTabs.findIndex((tab) => tab.id === tabId);
+    if (index < 0) return;
+    const wasActive = activeTabId === tabId;
+    if (wasActive) captureActiveTabSnapshot();
+    linearLayoutStates.delete(tabId);
+    linearLayoutCellTextStates.delete(tabId);
+    linearLayoutTensorViewsStates.delete(tabId);
+    linearLayoutSelectionMaps.delete(tabId);
+    sessionTabs.splice(index, 1);
+    if (sessionTabs.length === 0) {
+        activeTabId = null;
+        seedDemoTensor();
+        renderTabStrip();
+        render(viewer.getSnapshot());
+        return;
+    }
+    if (!wasActive) {
+        renderTabStrip();
+        return;
+    }
+    await loadTab(sessionTabs[Math.max(0, index - 1)]!.id);
+}
+
 function renderTabStrip(): void {
-    tabStrip.classList.remove('hidden');
+    tabStrip.classList.toggle('hidden', sessionTabs.length === 0);
+    if (sessionTabs.length === 0) {
+        tabStrip.replaceChildren();
+        return;
+    }
     const tabs = sessionTabs.map((tab) => {
-        const wrapper = document.createElement('div');
-        wrapper.className = `tab-item${tab.id === activeTabId ? ' active' : ''}`;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'tab-button';
-        button.textContent = tab.title;
-        button.addEventListener('click', async () => {
+        const tabElement = document.createElement('div');
+        tabElement.className = `tab-button${tab.id === activeTabId ? ' active' : ''}`;
+
+        const label = document.createElement('button');
+        label.type = 'button';
+        label.className = 'tab-label';
+        label.textContent = tab.title;
+        label.addEventListener('click', async () => {
             if (tab.id === activeTabId) return;
             await loadTab(tab.id);
         });
-        wrapper.append(button);
+
         const closeButton = document.createElement('button');
         closeButton.type = 'button';
-        closeButton.className = 'tab-close-button';
+        closeButton.className = 'tab-close';
         closeButton.textContent = 'x';
         closeButton.setAttribute('aria-label', `Close ${tab.title}`);
         closeButton.addEventListener('click', async (event) => {
+            event.preventDefault();
             event.stopPropagation();
-            if (activeTabId !== tab.id) await loadTab(tab.id);
-            await closeCurrentTab();
+            await closeTab(tab.id);
         });
-        wrapper.append(closeButton);
-        return wrapper;
+
+        tabElement.addEventListener('auxclick', async (event) => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            await closeTab(tab.id);
+        });
+        tabElement.append(label, closeButton);
+        return tabElement;
     });
     const addButton = document.createElement('button');
     addButton.type = 'button';
@@ -1329,30 +1376,236 @@ async function addNewTab(): Promise<void> {
 }
 
 async function closeCurrentTab(): Promise<void> {
-    if (!activeTabId) return;
-    const activeIndex = sessionTabs.findIndex((tab) => tab.id === activeTabId);
-    if (activeIndex === -1) return;
-    const nextActiveId = sessionTabs[Math.max(0, activeIndex - 1)]?.id === activeTabId
-        ? sessionTabs[activeIndex + 1]?.id ?? null
-        : sessionTabs[Math.max(0, activeIndex - 1)]?.id ?? null;
-    linearLayoutStates.delete(activeTabId);
-    linearLayoutCellTextStates.delete(activeTabId);
-    linearLayoutTensorViewsStates.delete(activeTabId);
-    linearLayoutSelectionMaps.delete(activeTabId);
-    sessionTabs = sessionTabs.filter((tab) => tab.id !== activeTabId);
-    activeTabId = null;
-    renderTabStrip();
-    if (nextActiveId) {
-        await loadTab(nextActiveId);
-        return;
-    }
-    const emptySnapshot = {
-        ...viewer.getSnapshot(),
-        activeTensorId: null,
-        tensors: [],
-    };
-    viewer.loadBundleData({ version: 1, viewer: emptySnapshot, tensors: [] }, new Map());
-    render(viewer.getSnapshot());
+    if (activeTabId) await closeTab(activeTabId);
+}
+
+function iconSelection(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 5h3v3H5zM16 5h3v3h-3zM5 16h3v3H5zM16 16h3v3h-3z" />
+        <path d="M9.5 6.5h5M9.5 17.5h5M6.5 9.5v5M17.5 9.5v5" stroke-dasharray="2.2 2.2" />
+      </svg>
+    `;
+}
+
+function iconRotate(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 4.8A7.2 7.2 0 1 1 4.8 12" />
+        <path d="M4.8 9.6l1.92 3.6H2.88z" fill="currentColor" stroke="none" />
+      </svg>
+    `;
+}
+
+function iconHeatmap(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="4" width="8" height="8" fill="#111111" stroke="#111111" stroke-width="0.8" />
+        <rect x="12" y="4" width="8" height="8" fill="#555555" stroke="#111111" stroke-width="0.8" />
+        <rect x="4" y="12" width="8" height="8" fill="#cccccc" stroke="#111111" stroke-width="0.8" />
+        <rect x="12" y="12" width="8" height="8" fill="#ffffff" stroke="#111111" stroke-width="0.8" />
+      </svg>
+    `;
+}
+
+function iconDimensionLines(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="7,7 7,4 17,4 17,7" stroke="#ef4444" />
+        <polyline points="7,7 4,7 4,17 7,17" stroke="#22c55e" />
+        <rect x="7" y="7" width="10" height="10" />
+      </svg>
+    `;
+}
+
+function iconTensorNames(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 6h14" />
+        <path d="M12 6v12" />
+        <path d="M8 18h8" />
+      </svg>
+    `;
+}
+
+function iconGaps(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="6" width="4" height="12" />
+        <rect x="10" y="6" width="4" height="12" />
+        <rect x="16" y="6" width="4" height="12" />
+      </svg>
+    `;
+}
+
+function iconContiguousMapping(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="4,5.5 20,5.5 4,10.5 20,10.5 4,15.5 20,15.5 4,20.5 20,20.5" />
+      </svg>
+    `;
+}
+
+function iconZOrderMapping(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="4,4 9,4 4,9 9,9 15,4 20,4 15,9 20,9 4,15 9,15 4,20 9,20 15,15 20,15 15,20 20,20" />
+      </svg>
+    `;
+}
+
+function iconPan(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 13v-7.5a1.5 1.5 0 0 1 3 0v6.5M11 5.5v-2a1.5 1.5 0 1 1 3 0v8.5M14 5.5a1.5 1.5 0 0 1 3 0v6.5M17 7.5a1.5 1.5 0 0 1 3 0v8.5a6 6 0 0 1-6 6h-2h.208a6 6 0 0 1-5.012-2.7a69.74 69.74 0 0 1-.196-.3c-.312-.479-1.407-2.388-3.286-5.728a1.5 1.5 0 0 1 .536-2.022a1.867 1.867 0 0 1 2.28.28l1.47 1.47" />
+      </svg>
+    `;
+}
+
+function renderControlDock(snapshot: ViewerSnapshot): void {
+    const canSelect = selectionEnabled(snapshot);
+    const canRotate = snapshot.displayMode === '3d';
+    const interactionMode = snapshot.interactionMode ?? viewer.getInteractionMode();
+    const controls: ControlSpec[] = [
+        {
+            id: 'pan',
+            label: 'Pan',
+            description: 'Left click and drag to move the viewport without changing the tensor data.',
+            shortcut: 'P',
+            active: interactionMode === 'pan',
+            content: iconPan(),
+            onClick: () => viewer.setInteractionMode('pan'),
+        },
+        {
+            id: 'select',
+            label: 'Select',
+            description: canSelect
+                ? 'Left click and drag to draw a selection box.<br />Shift + left click + drag: add cells.<br />Ctrl + left click + drag: remove cells.'
+                : 'Selection is available in 2D contiguous layouts.<br />Left click and drag: select cells.<br />Shift + left click + drag: add cells.<br />Ctrl + left click + drag: remove cells.',
+            shortcut: 'S',
+            active: interactionMode === 'select',
+            disabled: !canSelect,
+            content: iconSelection(),
+            onClick: () => viewer.setInteractionMode('select'),
+        },
+        {
+            id: 'rotate',
+            label: 'Rotate',
+            description: canRotate
+                ? 'Left click and drag to orbit the 3D camera around the tensor layout.'
+                : 'Rotate is available in 3D mode, where left click and drag orbits the camera.',
+            shortcut: 'R',
+            active: interactionMode === 'rotate',
+            disabled: !canRotate,
+            content: iconRotate(),
+            onClick: () => viewer.setInteractionMode('rotate'),
+        },
+        {
+            id: '2d',
+            label: '2D',
+            description: 'Switch to the flat 2D viewer for grid inspection, panning, zooming, and box selection.',
+            shortcut: 'Ctrl+2',
+            active: snapshot.displayMode === '2d',
+            content: '<span class="control-button-text" aria-hidden="true">2D</span>',
+            onClick: () => viewer.setDisplayMode('2d'),
+        },
+        {
+            id: '3d',
+            label: '3D',
+            description: 'Switch to the 3D viewer to orbit the scene and inspect stacked tensor layouts in depth.',
+            shortcut: 'Ctrl+3',
+            active: snapshot.displayMode === '3d',
+            content: '<span class="control-button-text" aria-hidden="true">3D</span>',
+            onClick: () => viewer.setDisplayMode('3d'),
+        },
+        {
+            id: 'heatmap',
+            label: 'Heatmap',
+            description: 'Toggle heatmap coloring to map numeric values onto a grayscale intensity view.',
+            shortcut: 'Ctrl+H',
+            active: snapshot.heatmap,
+            content: iconHeatmap(),
+            onClick: () => viewer.toggleHeatmap(),
+        },
+        {
+            id: 'dim-lines',
+            label: 'Dim Lines',
+            description: 'Toggle dimension guide lines to show axis extents and family orientation in the current layout.',
+            shortcut: 'Ctrl+D',
+            active: snapshot.showDimensionLines,
+            content: iconDimensionLines(),
+            onClick: () => viewer.toggleDimensionLines(),
+        },
+        {
+            id: 'tensor-names',
+            label: 'Tensor Names',
+            description: 'Toggle tensor name labels above each rendered tensor in the current layout.',
+            shortcut: 'Ctrl+N',
+            active: snapshot.showTensorNames ?? true,
+            content: iconTensorNames(),
+            onClick: () => viewer.toggleTensorNames(),
+        },
+        {
+            id: 'gaps',
+            label: 'Block Gaps',
+            description: 'Toggle spacing inside higher-level tensor blocks so grouped dimensions appear either separated or packed.',
+            shortcut: 'Ctrl+G',
+            active: snapshot.displayGaps ?? true,
+            content: iconGaps(),
+            onClick: () => viewer.toggleDisplayGaps(),
+        },
+        {
+            id: 'mapping-contiguous',
+            label: 'Contiguous Mapping',
+            description: 'Use contiguous axis-family mapping so neighboring cells follow one continuous zig-zag traversal.',
+            shortcut: 'Ctrl+M',
+            active: snapshot.dimensionMappingScheme === 'contiguous',
+            content: iconContiguousMapping(),
+            onClick: () => viewer.setDimensionMappingScheme('contiguous'),
+        },
+        {
+            id: 'mapping-z-order',
+            label: 'Z-Order Mapping',
+            description: 'Use z-order axis-family mapping so traversal breaks into smaller interleaved zig-zag groups.',
+            shortcut: 'Ctrl+M',
+            active: snapshot.dimensionMappingScheme === 'z-order',
+            content: iconZOrderMapping(),
+            onClick: () => viewer.setDimensionMappingScheme('z-order'),
+        },
+    ];
+    controlDock.replaceChildren(...controls.map((control, index) => {
+        const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}`;
+        const tooltip = `<span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span><span class="control-tooltip-shortcut">Shortcut: ${control.shortcut}</span></span>`;
+        if (index === 3 || index === 5 || index === 7 || index === 9) {
+            const fragment = document.createDocumentFragment();
+            const divider = document.createElement('div');
+            divider.className = 'control-dock-divider';
+            fragment.appendChild(divider);
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = buttonClass;
+            button.innerHTML = `${control.content}${tooltip}`;
+            button.disabled = Boolean(control.disabled);
+            button.setAttribute('aria-label', control.label);
+            button.addEventListener('click', async () => {
+                if (control.disabled) return;
+                await control.onClick();
+            });
+            fragment.appendChild(button);
+            return fragment;
+        }
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = buttonClass;
+        button.innerHTML = `${control.content}${tooltip}`;
+        button.disabled = Boolean(control.disabled);
+        button.setAttribute('aria-label', control.label);
+        button.addEventListener('click', async () => {
+            if (control.disabled) return;
+            await control.onClick();
+        });
+        return button;
+    }));
 }
 
 async function loadTab(tabId: string): Promise<void> {
@@ -1752,35 +2005,12 @@ function render(snapshot: ViewerSnapshot): void {
     updateSidebar(snapshot);
     renderTabStrip();
     renderCellTextWidget();
+    renderControlDock(snapshot);
     renderTensorViewWidget(snapshot);
     renderInspectorWidget(snapshot);
     renderSelectionWidget(snapshot);
     renderAdvancedSettingsWidget(snapshot);
     renderColorbarWidget(snapshot);
-}
-
-function sanitizeFilename(name: string): string {
-    return name.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'tensor';
-}
-
-async function saveTensorToDisk(): Promise<void> {
-    const blob = await viewer.saveFile();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${sanitizeFilename(viewer.getInspectorModel().handle?.name ?? 'tensor')}.npy`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-}
-
-async function saveSvgToDisk(): Promise<void> {
-    const blob = viewer.saveSvg();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${sanitizeFilename(activeTab()?.title ?? 'tensor-view')}.svg`;
-    anchor.click();
-    URL.revokeObjectURL(url);
 }
 
 /** loads one tab's raw tensor payloads from the local python session server. */
@@ -1872,6 +2102,9 @@ async function tryLoadSession(): Promise<boolean> {
 function seedDemoTensor(): void {
     sessionTabs = [];
     activeTabId = null;
+    linearLayoutStates.clear();
+    linearLayoutCellTextStates.clear();
+    linearLayoutTensorViewsStates.clear();
     linearLayoutSelectionMaps.clear();
     const shape = [4, 4, 4];
     const data = new Float64Array(product(shape));
@@ -1885,13 +2118,18 @@ async function loadBakedLinearLayoutTabs(): Promise<boolean> {
     const examples = bakedComposeLayoutExamples();
     if (examples.length === 0) return false;
     const baseViewer = viewer.getSnapshot();
+    linearLayoutStates.clear();
+    linearLayoutCellTextStates.clear();
+    linearLayoutTensorViewsStates.clear();
     sessionTabs = examples.map(({ state, title }, index) => {
         const document = createComposeLayoutDocument(state, baseViewer, title);
-        linearLayoutStates.set(`tab-${index + 1}`, cloneLinearLayoutState(state));
-        linearLayoutTensorViewsStates.set(`tab-${index + 1}`, snapshotTensorViews(document.manifest.viewer));
+        const id = `tab-${index + 1}`;
+        linearLayoutStates.set(id, cloneLinearLayoutState(state));
+        linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState());
+        linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
         return {
             ...document,
-            id: `tab-${index + 1}`,
+            id,
             title,
         };
     });
@@ -1926,9 +2164,33 @@ async function loadBakedLinearLayoutTabs(): Promise<boolean> {
 async function openLocalFile(file: File): Promise<void> {
     sessionTabs = [];
     activeTabId = null;
+    linearLayoutStates.clear();
+    linearLayoutCellTextStates.clear();
+    linearLayoutTensorViewsStates.clear();
     linearLayoutSelectionMaps.clear();
     renderTabStrip();
     await viewer.openFile(file);
+}
+
+function downloadSvg(filename: string, svg: string): void {
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+function svgFilename(): string {
+    const title = activeTab()?.title ?? 'tensor-viz';
+    const base = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `${base || 'tensor-viz'}.svg`;
+}
+
+async function currentSvgDocument(): Promise<string> {
+    if (viewer.getSnapshot().displayMode !== '2d') return viewer.exportCurrentViewSvg();
+    return viewer.saveSvg().text();
 }
 
 async function runAction(action: string): Promise<void> {
@@ -1945,15 +2207,8 @@ async function runAction(action: string): Promise<void> {
         case 'open':
             fileInput.click();
             return;
-        case 'save':
-            await saveTensorToDisk();
-            return;
         case 'save-svg':
-            try {
-                await saveSvgToDisk();
-            } catch (error) {
-                window.alert(error instanceof Error ? error.message : String(error));
-            }
+            downloadSvg(svgFilename(), await currentSvgDocument());
             return;
         case '2d':
             viewer.setDisplayMode('2d');
@@ -2037,7 +2292,7 @@ fileInput.addEventListener('change', async () => {
 
 window.addEventListener('keydown', async (event) => {
     const target = event.target as HTMLElement | null;
-    const isEditing = target && ['INPUT', 'TEXTAREA'].includes(target.tagName);
+    const isEditing = Boolean(target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
     const isPaletteInput = target === commandPaletteInput;
     if (isPaletteInput && event.key === 'Escape') {
         event.preventDefault();
@@ -2058,12 +2313,32 @@ window.addEventListener('keydown', async (event) => {
     } else if (event.ctrlKey && event.key === '3') {
         event.preventDefault();
         await runAction('3d');
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        viewer.setInteractionMode('pan');
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        viewer.setInteractionMode('select');
+    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'r') {
+        event.preventDefault();
+        viewer.setInteractionMode('rotate');
     } else if (event.ctrlKey && event.key.toLowerCase() === 'h') {
         event.preventDefault();
         await runAction('heatmap');
     } else if (event.ctrlKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
         await runAction('dims');
+    } else if (event.ctrlKey && event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        await runAction('tensor-names');
+    } else if (event.ctrlKey && event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        await runAction('display-gaps');
+    } else if (event.ctrlKey && event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        viewer.setDimensionMappingScheme(
+            (viewer.getSnapshot().dimensionMappingScheme ?? 'z-order') === 'contiguous' ? 'z-order' : 'contiguous',
+        );
     } else if (event.ctrlKey && event.key.toLowerCase() === 'v') {
         event.preventDefault();
         await runAction('tensor-view');

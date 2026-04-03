@@ -28,6 +28,7 @@ export type {
     DimensionMappingScheme,
     HoverInfo,
     InspectorTensorOption,
+    InteractionMode,
     HueSaturation,
     LoadedBundleDocument,
     NumericArray,

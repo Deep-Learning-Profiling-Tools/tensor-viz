@@ -10,7 +10,7 @@ export const MIN_CANVAS_FIT_INSET = 16;
 export const MAX_CANVAS_FIT_INSET = 48;
 export const AUTO_FIT_2D_SCALE = 0.75;
 export const AUTO_FIT_3D_DISTANCE_SCALE = 1.25;
-export const DEFAULT_TENSOR_SPACING = 2;
+export const DEFAULT_TENSOR_SPACING = 4;
 
 const LOG_PREFIX = '[tensor-viz]';
 const LOG_ENABLED = (() => {
@@ -51,6 +51,7 @@ export type SelectionDragState = {
     mode: 'replace' | 'add' | 'remove';
     tensorId: string | null;
     startClient: { x: number; y: number };
+    startWorld: { x: number; y: number } | null;
     currentClient: { x: number; y: number };
     baseSelections: Map<string, Set<string>>;
     previewSelections: Map<string, Set<string>>;
