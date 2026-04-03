@@ -59,7 +59,6 @@ let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 
 const MIN_VIEWPORT_WIDTH = 280;
-const MAX_SIDEBAR_WIDTH = 720;
 
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
@@ -235,7 +234,7 @@ function closeCommandPalette(): void {
 }
 
 function setSidebarWidth(width: number): void {
-    const maxWidth = Math.max(0, Math.min(MAX_SIDEBAR_WIDTH, app.clientWidth - MIN_VIEWPORT_WIDTH));
+    const maxWidth = Math.max(0, app.clientWidth - MIN_VIEWPORT_WIDTH);
     const clamped = Math.max(0, Math.min(maxWidth, width));
     app.style.setProperty('--sidebar-width', `${clamped}px`);
     viewer.resize();
@@ -314,7 +313,8 @@ function renderTabStrip(): void {
 function iconSelection(): string {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 4v14l4-4 3 6 2-1-3-6h6z" />
+        <path d="M5 5h3v3H5zM16 5h3v3h-3zM5 16h3v3H5zM16 16h3v3h-3z" />
+        <path d="M9.5 6.5h5M9.5 17.5h5M6.5 9.5v5M17.5 9.5v5" stroke-dasharray="2.2 2.2" />
       </svg>
     `;
 }
@@ -322,9 +322,8 @@ function iconSelection(): string {
 function iconRotate(): string {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3l7 4v10l-7 4-7-4V7z" />
-        <path d="M5 7l7 4 7-4" />
-        <path d="M12 11v10" />
+        <path d="M12 4.8A7.2 7.2 0 1 1 4.8 12" />
+        <path d="M4.8 9.6l1.92 3.6H2.88z" fill="currentColor" stroke="none" />
       </svg>
     `;
 }
@@ -332,16 +331,10 @@ function iconRotate(): string {
 function iconHeatmap(): string {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="5" y="5" width="14" height="14" rx="1.5" />
-        <rect x="7" y="7" width="3" height="3" fill="currentColor" stroke="none" opacity="0.2" />
-        <rect x="10.5" y="7" width="3" height="3" fill="currentColor" stroke="none" opacity="0.4" />
-        <rect x="14" y="7" width="3" height="3" fill="currentColor" stroke="none" opacity="0.7" />
-        <rect x="7" y="10.5" width="3" height="3" fill="currentColor" stroke="none" opacity="0.45" />
-        <rect x="10.5" y="10.5" width="3" height="3" fill="currentColor" stroke="none" opacity="0.75" />
-        <rect x="14" y="10.5" width="3" height="3" fill="currentColor" stroke="none" opacity="0.95" />
-        <rect x="7" y="14" width="3" height="3" fill="currentColor" stroke="none" opacity="0.15" />
-        <rect x="10.5" y="14" width="3" height="3" fill="currentColor" stroke="none" opacity="0.55" />
-        <rect x="14" y="14" width="3" height="3" fill="currentColor" stroke="none" opacity="0.85" />
+        <rect x="4" y="4" width="8" height="8" fill="#111111" stroke="#111111" stroke-width="0.8" />
+        <rect x="12" y="4" width="8" height="8" fill="#555555" stroke="#111111" stroke-width="0.8" />
+        <rect x="4" y="12" width="8" height="8" fill="#cccccc" stroke="#111111" stroke-width="0.8" />
+        <rect x="12" y="12" width="8" height="8" fill="#ffffff" stroke="#111111" stroke-width="0.8" />
       </svg>
     `;
 }
@@ -349,13 +342,9 @@ function iconHeatmap(): string {
 function iconDimensionLines(): string {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 18V6h12" />
-        <path d="M6 9l-2 2 2 2" />
-        <path d="M6 9l2 2-2 2" />
-        <path d="M15 6l2-2 2 2" />
-        <path d="M15 6l2 2 2-2" />
-        <path d="M9 15h6" />
-        <path d="M12 12v6" />
+        <polyline points="7,7 7,4 17,4 17,7" stroke="#ef4444" />
+        <polyline points="7,7 4,7 4,17 7,17" stroke="#22c55e" />
+        <rect x="7" y="7" width="10" height="10" />
       </svg>
     `;
 }
@@ -380,13 +369,26 @@ function iconGaps(): string {
     `;
 }
 
-function iconAxisMapping(): string {
+function iconContiguousMapping(): string {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 18V7h11" />
-        <path d="M14 4l3 3-3 3" />
-        <path d="M6 14h8" />
-        <path d="M6 10h4" />
+        <polyline points="4,5.5 20,5.5 4,10.5 20,10.5 4,15.5 20,15.5 4,20.5 20,20.5" />
+      </svg>
+    `;
+}
+
+function iconZOrderMapping(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="4,4 9,4 4,9 9,9 15,4 20,4 15,9 20,9 4,15 9,15 4,20 9,20 15,15 20,15 15,20 20,20" />
+      </svg>
+    `;
+}
+
+function iconPan(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 13v-7.5a1.5 1.5 0 0 1 3 0v6.5M11 5.5v-2a1.5 1.5 0 1 1 3 0v8.5M14 5.5a1.5 1.5 0 0 1 3 0v6.5M17 7.5a1.5 1.5 0 0 1 3 0v8.5a6 6 0 0 1-6 6h-2h.208a6 6 0 0 1-5.012-2.7a69.74 69.74 0 0 1-.196-.3c-.312-.479-1.407-2.388-3.286-5.728a1.5 1.5 0 0 1 .536-2.022a1.867 1.867 0 0 1 2.28.28l1.47 1.47" />
       </svg>
     `;
 }
@@ -402,15 +404,15 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Left click and drag to move the viewport without changing the tensor data.',
             shortcut: 'P',
             active: interactionMode === 'pan',
-            content: '<span class="control-button-emoji" aria-hidden="true">🤚</span>',
+            content: iconPan(),
             onClick: () => viewer.setInteractionMode('pan'),
         },
         {
             id: 'select',
             label: 'Select',
             description: canSelect
-                ? 'Left click and drag to draw a selection box; hold Shift to add cells or Ctrl to remove them.'
-                : 'Selection is available in 2D contiguous layouts, where left click and drag selects, Shift adds, and Ctrl removes.',
+                ? 'Left click and drag to draw a selection box.<br />Shift + left click + drag: add cells.<br />Ctrl + left click + drag: remove cells.'
+                : 'Selection is available in 2D contiguous layouts.<br />Left click and drag: select cells.<br />Shift + left click + drag: add cells.<br />Ctrl + left click + drag: remove cells.',
             shortcut: 'S',
             active: interactionMode === 'select',
             disabled: !canSelect,
@@ -484,18 +486,28 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             onClick: () => viewer.toggleDisplayGaps(),
         },
         {
-            id: 'axis-mapping',
-            label: 'Axis Mapping',
-            description: `Toggle axis family mapping. Current mode: ${snapshot.dimensionMappingScheme === 'contiguous' ? 'Contiguous' : 'Z-Order'}.`,
+            id: 'mapping-contiguous',
+            label: 'Contiguous Mapping',
+            description: 'Use contiguous axis-family mapping so neighboring cells follow one continuous zig-zag traversal.',
             shortcut: 'Ctrl+M',
             active: snapshot.dimensionMappingScheme === 'contiguous',
-            content: iconAxisMapping(),
-            onClick: () => viewer.setDimensionMappingScheme(snapshot.dimensionMappingScheme === 'contiguous' ? 'z-order' : 'contiguous'),
+            content: iconContiguousMapping(),
+            onClick: () => viewer.setDimensionMappingScheme('contiguous'),
+        },
+        {
+            id: 'mapping-z-order',
+            label: 'Z-Order Mapping',
+            description: 'Use z-order axis-family mapping so traversal breaks into smaller interleaved zig-zag groups.',
+            shortcut: 'Ctrl+M',
+            active: snapshot.dimensionMappingScheme === 'z-order',
+            content: iconZOrderMapping(),
+            onClick: () => viewer.setDimensionMappingScheme('z-order'),
         },
     ];
     controlDock.replaceChildren(...controls.map((control, index) => {
-        const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}${control.shortcut.startsWith('Ctrl+') ? ' wide' : ''}`;
-        if (index === 3 || index === 5 || index === 7) {
+        const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}`;
+        const tooltip = `<span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span><span class="control-tooltip-shortcut">Shortcut: ${control.shortcut}</span></span>`;
+        if (index === 3 || index === 5 || index === 7 || index === 9) {
             const fragment = document.createDocumentFragment();
             const divider = document.createElement('div');
             divider.className = 'control-dock-divider';
@@ -503,7 +515,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = buttonClass;
-            button.innerHTML = `${control.content}<span class="control-button-shortcut">${control.shortcut}</span><span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span></span>`;
+            button.innerHTML = `${control.content}${tooltip}`;
             button.disabled = Boolean(control.disabled);
             button.setAttribute('aria-label', control.label);
             button.addEventListener('click', async () => {
@@ -516,7 +528,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = buttonClass;
-        button.innerHTML = `${control.content}<span class="control-button-shortcut">${control.shortcut}</span><span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span></span>`;
+        button.innerHTML = `${control.content}${tooltip}`;
         button.disabled = Boolean(control.disabled);
         button.setAttribute('aria-label', control.label);
         button.addEventListener('click', async () => {
@@ -1049,14 +1061,14 @@ document.querySelectorAll<HTMLButtonElement>('.menu-list button').forEach((butto
 
 window.addEventListener('keydown', async (event) => {
     const target = event.target as HTMLElement | null;
-    const isEditing = target && ['INPUT', 'TEXTAREA'].includes(target.tagName);
+    const isEditing = Boolean(target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
     const isPaletteInput = target === commandPaletteInput;
     if (isPaletteInput && event.key === 'Escape') {
         event.preventDefault();
         closeCommandPalette();
         return;
     }
-    if (isEditing && !isPaletteInput) return;
+    if (isEditing) return;
 
     if (event.ctrlKey && event.key.toLowerCase() === 's') {
         event.preventDefault();

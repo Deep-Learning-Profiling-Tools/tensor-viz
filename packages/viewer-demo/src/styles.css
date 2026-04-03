@@ -232,23 +232,17 @@ select {
 
 .control-button {
     position: relative;
-    display: flex;
-    flex-direction: column;
+    display: grid;
     align-items: center;
     justify-content: center;
-    gap: 0.15rem;
     width: 3rem;
-    min-height: 3.1rem;
+    height: 3rem;
     border: 0;
     border-radius: 0.3rem;
     background: transparent;
     color: #334155;
     cursor: pointer;
     transition: background 120ms ease, color 120ms ease, transform 120ms ease;
-}
-
-.control-button.wide {
-    width: 4rem;
 }
 
 .control-button:hover,
@@ -270,8 +264,8 @@ select {
 }
 
 .control-button svg {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1.85rem;
+    height: 1.85rem;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
@@ -283,24 +277,6 @@ select {
     font-size: 0.82rem;
     font-weight: 700;
     letter-spacing: 0.04em;
-}
-
-.control-button-emoji {
-    font-size: 1.15rem;
-    line-height: 1;
-}
-
-.control-button-shortcut {
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    line-height: 1;
-    color: #475569;
-    text-transform: uppercase;
-}
-
-.control-button.active .control-button-shortcut {
-    color: #1d4ed8;
 }
 
 .control-tooltip {
@@ -333,6 +309,12 @@ select {
     display: block;
     font-size: 0.76rem;
     line-height: 1.35;
+}
+
+.control-tooltip-shortcut {
+    margin-top: 0.45rem;
+    color: #cbd5e1;
+    font-weight: 600;
 }
 
 .control-button:hover .control-tooltip,

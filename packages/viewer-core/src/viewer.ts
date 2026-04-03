@@ -405,9 +405,17 @@ export class TensorViewer {
             return;
         }
         const spacing = mode === '3d' ? DEFAULT_TENSOR_SPACING * 2 : DEFAULT_TENSOR_SPACING;
+        let minLeft = Number.POSITIVE_INFINITY;
+        let maxRight = Number.NEGATIVE_INFINITY;
+        tensors.forEach((tensor) => {
+            const [width] = this.tensorExtentForMode(tensor, mode);
+            minLeft = Math.min(minLeft, tensor.offset[0] - width / 2);
+            maxRight = Math.max(maxRight, tensor.offset[0] + width / 2);
+        });
+        const previousCenter = Number.isFinite(minLeft) && Number.isFinite(maxRight) ? (minLeft + maxRight) / 2 : 0;
         const widths = tensors.map((tensor) => this.tensorExtentForMode(tensor, mode)[0]);
         const totalWidth = widths.reduce((sum, width) => sum + width, 0) + spacing * (tensors.length - 1);
-        let left = -totalWidth / 2;
+        let left = previousCenter - totalWidth / 2;
         tensors.forEach((tensor, index) => {
             const width = widths[index] ?? 0;
             tensor.offset = [left + width / 2, 0, 0];
@@ -615,7 +623,9 @@ export class TensorViewer {
     }
 
     private selectionBoxBounds(drag: SelectionDragState): { left: number; right: number; top: number; bottom: number } {
-        const start = this.overlayPoint(drag.startClient.x, drag.startClient.y);
+        const start = drag.source === '2d' && drag.startWorld
+            ? this.projectCanvasPoint(drag.startWorld.x, drag.startWorld.y)
+            : this.overlayPoint(drag.startClient.x, drag.startClient.y);
         const current = this.overlayPoint(drag.currentClient.x, drag.currentClient.y);
         return {
             left: Math.min(start.x, current.x),
@@ -952,11 +962,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         clientY: number,
     ): void {
         if (!this.selectionEnabled()) return;
+        const startPosition = source === '2d' ? this.canvasPointerToWorld(clientX, clientY) : null;
         this.selectionDrag = {
             source,
             mode,
             tensorId: hover?.tensorId ?? null,
             startClient: { x: clientX, y: clientY },
+            startWorld: startPosition,
             currentClient: { x: clientX, y: clientY },
             baseSelections: this.cloneSelectionEntries(this.selectedCells),
             previewSelections: new Map(),
@@ -1021,7 +1033,9 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             this.flatOverlay.style.display = 'none';
             return;
         }
-        const start = this.overlayPoint(drag.startClient.x, drag.startClient.y);
+        const start = drag.source === '2d' && drag.startWorld
+            ? this.projectCanvasPoint(drag.startWorld.x, drag.startWorld.y)
+            : this.overlayPoint(drag.startClient.x, drag.startClient.y);
         const current = this.overlayPoint(drag.currentClient.x, drag.currentClient.y);
         this.selectionBox.setAttribute('x', String(Math.min(start.x, current.x)));
         this.selectionBox.setAttribute('y', String(Math.min(start.y, current.y)));
@@ -2106,7 +2120,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         logEvent('display:mode', mode);
         this.applyDisplayMode(mode);
         this.relayoutTensorOffsets(mode);
-        this.rebuildAllMeshes();
+        this.rebuildAllMeshes({ fitCamera: mode === '3d' });
     }
 
     /** Return the primary left-drag interaction mode. */

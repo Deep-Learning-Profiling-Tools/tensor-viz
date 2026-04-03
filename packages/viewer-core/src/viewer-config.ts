@@ -51,6 +51,7 @@ export type SelectionDragState = {
     mode: 'replace' | 'add' | 'remove';
     tensorId: string | null;
     startClient: { x: number; y: number };
+    startWorld: { x: number; y: number } | null;
     currentClient: { x: number; y: number };
     baseSelections: Map<string, Set<string>>;
     previewSelections: Map<string, Set<string>>;
