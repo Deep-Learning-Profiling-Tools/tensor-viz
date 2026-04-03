@@ -1,0 +1,403 @@
+import { escapeInfo, labelWithInfo, titleWithInfo } from './app-format.js';
+import { bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument } from './linear-layout.js';
+import {
+    cloneLinearLayoutCellTextState,
+    cloneLinearLayoutState,
+    composeLayoutMetaForTab,
+    defaultLinearLayoutCellTextState,
+    isLinearLayoutTab,
+    refreshLinearLayoutMatrixPreview,
+    snapshotTensorViews,
+    storeLinearLayoutState,
+    type LinearLayoutChannel,
+    type LinearLayoutUiContext,
+} from './linear-layout-state.js';
+import { applyLinearLayoutCellText, preservedLinearLayoutTensorViews } from './linear-layout-viewer-sync.js';
+
+const LINEAR_LAYOUT_CHANNELS: LinearLayoutChannel[] = ['H', 'S', 'L'];
+
+export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
+    const labels = linearLayoutRootLabels(ctx);
+    if (labels.length === 0) {
+        ctx.cellTextWidget.innerHTML = '';
+        return;
+    }
+    ctx.cellTextWidget.innerHTML = `
+      ${titleWithInfo('Cell Text', 'Overlay selected root-input label values directly on every visible tensor cell in 2D. Labels only appear when cells are large enough to read.')}
+      <div class="widget-body">
+        <p class="widget-copy">Choose which root-input label values to draw on each cell. Every visible tensor shows the values of the root coordinate that maps to that cell.</p>
+        <div class="checklist-field">
+          ${labels.map((label) => `
+            <label class="checklist-row" for="cell-text-${label}">
+              <span>${label}</span>
+              <input id="cell-text-${label}" type="checkbox" ${ctx.state.linearLayoutCellTextState[label] ? 'checked' : ''} />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    const sync = (): void => {
+        ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
+            label,
+            ctx.cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.checked ?? false,
+        ]));
+        const tab = activeLinearLayoutTab(ctx);
+        if (tab) ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+        applyLinearLayoutCellText(ctx);
+    };
+    labels.forEach((label) => {
+        ctx.cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', sync);
+    });
+}
+
+export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
+    const statusClass = ctx.state.linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
+    const status = ctx.state.linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(ctx.state.linearLayoutNotice.text)}</div>` : '';
+    const tab = activeLinearLayoutTab(ctx);
+    const meta = tab ? composeLayoutMetaForTab(tab) : null;
+    const visibilityField = !meta ? '' : `
+      <div class="field">
+        ${labelWithInfo('Visible Tensors', 'Toggle which tensors in the render chain stay visible for the current tab.')}
+        <div class="checklist-field">
+          ${meta.tensors.map((tensor) => `
+            <label class="checklist-row" for="linear-layout-visible-${tensor.id}">
+              <span>${escapeInfo(tensor.title)}</span>
+              <input id="linear-layout-visible-${tensor.id}" type="checkbox" ${ctx.state.linearLayoutState.visibleTensors[tensor.id] !== false ? 'checked' : ''} />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    const matrixBlock = !ctx.state.showLinearLayoutMatrix
+        ? ''
+        : `<div class="mono-block linear-layout-matrix-preview">${ctx.state.linearLayoutMatrixPreview}</div>`;
+    ctx.linearLayoutWidget.innerHTML = `
+      ${titleWithInfo('Linear Layout Specifications', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
+      <div class="widget-body">
+        <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one JSON basis row per input label. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
+        <div class="field">
+          ${labelWithInfo('Linear Layout Specifications', 'Enter one or more specification blocks. Each block has one signature line plus one basis row per input label.', 'linear-layout-specs')}
+          <textarea id="linear-layout-specs" class="compact-textarea" rows="8" spellcheck="false">${escapeInfo(ctx.state.linearLayoutState.specsText)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Layout Operation', 'Enter the layout expression to visualize, such as A(B), inv(A), A * B, or parenthesized combinations.', 'linear-layout-operation')}
+          <textarea id="linear-layout-operation" class="compact-textarea" rows="2" spellcheck="false">${escapeInfo(ctx.state.linearLayoutState.operationText)}</textarea>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Input Tensor Name', 'Sets the display name of the root tensor at the start of the rendered chain.', 'linear-layout-input-name')}
+          <input id="linear-layout-input-name" type="text" value="${escapeInfo(ctx.state.linearLayoutState.inputName)}" />
+        </div>
+        ${visibilityField}
+        <div class="button-row">
+          <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
+          <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
+          <button class="secondary-button" id="linear-layout-matrix" type="button">${ctx.state.showLinearLayoutMatrix ? 'Hide Matrix' : 'Show Matrix'}</button>
+        </div>
+        ${matrixBlock}
+        ${status}
+      </div>
+    `;
+
+    const specsInput = ctx.linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-specs');
+    const operationInput = ctx.linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-operation');
+    const inputNameInput = ctx.linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-input-name');
+    const apply = ctx.linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
+    const copy = ctx.linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-copy');
+    const matrix = ctx.linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-matrix');
+    if (specsInput) autosizeTextarea(specsInput);
+    if (operationInput) autosizeTextarea(operationInput);
+    specsInput?.addEventListener('input', () => {
+        ctx.state.linearLayoutState.specsText = specsInput.value;
+        autosizeTextarea(specsInput);
+    });
+    operationInput?.addEventListener('input', () => {
+        ctx.state.linearLayoutState.operationText = operationInput.value;
+        autosizeTextarea(operationInput);
+    });
+    inputNameInput?.addEventListener('input', () => {
+        ctx.state.linearLayoutState.inputName = inputNameInput.value;
+    });
+    meta?.tensors.forEach((tensor) => {
+        ctx.linearLayoutWidget.querySelector<HTMLInputElement>(`#linear-layout-visible-${CSS.escape(tensor.id)}`)?.addEventListener('change', async (event) => {
+            const target = event.currentTarget as HTMLInputElement;
+            ctx.state.linearLayoutState.visibleTensors[tensor.id] = target.checked;
+            await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
+        });
+    });
+    apply?.addEventListener('click', async () => {
+        await applyLinearLayoutSpec(ctx);
+    });
+    copy?.addEventListener('click', async () => {
+        try {
+            await copyText(buildComposeRuntime(ctx.state.linearLayoutState).pythonCode);
+            ctx.state.linearLayoutNotice = { tone: 'success', text: 'Copied Python init code.' };
+        } catch (error) {
+            ctx.state.linearLayoutNotice = { tone: 'error', text: error instanceof Error ? error.message : String(error) };
+        }
+        renderLinearLayoutWidget(ctx);
+    });
+    matrix?.addEventListener('click', () => {
+        ctx.state.showLinearLayoutMatrix = !ctx.state.showLinearLayoutMatrix;
+        renderLinearLayoutWidget(ctx);
+    });
+    renderLinearLayoutColorWidget(ctx);
+}
+
+export async function applyLinearLayoutSpec(
+    ctx: LinearLayoutUiContext,
+    options: { replaceTabs?: boolean; silent?: boolean; preserveTensorViews?: boolean } = {},
+): Promise<boolean> {
+    try {
+        refreshLinearLayoutMatrixPreview(ctx);
+        const document = createComposeLayoutDocument(
+            ctx.state.linearLayoutState,
+            ctx.viewer.getSnapshot(),
+            undefined,
+            options.preserveTensorViews ? preservedLinearLayoutTensorViews(ctx) : undefined,
+        );
+        ctx.state.linearLayoutCellTextState = normalizeCellTextState(
+            ctx.state.linearLayoutCellTextState,
+            buildComposeRuntime(ctx.state.linearLayoutState).inputLabels,
+        );
+        storeLinearLayoutState(ctx.state.linearLayoutState);
+        await upsertLinearLayoutTab(ctx, document, options.replaceTabs);
+        const activeTitle = ctx.getSessionTabs().find((tab) => tab.id === ctx.getActiveTabId())?.title ?? document.title;
+        ctx.state.linearLayoutNotice = options.silent ? null : { tone: 'success', text: `Rendered ${activeTitle}.` };
+        renderLinearLayoutWidget(ctx);
+        return true;
+    } catch (error) {
+        ctx.state.linearLayoutNotice = { tone: 'error', text: error instanceof Error ? error.message : String(error) };
+        renderLinearLayoutWidget(ctx);
+        return false;
+    }
+}
+
+export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Promise<boolean> {
+    const examples = bakedComposeLayoutExamples();
+    if (examples.length === 0) return false;
+    const baseViewer = ctx.viewer.getSnapshot();
+    ctx.state.linearLayoutStates.clear();
+    ctx.state.linearLayoutCellTextStates.clear();
+    ctx.state.linearLayoutTensorViewsStates.clear();
+    ctx.setSessionTabs(examples.map(({ state, title }, index) => {
+        const document = createComposeLayoutDocument(state, baseViewer, title);
+        const id = `tab-${index + 1}`;
+        ctx.state.linearLayoutStates.set(id, cloneLinearLayoutState(state));
+        ctx.state.linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState());
+        ctx.state.linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
+        return { ...document, id, title };
+    }));
+    ctx.state.linearLayoutSelectionMaps.clear();
+    const initialTabId = ctx.getSessionTabs()[0]?.id ?? null;
+    if (!initialTabId) return false;
+    await ctx.loadTab(initialTabId);
+    await settleInitialLayout(ctx);
+    return true;
+}
+
+async function upsertLinearLayoutTab(
+    ctx: LinearLayoutUiContext,
+    document: ReturnType<typeof createComposeLayoutDocument>,
+    replaceTabs = false,
+): Promise<void> {
+    const activeTab = ctx.getSessionTabs().find((tab) => tab.id === ctx.getActiveTabId());
+    const targetId = activeTab?.id ?? document.id;
+    const targetTitle = activeTab?.title ?? document.title;
+    const nextDocument = { ...document, id: targetId, title: targetTitle };
+    ctx.state.linearLayoutStates.set(targetId, cloneLinearLayoutState(ctx.state.linearLayoutState));
+    ctx.state.linearLayoutCellTextStates.set(targetId, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+    ctx.state.linearLayoutSelectionMaps.delete(targetId);
+    if (replaceTabs || ctx.getSessionTabs().length === 0) {
+        ctx.setSessionTabs([nextDocument]);
+    } else {
+        const index = ctx.getSessionTabs().findIndex((tab) => tab.id === targetId);
+        ctx.setSessionTabs(index === -1
+            ? [...ctx.getSessionTabs(), nextDocument]
+            : ctx.getSessionTabs().map((tab, tabIndex) => tabIndex === index ? nextDocument : tab));
+    }
+    await ctx.loadTab(targetId);
+}
+
+function activeLinearLayoutTab(ctx: LinearLayoutUiContext) {
+    const tab = ctx.getActiveTab();
+    return tab && isLinearLayoutTab(tab) ? tab : null;
+}
+
+function linearLayoutRootLabels(ctx: LinearLayoutUiContext): string[] {
+    const tab = activeLinearLayoutTab(ctx);
+    const meta = tab ? composeLayoutMetaForTab(tab) : null;
+    if (meta) return meta.rootInputLabels.slice();
+    try {
+        return buildComposeRuntime(ctx.state.linearLayoutState).inputLabels;
+    } catch {
+        return [];
+    }
+}
+
+function normalizeCellTextState(state: Record<string, boolean>, labels: string[]): Record<string, boolean> {
+    return Object.fromEntries(labels.map((label) => [label, state[label] ?? false]));
+}
+
+function autosizeTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = '0';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+async function copyText(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const input = document.createElement('textarea');
+    input.value = text;
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+}
+
+async function settleInitialLayout(ctx: LinearLayoutUiContext): Promise<void> {
+    if ('fonts' in document) {
+        try {
+            await (document as Document & { fonts: { ready: Promise<unknown> } }).fonts.ready;
+        } catch {
+            // ignore font-settlement errors
+        }
+    }
+    let stableFrames = 0;
+    let previousSize = '';
+    while (stableFrames < 2) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const nextSize = `${ctx.viewport.clientWidth}x${ctx.viewport.clientHeight}`;
+        stableFrames = nextSize === previousSize ? stableFrames + 1 : 0;
+        previousSize = nextSize;
+    }
+    ctx.viewer.resize();
+    ctx.viewer.refitView();
+}
+
+function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
+    const activeElement = document.activeElement;
+    const focusedInput = activeElement instanceof HTMLInputElement && ctx.linearLayoutColorWidget.contains(activeElement)
+        ? { id: activeElement.id, start: activeElement.selectionStart, end: activeElement.selectionEnd }
+        : null;
+    const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
+    const rootLabels = linearLayoutRootLabels(ctx);
+    const assignedLabels = new Set(
+        LINEAR_LAYOUT_CHANNELS
+            .map((channel) => ctx.state.linearLayoutState.mapping[channel])
+            .filter((label): label is string => label !== 'none' && rootLabels.includes(label)),
+    );
+    const availableLabels = rootLabels.filter((label) => !assignedLabels.has(label));
+    ctx.linearLayoutColorWidget.innerHTML = `
+      ${titleWithInfo('Color Mapping', 'Select which root-input axis drives each color channel and set channel ranges.')}
+      <div class="widget-body">
+        <div class="field">
+          ${labelWithInfo('Available Axes', 'Drag one root-input axis onto H, S, or L. Drag a colored axis back here to clear that channel.')}
+          <div class="mapping-pool mapping-drop-zone" data-pool="true">
+            ${availableLabels.map((label) => `<button class="mapping-chip" type="button" draggable="true" data-axis="${label}">${label}</button>`).join('')}
+            ${availableLabels.length === 0 ? '<span class="mapping-empty">all axes assigned</span>' : ''}
+          </div>
+        </div>
+        ${LINEAR_LAYOUT_CHANNELS.map((channel) => `
+          <div class="inline-row mapping-row">
+            <span class="range-label">${channelLabels[channel]}</span>
+            <div class="mapping-drop-zone" data-channel="${channel}">
+              ${ctx.state.linearLayoutState.mapping[channel] !== 'none' && rootLabels.includes(ctx.state.linearLayoutState.mapping[channel] as string)
+        ? `<button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${ctx.state.linearLayoutState.mapping[channel]}">${ctx.state.linearLayoutState.mapping[channel]}</button>`
+        : '<span class="mapping-empty">none</span>'}
+            </div>
+            <input id="linear-layout-${channel.toLowerCase()}-min" type="number" step="0.01" value="${escapeInfo(ctx.state.linearLayoutState.ranges[channel][0])}" />
+            <span class="range-separator">to</span>
+            <input id="linear-layout-${channel.toLowerCase()}-max" type="number" step="0.01" value="${escapeInfo(ctx.state.linearLayoutState.ranges[channel][1])}" />
+          </div>
+        `).join('')}
+        <div class="button-row">
+          <button class="primary-button" id="linear-layout-recolor" type="button">Recolor Layout</button>
+        </div>
+      </div>
+    `;
+
+    const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
+        event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));
+        event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    };
+    const readDragPayload = (event: DragEvent): Record<string, string> | null => {
+        const raw = event.dataTransfer?.getData('application/x-linear-layout-mapping') || event.dataTransfer?.getData('text/plain');
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw) as Record<string, string>;
+        } catch {
+            return null;
+        }
+    };
+    ctx.linearLayoutColorWidget.querySelectorAll<HTMLElement>('[draggable="true"]').forEach((element) => {
+        element.addEventListener('dragstart', (event) => {
+            const channel = element.dataset.channel;
+            const axis = element.dataset.axis;
+            if (axis) writeDragPayload(event, channel ? { kind: 'channel', channel, axis } : { kind: 'axis', axis });
+        });
+    });
+    ctx.linearLayoutColorWidget.querySelectorAll<HTMLElement>('.mapping-drop-zone').forEach((element) => {
+        element.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            element.classList.add('drag-over');
+        });
+        element.addEventListener('dragleave', () => {
+            element.classList.remove('drag-over');
+        });
+        element.addEventListener('drop', (event) => {
+            event.preventDefault();
+            element.classList.remove('drag-over');
+            const payload = readDragPayload(event);
+            const targetChannel = element.dataset.channel as LinearLayoutChannel | undefined;
+            if (!payload) return;
+            if (element.dataset.pool === 'true') {
+                if (payload.kind === 'channel' && payload.channel) {
+                    ctx.state.linearLayoutState.mapping[payload.channel as LinearLayoutChannel] = 'none';
+                    renderLinearLayoutColorWidget(ctx);
+                }
+                return;
+            }
+            if (!targetChannel) return;
+            if (payload.kind === 'channel') {
+                const sourceChannel = payload.channel as LinearLayoutChannel;
+                if (!sourceChannel || sourceChannel === targetChannel) return;
+                const sourceAxis = ctx.state.linearLayoutState.mapping[sourceChannel];
+                ctx.state.linearLayoutState.mapping[sourceChannel] = ctx.state.linearLayoutState.mapping[targetChannel];
+                ctx.state.linearLayoutState.mapping[targetChannel] = sourceAxis;
+            } else if (payload.axis) {
+                LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
+                    if (ctx.state.linearLayoutState.mapping[channel] === payload.axis) ctx.state.linearLayoutState.mapping[channel] = 'none';
+                });
+                ctx.state.linearLayoutState.mapping[targetChannel] = payload.axis;
+            }
+            renderLinearLayoutColorWidget(ctx);
+        });
+    });
+    ([
+        ['H', 'h'],
+        ['S', 's'],
+        ['L', 'l'],
+    ] as const).forEach(([channel, key]) => {
+        ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#linear-layout-${key}-min`)?.addEventListener('input', (event) => {
+            ctx.state.linearLayoutState.ranges[channel][0] = (event.currentTarget as HTMLInputElement).value;
+        });
+        ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#linear-layout-${key}-max`)?.addEventListener('input', (event) => {
+            ctx.state.linearLayoutState.ranges[channel][1] = (event.currentTarget as HTMLInputElement).value;
+        });
+    });
+    ctx.linearLayoutColorWidget.querySelector<HTMLButtonElement>('#linear-layout-recolor')?.addEventListener('click', async () => {
+        await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
+    });
+    if (focusedInput) {
+        const nextInput = ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#${focusedInput.id}`);
+        nextInput?.focus();
+        if (nextInput && focusedInput.start !== null && focusedInput.end !== null) {
+            nextInput.setSelectionRange(focusedInput.start, focusedInput.end);
+        }
+    }
+}

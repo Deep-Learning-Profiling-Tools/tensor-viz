@@ -723,6 +723,7 @@ async function loadTab(tabId: string): Promise<void> {
     renderTabStrip();
     syncLinearLayoutState(linearLayoutUi, tab);
     syncLinearLayoutCellTextState(linearLayoutUi, tab);
+    renderLinearLayoutWidget(linearLayoutUi);
     renderCellTextWidget(linearLayoutUi);
     syncLinearLayoutViewFilters(linearLayoutUi);
     applyLinearLayoutCellText(linearLayoutUi);
