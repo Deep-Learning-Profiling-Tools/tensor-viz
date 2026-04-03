@@ -221,8 +221,12 @@ function mappedSelectionFromSource(
 
 function linearLayoutCellTextForCoord(coord: number[], labels: string[], state: LinearLayoutCellTextState): string {
     return labels
-        .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}${coord[axis] ?? 0}`] : []))
+        .flatMap((label, axis) => (state[label] && axis < coord.length ? [indexedAxisLabel(label, coord[axis] ?? 0)] : []))
         .join('\n');
+}
+
+function indexedAxisLabel(label: string, index: number): string {
+    return `${label}:${index}`;
 }
 
 function linearLayoutCellLabelsForTab(

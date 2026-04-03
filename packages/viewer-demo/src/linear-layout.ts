@@ -828,8 +828,12 @@ function matrixBlock(title: string, layout: EvaluatedLayout): MatrixBlock {
 
 function bitLabels(labels: string[], bitCounts: number[]): MatrixAxis[] {
     return labels.flatMap((label, axis) => (
-        Array.from({ length: bitCounts[axis] ?? 0 }, (_entry, bit) => ({ label: `${label}${bit}`, axis }))
+        Array.from({ length: bitCounts[axis] ?? 0 }, (_entry, bit) => ({ label: indexedAxisLabel(label, bit), axis }))
     ));
+}
+
+function indexedAxisLabel(label: string, index: number): string {
+    return `${label}:${index}`;
 }
 
 function pythonNamedLayout(spec: NamedLayoutSpec): string[] {
