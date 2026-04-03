@@ -253,7 +253,10 @@ function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutF
         });
     }
     return {
-        specsText: [`Layout_1: [T,W,R] -> [${outputs.join(',')}]`, ...rows.map((row) => JSON.stringify(row))].join('\n'),
+        specsText: [
+            `Layout_1: [T,W,R] -> [${outputs.join(',')}]`,
+            ...['T', 'W', 'R'].map((label, axis) => `${label}: ${JSON.stringify(rows[axis])}`),
+        ].join('\n'),
         operationText: 'Layout_1',
         inputName: fallback.inputName,
         visibleTensors: {},

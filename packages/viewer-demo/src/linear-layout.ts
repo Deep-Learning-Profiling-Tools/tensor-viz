@@ -121,43 +121,43 @@ const LEGACY_AXIS_ALIASES = {
 
 const BLOCKED_LAYOUT_TEXT = [
     'Blocked_Layout: [T,W,R] -> [A,B]',
-    '[[4,0],[8,0],[0,1],[0,2],[0,4]]',
-    '[[0,8],[0,16]]',
-    '[[1,0],[2,0]]',
+    'T: [[4,0],[8,0],[0,1],[0,2],[0,4]]',
+    'W: [[0,8],[0,16]]',
+    'R: [[1,0],[2,0]]',
 ].join('\n');
 
 const MMA_A_LAYOUT_TEXT = [
     'MMA_A_Layout_m16n8k16: [T,W,R] -> [A,B]',
-    '[[0,2],[0,4],[1,0],[2,0],[4,0]]',
-    '[]',
-    '[[0,1],[8,0],[0,8]]',
+    'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
+    'W: []',
+    'R: [[0,1],[8,0],[0,8]]',
 ].join('\n');
 
 const MMA_B_LAYOUT_TEXT = [
     'MMA_B_Layout_m16n8k16: [T,W,R] -> [A,B]',
-    '[[2,0],[4,0],[0,1],[0,2],[0,4]]',
-    '[]',
-    '[[1,0],[8,0]]',
+    'T: [[2,0],[4,0],[0,1],[0,2],[0,4]]',
+    'W: []',
+    'R: [[1,0],[8,0]]',
 ].join('\n');
 
 const MMA_C_LAYOUT_TEXT = [
     'MMA_C_Layout_m16n8k16: [T,W,R] -> [A,B]',
-    '[[0,2],[0,4],[1,0],[2,0],[4,0]]',
-    '[]',
-    '[[0,1],[8,0]]',
+    'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
+    'W: []',
+    'R: [[0,1],[8,0]]',
 ].join('\n');
 
 const SHARED_MEMORY_SWIZZLE_TEXT = [
     'Shared_Memory_128B_Swizzle: [Y,X] -> [S,B]',
-    '[[1,1],[2,2],[4,4]]',
-    '[[0,1],[0,2],[0,4]]',
+    'Y: [[1,1],[2,2],[4,4]]',
+    'X: [[0,1],[0,2],[0,4]]',
 ].join('\n');
 
 const DEFAULT_EMPTY_SPEC_TEXT = [
     'Layout_1: [T,W,R] -> [A,B]',
-    '[[0,1],[0,2],[0,4],[0,8],[0,16]]',
-    '[]',
-    '[[1,0],[2,0]]',
+    'T: [[0,1],[0,2],[0,4],[0,8],[0,16]]',
+    'W: []',
+    'R: [[1,0],[2,0]]',
 ].join('\n');
 
 const BAKED_EXAMPLES: ExampleState[] = [
@@ -493,15 +493,31 @@ function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
         const signatureLine = lines[index]!.trim();
         const signature = parseSignature(signatureLine);
         index += 1;
-        const bases: number[][][] = [];
+        const basisByLabel = new Map<string, number[][]>();
         for (let axis = 0; axis < signature.inputs.length; axis += 1) {
             const line = lines[index]?.trim();
             if (!line) {
-                throw new Error(`Layout ${signature.name} is missing basis row ${axis + 1} for ${signature.inputs[axis]}.`);
+                throw new Error(`Layout ${signature.name} is missing basis row for ${signature.inputs[axis]}.`);
             }
-            bases.push(parseBasisRow(line, signature.outputs.length, signature.inputs[axis]!));
+            const match = line.match(/^([A-Za-z][0-9]*)\s*:\s*(.+)$/);
+            if (!match) {
+                throw new Error(`Layout ${signature.name} basis rows must use "<label>: <json>" syntax.`);
+            }
+            const axisLabel = match[1]!;
+            if (!signature.inputs.includes(axisLabel)) {
+                throw new Error(`Layout ${signature.name} received basis row for unknown input label ${axisLabel}.`);
+            }
+            if (basisByLabel.has(axisLabel)) {
+                throw new Error(`Layout ${signature.name} has duplicate basis row for ${axisLabel}.`);
+            }
+            basisByLabel.set(axisLabel, parseBasisRow(match[2]!, signature.outputs.length, axisLabel));
             index += 1;
         }
+        const bases = signature.inputs.map((axisLabel) => {
+            const basis = basisByLabel.get(axisLabel);
+            if (!basis) throw new Error(`Layout ${signature.name} is missing basis row for ${axisLabel}.`);
+            return basis;
+        });
         const spec = {
             name: signature.name,
             inputs: signature.inputs,
@@ -1223,7 +1239,7 @@ function sanitizeIdentifier(value: string): string {
 function formatSpecsText(specs: NamedLayoutSpec[]): string {
     return specs.map((spec) => [
         `${spec.name}: [${spec.inputs.join(',')}] -> [${spec.outputs.join(',')}]`,
-        ...spec.bases.map((row) => JSON.stringify(row)),
+        ...spec.bases.map((row, axis) => `${spec.inputs[axis]}: ${JSON.stringify(row)}`),
     ].join('\n')).join('\n\n');
 }
 

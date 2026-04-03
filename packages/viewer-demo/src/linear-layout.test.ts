@@ -53,10 +53,10 @@ describe('compose layout helpers', () => {
     it('renders composition chains left to right and emits compose code in the same order', () => {
         const state = composeState([
             'Layout1: [T] -> [A]',
-            '[[1]]',
+            'T: [[1]]',
             '',
             'Layout2: [A] -> [B]',
-            '[[1]]',
+            'A: [[1]]',
         ].join('\n'), 'Layout2(Layout1)');
         const runtime = buildComposeRuntime(state);
 
@@ -91,10 +91,10 @@ describe('compose layout helpers', () => {
     it('composes layouts with matching labels even when intermediate bit widths differ', () => {
         const state = composeState([
             'Layout1: [T] -> [A]',
-            '[[1]]',
+            'T: [[1]]',
             '',
             'Layout2: [A] -> [B]',
-            '[[1],[2]]',
+            'A: [[1],[2]]',
         ].join('\n'), 'Layout2(Layout1)');
         const runtime = buildComposeRuntime(state);
 
@@ -109,13 +109,13 @@ describe('compose layout helpers', () => {
     it('rejects compositions that become non-injective after width alignment', () => {
         const state = composeState([
             'Blocked_Layout: [T,W,R] -> [Y,X]',
-            '[[4,0],[8,0],[0,1],[0,2],[0,4]]',
-            '[[0,8],[0,16]]',
-            '[[1,0],[2,0]]',
+            'T: [[4,0],[8,0],[0,1],[0,2],[0,4]]',
+            'W: [[0,8],[0,16]]',
+            'R: [[1,0],[2,0]]',
             '',
             'Layout2: [Y,X] -> [Y,X]',
-            '[[4,0],[8,0],[0,1],[0,2],[0,4]]',
-            '[[0,8],[0,16]]',
+            'Y: [[4,0],[8,0],[0,1],[0,2],[0,4]]',
+            'X: [[0,8],[0,16]]',
         ].join('\n'), 'Layout2(Blocked_Layout)');
 
         expect(() => buildComposeRuntime(state)).toThrow('Layout2(Blocked_Layout) is not injective over its full input domain.');
@@ -124,10 +124,10 @@ describe('compose layout helpers', () => {
     it('supports products as atomic render steps', () => {
         const state = composeState([
             'Left: [T] -> [A]',
-            '[[1]]',
+            'T: [[1]]',
             '',
             'Right: [U] -> [B]',
-            '[[1]]',
+            'U: [[1]]',
         ].join('\n'), 'Left * Right');
         const runtime = buildComposeRuntime(state);
 
@@ -142,12 +142,12 @@ describe('compose layout helpers', () => {
     it('supports products with duplicate inputs and distinct outputs', () => {
         const runtime = buildComposeRuntime(composeState([
             'Left: [A,B] -> [C,D]',
-            '[[1,0],[2,0]]',
-            '[[0,1],[0,2]]',
+            'A: [[1,0],[2,0]]',
+            'B: [[0,1],[0,2]]',
             '',
             'Right: [A,B] -> [C2,D2]',
-            '[[1,0],[2,0]]',
-            '[[0,1],[0,2]]',
+            'A: [[1,0],[2,0]]',
+            'B: [[0,1],[0,2]]',
         ].join('\n'), 'Left * Right'));
 
         expect(runtime.inputLabels).toEqual(['A', 'B']);
@@ -171,10 +171,10 @@ describe('compose layout helpers', () => {
     it('supports products with distinct inputs and duplicate outputs', () => {
         const runtime = buildComposeRuntime(composeState([
             'Left: [A] -> [C]',
-            '[[1]]',
+            'A: [[1]]',
             '',
             'Right: [B] -> [C]',
-            '[[1]]',
+            'B: [[1]]',
         ].join('\n'), 'Left * Right'));
 
         expect(runtime.inputLabels).toEqual(['A', 'B']);
@@ -189,10 +189,10 @@ describe('compose layout helpers', () => {
     it('supports products with duplicate inputs and duplicate outputs', () => {
         const runtime = buildComposeRuntime(composeState([
             'Left: [A] -> [C]',
-            '[[1]]',
+            'A: [[1]]',
             '',
             'Right: [A] -> [C]',
-            '[[1]]',
+            'A: [[1]]',
         ].join('\n'), 'Left * Right'));
 
         expect(runtime.inputLabels).toEqual(['A']);
@@ -207,7 +207,7 @@ describe('compose layout helpers', () => {
     it('rejects non-injective specs', () => {
         const state = composeState([
             'Bad: [T] -> [A]',
-            '[[0],[0]]',
+            'T: [[0],[0]]',
         ].join('\n'), 'Bad');
 
         expect(() => buildComposeRuntime(state)).toThrow('Bad is not injective over its full input domain.');
@@ -216,9 +216,33 @@ describe('compose layout helpers', () => {
     it('rejects inverse on injective-but-non-bijective layouts', () => {
         const state = composeState([
             'Stretch: [T] -> [A]',
-            '[[2]]',
+            'T: [[2]]',
         ].join('\n'), 'inv(Stretch)');
 
         expect(() => buildComposeRuntime(state)).toThrow('Stretch is not bijective, so inv(Stretch) is invalid.');
+    });
+
+    it('accepts labeled basis rows with flexible whitespace and reordered inputs', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'Blocked_Layout: [T,W,R] -> [Y,X]',
+            'R:[[1,0],[2,0]]',
+            'W : [[0,8],[0,16]]',
+            'T   :[[4,0],[8,0],[0,1],[0,2],[0,4]]',
+        ].join('\n'), 'Blocked_Layout'));
+
+        expect(runtime.tensors.at(-1)).toMatchObject({
+            title: 'Blocked_Layout',
+            shape: [16, 32],
+            axisLabels: ['Y', 'X'],
+        });
+    });
+
+    it('rejects unlabeled basis rows', () => {
+        const state = composeState([
+            'Bad: [T] -> [A]',
+            '[[1]]',
+        ].join('\n'), 'Bad');
+
+        expect(() => buildComposeRuntime(state)).toThrow('Layout Bad basis rows must use "<label>: <json>" syntax.');
     });
 });

@@ -59,9 +59,9 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     ctx.linearLayoutWidget.innerHTML = `
       ${ctx.widgetTitle('linear-layout', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
       <div class="widget-body">
-        <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one JSON basis row per input label. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
+        <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one labeled basis row per input such as <span class="inline-code">T: [[1,0],[0,1]]</span>. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
         <div class="field">
-          ${labelWithInfo('Linear Layout Specifications', 'Enter one or more specification blocks. Each block has one signature line plus one basis row per input label.', 'linear-layout-specs')}
+          ${labelWithInfo('Linear Layout Specifications', 'Enter one or more specification blocks. Each block has one signature line plus one labeled basis row per input label.', 'linear-layout-specs')}
           <textarea id="linear-layout-specs" class="compact-textarea" rows="8" spellcheck="false">${escapeInfo(ctx.state.linearLayoutState.specsText)}</textarea>
         </div>
         <div class="field">
@@ -72,10 +72,10 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
           ${labelWithInfo('Input Tensor Name', 'Sets the display name of the root tensor at the start of the rendered chain.', 'linear-layout-input-name')}
           <input id="linear-layout-input-name" type="text" value="${escapeInfo(ctx.state.linearLayoutState.inputName)}" />
         </div>
-        <div class="button-row">
+        <div class="button-row linear-layout-action-row">
           <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
-          <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
           <button class="secondary-button" id="linear-layout-matrix" type="button">${ctx.state.showLinearLayoutMatrix ? 'Hide Matrix' : 'Show Matrix'}</button>
+          <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
         </div>
         ${matrixBlock}
         ${status}
@@ -184,12 +184,11 @@ export async function applyLinearLayoutSpec(
 export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Promise<boolean> {
     const examples = bakedComposeLayoutExamples();
     if (examples.length === 0) return false;
-    const baseViewer = ctx.viewer.getSnapshot();
     ctx.state.linearLayoutStates.clear();
     ctx.state.linearLayoutCellTextStates.clear();
     ctx.state.linearLayoutTensorViewsStates.clear();
     ctx.setSessionTabs(examples.map(({ state, title }, index) => {
-        const document = createComposeLayoutDocument(state, baseViewer, title);
+        const document = createComposeLayoutDocument(state, undefined, title);
         const id = `tab-${index + 1}`;
         ctx.state.linearLayoutStates.set(id, cloneLinearLayoutState(state));
         ctx.state.linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState());
@@ -201,6 +200,7 @@ export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Pro
     if (!initialTabId) return false;
     await ctx.loadTab(initialTabId);
     await settleInitialLayout(ctx);
+    await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
     return true;
 }
 
