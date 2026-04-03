@@ -67,6 +67,9 @@ export type HoverInfo = {
 /** Selected tensor coordinates grouped by tensor id. */
 export type SelectionCoords = Map<string, number[][]>;
 
+/** Primary left-drag interaction used by the viewer. */
+export type InteractionMode = 'pan' | 'select' | 'rotate';
+
 /** Serializable viewer state for one loaded document.
  *
  * This captures how the viewer should look after tensors are present:
@@ -76,6 +79,7 @@ export type SelectionCoords = Map<string, number[][]>;
 export type ViewerSnapshot = {
     version: 1;
     displayMode: '2d' | '3d';
+    interactionMode?: InteractionMode;
     heatmap: boolean;
     dimensionBlockGapMultiple?: number;
     displayGaps?: boolean;
@@ -216,6 +220,7 @@ export type TensorRecord = {
 /** Internal mutable viewer state mirrored into public snapshots. */
 export type ViewerState = {
     displayMode: '2d' | '3d';
+    interactionMode: InteractionMode;
     heatmap: boolean;
     dimensionBlockGapMultiple: number;
     displayGaps: boolean;

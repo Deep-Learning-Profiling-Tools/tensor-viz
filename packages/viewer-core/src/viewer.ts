@@ -92,6 +92,7 @@ import type {
     DimensionMappingScheme,
     HoverInfo,
     HueSaturation,
+    InteractionMode,
     NumericArray,
     RGB,
     SelectionCoords,
@@ -144,6 +145,7 @@ export class TensorViewer {
     private readonly resizeObserver?: ResizeObserver;
     private readonly state: ViewerState = {
         displayMode: '2d',
+        interactionMode: 'pan',
         heatmap: true,
         dimensionBlockGapMultiple: DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
         displayGaps: true,
@@ -177,7 +179,7 @@ export class TensorViewer {
         this.requestTensorDataCallback = options.requestTensorData;
         if (getComputedStyle(container).position === 'static') this.container.style.position = 'relative';
         this.scene.background = new Color(options.background ?? '#e5e7eb');
-        this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
         if ('outputEncoding' in this.renderer) (this.renderer as WebGLRenderer & { outputEncoding: number }).outputEncoding = 3001;
         if ('outputColorSpace' in this.renderer) this.renderer.outputColorSpace = SRGBColorSpace;
         this.renderer.toneMapping = NoToneMapping;
@@ -235,13 +237,30 @@ export class TensorViewer {
         controls.enablePan = true;
         controls.enableZoom = true;
         controls.screenSpacePanning = true;
-        controls.mouseButtons.LEFT = MOUSE.ROTATE;
+        controls.mouseButtons.LEFT = MOUSE.PAN;
         controls.mouseButtons.RIGHT = MOUSE.PAN;
         if ('zoomToCursor' in controls) {
             (controls as OrbitControls & { zoomToCursor: boolean }).zoomToCursor = true;
         }
         controls.addEventListener('change', () => this.requestRender());
         return controls;
+    }
+
+    private normalizeInteractionMode(): void {
+        if (this.state.displayMode === '2d') {
+            if (this.state.interactionMode === 'rotate') this.state.interactionMode = 'pan';
+            if (this.state.interactionMode === 'select' && !this.selectionEnabled()) this.state.interactionMode = 'pan';
+            return;
+        }
+        if (this.state.interactionMode === 'select') this.state.interactionMode = 'pan';
+    }
+
+    private syncInteractionMode(): void {
+        this.normalizeInteractionMode();
+        const leftButton = this.state.displayMode === '3d' && this.state.interactionMode === 'rotate' ? MOUSE.ROTATE : MOUSE.PAN;
+        this.controls.enableRotate = this.state.displayMode === '3d';
+        this.controls.mouseButtons.LEFT = leftButton;
+        this.controls.mouseButtons.RIGHT = MOUSE.PAN;
     }
 
     private bindEvents(): void {
@@ -368,6 +387,7 @@ export class TensorViewer {
     }
 
     private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
+        const spacing = mode === '3d' ? DEFAULT_TENSOR_SPACING * 2 : DEFAULT_TENSOR_SPACING;
         const [width] = this.tensorExtentForMode(tensor, mode);
         let maxRight = Number.NEGATIVE_INFINITY;
         for (const existing of this.tensors.values()) {
@@ -375,7 +395,24 @@ export class TensorViewer {
             maxRight = Math.max(maxRight, existing.offset[0] + existingWidth / 2);
         }
         if (!Number.isFinite(maxRight)) return [0, 0, 0];
-        return [maxRight + DEFAULT_TENSOR_SPACING + width / 2, 0, 0];
+        return [maxRight + spacing + width / 2, 0, 0];
+    }
+
+    private relayoutTensorOffsets(mode: '2d' | '3d' = this.state.displayMode): void {
+        const tensors = Array.from(this.tensors.values());
+        if (tensors.length < 2) {
+            if (tensors[0]) tensors[0].offset = [0, 0, 0];
+            return;
+        }
+        const spacing = mode === '3d' ? DEFAULT_TENSOR_SPACING * 2 : DEFAULT_TENSOR_SPACING;
+        const widths = tensors.map((tensor) => this.tensorExtentForMode(tensor, mode)[0]);
+        const totalWidth = widths.reduce((sum, width) => sum + width, 0) + spacing * (tensors.length - 1);
+        let left = -totalWidth / 2;
+        tensors.forEach((tensor, index) => {
+            const width = widths[index] ?? 0;
+            tensor.offset = [left + width / 2, 0, 0];
+            left += width + spacing;
+        });
     }
 
     private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo, 'value' | 'colorSource'> {
@@ -1114,22 +1151,25 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             ? { hover: this.state.hover, position: this.hoverPosition(this.state.hover) ?? new Vector3() }
             : this.canvasPointerToHover(event.clientX, event.clientY);
         if (event.button === 0) {
-            if (!this.selectionEnabled()) return;
+            if (this.state.interactionMode === 'select') {
+                if (!this.selectionEnabled()) return;
+                this.flatCanvas.setPointerCapture(event.pointerId);
+                this.beginSelectionDrag(
+                    '2d',
+                    hit?.hover ?? null,
+                    event.ctrlKey ? 'remove' : event.shiftKey ? 'add' : 'replace',
+                    event.clientX,
+                    event.clientY,
+                );
+                return;
+            }
             this.flatCanvas.setPointerCapture(event.pointerId);
-            this.beginSelectionDrag(
-                '2d',
-                hit?.hover ?? null,
-                event.ctrlKey ? 'remove' : event.shiftKey ? 'add' : 'replace',
-                event.clientX,
-                event.clientY,
-            );
+            this.isCanvasPanning = true;
+            this.lastCanvasPointer = { x: event.clientX, y: event.clientY };
             return;
         }
         if (event.button !== 2) return;
-        this.flatCanvas.setPointerCapture(event.pointerId);
-        this.isCanvasPanning = true;
-        this.lastCanvasPointer = { x: event.clientX, y: event.clientY };
-        logEvent('2d:pointerdown', { x: event.clientX, y: event.clientY, button: event.button });
+        event.preventDefault();
     };
 
     private readonly onCanvasPointerUp = (event: PointerEvent): void => {
@@ -1200,17 +1240,23 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             && this.state.hover
             ? { hover: this.state.hover, position: this.hoverPosition(this.state.hover) ?? new Vector3() }
             : this.scenePointerToHover(event.clientX, event.clientY);
+        if (event.button === 0) {
+            if (this.state.interactionMode !== 'select') return;
+            if (!this.selectionEnabled()) return;
+            this.renderer.domElement.setPointerCapture(event.pointerId);
+            this.controls.enabled = false;
+            this.beginSelectionDrag(
+                '3d',
+                hit?.hover ?? null,
+                event.ctrlKey ? 'remove' : event.shiftKey ? 'add' : 'replace',
+                event.clientX,
+                event.clientY,
+            );
+            return;
+        }
         if (event.button !== 2) return;
-        if (!this.selectionEnabled()) return;
-        this.renderer.domElement.setPointerCapture(event.pointerId);
-        this.controls.enabled = false;
-        this.beginSelectionDrag(
-            '3d',
-            hit?.hover ?? null,
-            event.ctrlKey ? 'remove' : event.shiftKey ? 'add' : 'replace',
-            event.clientX,
-            event.clientY,
-        );
+        event.preventDefault();
+        event.stopPropagation();
     };
 
     private readonly onPointerMove = (event: PointerEvent): void => {
@@ -1237,7 +1283,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     };
 
     private readonly onPointerUp = (event: PointerEvent): void => {
-        if (event.button !== 2 || this.selectionDrag?.source !== '3d') return;
+        if (event.button !== 0 && event.button !== 2) return;
+        if (this.selectionDrag?.source !== '3d') return;
         if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
         this.controls.enabled = true;
         this.finalizeSelectionDrag();
@@ -1746,7 +1793,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.controls.dispose();
         this.camera = mode === '2d' ? this.orthographicCamera : this.perspectiveCamera;
         this.controls = this.createControls(this.camera);
-        this.controls.enableRotate = mode === '3d';
+        this.syncInteractionMode();
         this.renderer.domElement.style.display = 'block';
         this.flatCanvas.style.display = mode === '2d' ? 'block' : 'none';
         this.flatOverlay.style.display = 'none';
@@ -1783,6 +1830,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.state.showSelectionPanel = snapshot.showSelectionPanel ?? true;
         this.state.showHoverDetailsPanel = snapshot.showHoverDetailsPanel;
         this.state.activeTensorId = snapshot.activeTensorId;
+        this.state.interactionMode = snapshot.interactionMode ?? (snapshot.displayMode === '3d' ? 'rotate' : 'pan');
         this.applyDisplayMode(snapshot.displayMode);
 
         if (snapshot.displayMode === '2d') {
@@ -1931,6 +1979,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         if (options.rebuild === false) {
             if (options.emit !== false) this.emit();
         } else {
+            this.relayoutTensorOffsets(options.displayMode ?? this.state.displayMode);
             this.rebuildAllMeshes({ fitCamera: true });
         }
         return this.tensorStatus(tensor);
@@ -1952,6 +2001,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             this.state.activeTensorId = this.tensors.keys().next().value ?? null;
         }
         if (this.state.hover?.tensorId === tensorId || this.state.lastHover?.tensorId === tensorId) this.clearHover();
+        this.relayoutTensorOffsets();
         this.rebuildAllMeshes();
     }
 
@@ -1969,6 +2019,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         return {
             version: 1,
             displayMode: this.state.displayMode,
+            interactionMode: this.state.interactionMode,
             heatmap: this.state.heatmap,
             dimensionBlockGapMultiple: this.state.dimensionBlockGapMultiple,
             displayGaps: this.state.displayGaps,
@@ -1997,6 +2048,29 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             })),
             activeTensorId: this.state.activeTensorId,
         };
+    }
+
+    /** Export the current viewport exactly as rendered, wrapped in an SVG file. */
+    public exportCurrentViewSvg(): string {
+        if (this.state.displayMode === '2d') {
+            this.render2D();
+        } else {
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
+            this.syncSelectionBox();
+        }
+        const canvas = this.renderer.domElement;
+        const width = canvas.width;
+        const height = canvas.height;
+        const imageHref = canvas.toDataURL('image/png');
+        const overlay = this.state.displayMode === '2d' && this.flatOverlay.style.display !== 'none'
+            ? new XMLSerializer().serializeToString(this.flatOverlay)
+            : '';
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <image href="${imageHref}" width="${width}" height="${height}" preserveAspectRatio="none" />
+  ${overlay}
+</svg>`;
     }
 
     /** Restore a previously captured viewer snapshot. */
@@ -2031,7 +2105,22 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     public setDisplayMode(mode: '2d' | '3d'): void {
         logEvent('display:mode', mode);
         this.applyDisplayMode(mode);
+        this.relayoutTensorOffsets(mode);
         this.rebuildAllMeshes();
+    }
+
+    /** Return the primary left-drag interaction mode. */
+    public getInteractionMode(): InteractionMode {
+        return this.state.interactionMode;
+    }
+
+    /** Set the primary left-drag interaction mode. */
+    public setInteractionMode(mode: InteractionMode): InteractionMode {
+        this.state.interactionMode = mode;
+        this.syncInteractionMode();
+        logEvent('interaction:mode', this.state.interactionMode);
+        this.emit();
+        return this.state.interactionMode;
     }
 
     /** Toggle grayscale heatmap coloring on or off. */
@@ -2054,6 +2143,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.state.dimensionBlockGapMultiple = nextValue;
         logEvent('display:dimension-block-gap-multiple', nextValue);
         if (this.state.hover) this.clearHover();
+        this.relayoutTensorOffsets();
         this.rebuildAllMeshes();
         return nextValue;
     }
@@ -2063,6 +2153,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.state.displayGaps = force ?? !this.state.displayGaps;
         logEvent('display:gaps', this.state.displayGaps);
         if (this.state.hover) this.clearHover();
+        this.relayoutTensorOffsets();
         this.rebuildAllMeshes();
         return this.state.displayGaps;
     }
@@ -2096,6 +2187,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.state.collapseHiddenAxes = force ?? !this.state.collapseHiddenAxes;
         logEvent('display:collapse-hidden-axes', this.state.collapseHiddenAxes);
         if (this.state.hover) this.clearHover();
+        this.relayoutTensorOffsets();
         this.rebuildAllMeshes();
         return this.state.collapseHiddenAxes;
     }
@@ -2111,8 +2203,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         if (nextValue === this.state.dimensionMappingScheme) return nextValue;
         this.state.dimensionMappingScheme = nextValue;
         if (!this.selectionEnabled()) this.clearSelection(false);
+        this.syncInteractionMode();
         logEvent('display:dimension-mapping-scheme', nextValue);
         if (this.state.hover) this.clearHover();
+        this.relayoutTensorOffsets();
         this.rebuildAllMeshes();
         return nextValue;
     }
@@ -2171,10 +2265,9 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
      */
     public setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
-        const previousView = tensor.view;
         const snapshot = this.assignTensorView(tensor, spec, hiddenIndices);
         logEvent('tensor:view', { tensorId, view: tensor.view.canonical, hiddenIndices: tensor.view.hiddenIndices });
-        if (this.updateSliceMesh(tensor, previousView)) return snapshot;
+        this.relayoutTensorOffsets();
         this.rebuildAllMeshes();
         return snapshot;
     }
