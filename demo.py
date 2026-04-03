@@ -152,7 +152,19 @@ def demo_tabs() -> None:
         name="proj",
         labels="IO",
     )
-    viz([activations, weights], name="Tabs")
+    others = []
+    for i in range(30):
+        s = ''
+        import random
+        while random.random() < 0.6:
+            s += 'word '
+        tab = Tab(f"others {i} {s}").viz(
+            np.arange(3 * 3 * 8 * 16, dtype=np.float32).reshape(3, 3, 8, 16),
+            name="conv",
+            labels="K0 K1 I O",
+        )
+        others.append(tab)
+    viz([activations, weights] + others, name="Tabs")
 
 
 def demo_session_options() -> None:
@@ -227,7 +239,7 @@ def demo_large() -> None:
     viz(tensor)
 
 
-DEMO = 0 
+DEMO = 5
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,
