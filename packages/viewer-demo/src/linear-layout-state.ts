@@ -1,6 +1,7 @@
 import type { LoadedBundleDocument, TensorViewSnapshot, ViewerSnapshot, TensorViewer } from '@tensor-viz/viewer-core';
 import { escapeInfo } from './app-format.js';
 import {
+    autoColorLayoutState,
     buildComposeRuntime,
     cloneComposeLayoutState,
     composeLayoutStateFromLegacySpec,
@@ -174,6 +175,7 @@ export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBun
         return;
     }
     const meta = composeLayoutMetaForTab(tab);
+    const autoColor = meta ? autoColorLayoutState(meta.specsText, meta.operationText) : null;
     ctx.state.linearLayoutState = meta
         ? {
             ...defaultLinearLayoutState(),
@@ -181,6 +183,8 @@ export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBun
             operationText: meta.operationText,
             inputName: meta.inputName ?? defaultLinearLayoutState().inputName,
             visibleTensors: Object.fromEntries(meta.tensors.map((tensor) => [tensor.id, tensor.visible])),
+            mapping: autoColor?.mapping ?? defaultLinearLayoutState().mapping,
+            ranges: autoColor?.ranges ?? defaultLinearLayoutState().ranges,
         }
         : defaultLinearLayoutState();
     ctx.state.linearLayoutStates.set(tab.id, cloneLinearLayoutState(ctx.state.linearLayoutState));

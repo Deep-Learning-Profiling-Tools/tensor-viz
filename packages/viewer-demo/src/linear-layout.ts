@@ -103,15 +103,11 @@ const DEFAULT_INPUT_NAME = 'Input Space';
 
 const DEFAULT_COLOR_RANGES = {
     H: ['0', '0.8'],
-    S: ['1', '1'],
-    L: ['0', '1'],
+    S: ['1', '0.2'],
+    L: ['1', '0.2'],
 } as const;
 
-const DEFAULT_MAPPING = {
-    H: 'T',
-    S: 'W',
-    L: 'R',
-} as const;
+const AUTO_COLOR_CHANNELS: ComposeChannel[] = ['H', 'L', 'S'];
 
 const LEGACY_AXIS_ALIASES = {
     warp: 'W',
@@ -181,39 +177,32 @@ function bakedExample(
             operationText,
             inputName,
             visibleTensors: {},
-            mapping: { ...DEFAULT_MAPPING },
-            ranges: {
-                H: [...DEFAULT_COLOR_RANGES.H],
-                S: [...DEFAULT_COLOR_RANGES.S],
-                L: [...DEFAULT_COLOR_RANGES.L],
-            },
+            mapping: { H: 'none', S: 'none', L: 'none' },
+            ranges: defaultColorRanges(),
         },
     };
 }
 
 export function defaultComposeLayoutState(): ComposeLayoutState {
-    return cloneComposeLayoutState(BAKED_EXAMPLES[0]!.state);
+    return autoColoredComposeLayoutState(cloneComposeLayoutState(BAKED_EXAMPLES[0]!.state));
 }
 
 export function emptyComposeLayoutState(): ComposeLayoutState {
+    const autoColor = autoColorLayoutState(DEFAULT_EMPTY_SPEC_TEXT, 'Layout_1');
     return {
         specsText: DEFAULT_EMPTY_SPEC_TEXT,
         operationText: 'Layout_1',
         inputName: DEFAULT_INPUT_NAME,
         visibleTensors: {},
-        mapping: { ...DEFAULT_MAPPING },
-        ranges: {
-            H: [...DEFAULT_COLOR_RANGES.H],
-            S: [...DEFAULT_COLOR_RANGES.S],
-            L: [...DEFAULT_COLOR_RANGES.L],
-        },
+        mapping: autoColor.mapping,
+        ranges: autoColor.ranges,
     };
 }
 
 export function bakedComposeLayoutExamples(): ExampleState[] {
     return BAKED_EXAMPLES.map(({ title, state }) => ({
         title,
-        state: cloneComposeLayoutState(state),
+        state: autoColoredComposeLayoutState(cloneComposeLayoutState(state)),
     }));
 }
 
@@ -266,18 +255,46 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
     });
     inputEntries.sort((left, right) => legacyAxisOrder(left.label) - legacyAxisOrder(right.label));
     const outputs = legacy.outputs.map((name, axis) => canonicalLegacyOutputLabel(name, axis));
+    const specsText = formatSpecsText([{
+        name: sanitizeIdentifier(legacy.name || fallbackTitle || 'Layout_1'),
+        inputs: inputEntries.map((entry) => entry.label),
+        outputs,
+        bases: inputEntries.map((entry) => entry.bases),
+    }]);
+    const operationText = sanitizeIdentifier(legacy.name || fallbackTitle || 'Layout_1');
+    const autoColor = autoColorLayoutState(specsText, operationText);
     return {
-        specsText: formatSpecsText([{
-            name: sanitizeIdentifier(legacy.name || fallbackTitle || 'Layout_1'),
-            inputs: inputEntries.map((entry) => entry.label),
-            outputs,
-            bases: inputEntries.map((entry) => entry.bases),
-        }]),
-        operationText: sanitizeIdentifier(legacy.name || fallbackTitle || 'Layout_1'),
+        specsText,
+        operationText,
         inputName: DEFAULT_INPUT_NAME,
         visibleTensors: {},
-        mapping: legacyMapping(labelMap, legacy.colorAxes),
-        ranges: legacyRanges(legacy.colorRanges),
+        mapping: Object.keys(legacy.colorAxes).length > 0 ? legacyMapping(labelMap, legacy.colorAxes) : autoColor.mapping,
+        ranges: Object.keys(legacy.colorRanges).length > 0 ? legacyRanges(legacy.colorRanges) : autoColor.ranges,
+    };
+}
+
+export function autoColorLayoutState(
+    specsText: string,
+    operationText: string,
+): Pick<ComposeLayoutState, 'mapping' | 'ranges'> {
+    const runtime = buildComposeRuntime({
+        specsText,
+        operationText,
+        inputName: DEFAULT_INPUT_NAME,
+        visibleTensors: {},
+    });
+    return {
+        mapping: autoColorMapping(runtime.inputLabels, runtime.inputShape),
+        ranges: defaultColorRanges(),
+    };
+}
+
+function autoColoredComposeLayoutState(state: ComposeLayoutState): ComposeLayoutState {
+    const autoColor = autoColorLayoutState(state.specsText, state.operationText);
+    return {
+        ...state,
+        mapping: autoColor.mapping,
+        ranges: autoColor.ranges,
     };
 }
 
@@ -1344,5 +1361,27 @@ function legacyRanges(colorRanges: Record<string, [number, number]>): Record<Com
         H: colorRanges.H ? [String(colorRanges.H[0]), String(colorRanges.H[1])] : [...DEFAULT_COLOR_RANGES.H],
         S: colorRanges.S ? [String(colorRanges.S[0]), String(colorRanges.S[1])] : [...DEFAULT_COLOR_RANGES.S],
         L: colorRanges.L ? [String(colorRanges.L[0]), String(colorRanges.L[1])] : [...DEFAULT_COLOR_RANGES.L],
+    };
+}
+
+function autoColorMapping(
+    inputLabels: string[],
+    inputShape: number[],
+): Record<ComposeChannel, ComposeMappingValue> {
+    const rankedAxes = inputLabels
+        .map((label, axis) => ({ label, axis, size: inputShape[axis] ?? 1 }))
+        .sort((left, right) => (right.size - left.size) || (right.axis - left.axis));
+    const mapping: Record<ComposeChannel, ComposeMappingValue> = { H: 'none', S: 'none', L: 'none' };
+    AUTO_COLOR_CHANNELS.forEach((channel, axis) => {
+        mapping[channel] = rankedAxes[axis]?.label ?? 'none';
+    });
+    return mapping;
+}
+
+function defaultColorRanges(): Record<ComposeChannel, [string, string]> {
+    return {
+        H: [...DEFAULT_COLOR_RANGES.H],
+        S: [...DEFAULT_COLOR_RANGES.S],
+        L: [...DEFAULT_COLOR_RANGES.L],
     };
 }

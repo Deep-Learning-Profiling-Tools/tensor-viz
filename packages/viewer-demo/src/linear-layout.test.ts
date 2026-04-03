@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    autoColorLayoutState,
     buildComposeRuntime,
     composeLayoutStateFromLegacySpec,
     createComposeLayoutDocument,
@@ -8,8 +9,8 @@ import {
 
 const DEFAULT_RANGES = {
     H: ['0', '0.8'],
-    S: ['1', '1'],
-    L: ['0', '1'],
+    S: ['1', '0.2'],
+    L: ['1', '0.2'],
 } as const;
 
 function composeState(specsText: string, operationText: string) {
@@ -48,6 +49,7 @@ describe('compose layout helpers', () => {
             { name: 'Blocked_Layout', shape: [16, 32], axisLabels: ['A', 'B'] },
         ]);
         expect(state.mapping).toEqual({ H: 'T', S: 'W', L: 'R' });
+        expect(state.ranges).toEqual({ H: ['0', '0.8'], S: ['1', '0.2'], L: ['1', '0.2'] });
     });
 
     it('renders composition chains left to right and emits compose code in the same order', () => {
@@ -244,5 +246,30 @@ describe('compose layout helpers', () => {
         ].join('\n'), 'Bad');
 
         expect(() => buildComposeRuntime(state)).toThrow('Layout Bad basis rows must use "<label>: <json>" syntax.');
+    });
+
+    it('maps largest inputs to H, then L, then S', () => {
+        expect(autoColorLayoutState([
+            'Blocked_Layout: [T,W,R] -> [Y,X]',
+            'T: [[4,0],[8,0],[0,1],[0,2],[0,4]]',
+            'W: [[0,8],[0,16]]',
+            'R: [[1,0],[2,0]]',
+        ].join('\n'), 'Blocked_Layout').mapping).toEqual({ H: 'T', S: 'W', L: 'R' });
+    });
+
+    it('leaves unused color channels unmapped when fewer than three inputs exist', () => {
+        expect(autoColorLayoutState([
+            'Pair: [A,B] -> [C]',
+            'A: [[1],[2],[4]]',
+            'B: [[8]]',
+        ].join('\n'), 'Pair').mapping).toEqual({ H: 'A', S: 'none', L: 'B' });
+    });
+
+    it('prefers later dimensions when equal sizes compete for the next color axis', () => {
+        expect(autoColorLayoutState([
+            'Square: [Y,X] -> [A]',
+            'Y: [[1]]',
+            'X: [[2]]',
+        ].join('\n'), 'Square').mapping).toEqual({ H: 'X', S: 'none', L: 'Y' });
     });
 });
