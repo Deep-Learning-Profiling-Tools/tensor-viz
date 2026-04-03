@@ -853,7 +853,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           ${labelWithInfo('Preview', 'Shows the implied permute, reshape, and slice operations for the current Tensor View string.')}
           <div class="mono-block" id="view-preview"></div>
         </div>
-        <div class="slider-list" id="slice-token-controls"></div>
+        ${model.sliceTokens.length === 0 ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
       </div>
     `;
 
