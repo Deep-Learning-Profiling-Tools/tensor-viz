@@ -383,6 +383,21 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
                 guideLabelScale2D,
             ));
         }
+        if (viewer.state.showTensorNames) {
+            const topGuideCount = shape.reduce((count, _size, axis) => (
+                count + Number(axisWorldKeyForMode('2d', shape.length, axis, viewer.state.dimensionMappingScheme) === 0)
+            ), 0);
+            const nameLabel = createTextLabel(tensor.name || tensor.id, '#0f172a');
+            const guideClearance = showDimensionGuides
+                ? guideStartOffset2D
+                    + Math.max(0, topGuideCount - 1) * guideLevelStep2D
+                    + guideLabelOffset2D
+                    + tensorNameScale2D * 1.5
+                : tensorNameScale2D * 1.75;
+            nameLabel.position.set(tensor.offset[0], tensor.offset[1] + outlineExtent2D.y / 2 + guideClearance, 0.02);
+            nameLabel.scale.setScalar(tensorNameScale2D);
+            group.add(nameLabel);
+        }
     } else {
         const outlineExtent = displayExtent(shape, viewer.layoutGapMultiple(), viewer.state.dimensionMappingScheme);
         group.add(buildOutline(outlineExtent, tensor.offset));

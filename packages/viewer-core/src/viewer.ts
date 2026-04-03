@@ -1726,7 +1726,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.renderer.render(this.scene, this.camera);
         this.flatContext.setTransform(1, 0, 0, 1, 0, 0);
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
-        this.draw2DTensorNames();
         this.draw2DMarkers();
         this.draw2DCellLabels();
     }
@@ -2270,23 +2269,159 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     public exportCurrentViewSvg(): string {
         if (this.state.displayMode === '2d') {
             this.render2D();
-        } else {
-            this.controls.update();
-            this.renderer.render(this.scene, this.camera);
-            this.syncSelectionBox();
+            return this.exportCurrentViewSvg2D();
         }
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+        this.syncSelectionBox();
         const canvas = this.renderer.domElement;
         const width = canvas.width;
         const height = canvas.height;
         const imageHref = canvas.toDataURL('image/png');
-        const overlay = this.state.displayMode === '2d' && this.flatOverlay.style.display !== 'none'
-            ? new XMLSerializer().serializeToString(this.flatOverlay)
-            : '';
         return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <image href="${imageHref}" width="${width}" height="${height}" preserveAspectRatio="none" />
-  ${overlay}
 </svg>`;
+    }
+
+    /** Export the current 2D viewport as true SVG primitives. */
+    private exportCurrentViewSvg2D(): string {
+        const width = this.flatCanvas.width;
+        const height = this.flatCanvas.height;
+        const worldScale = CANVAS_WORLD_SCALE * this.canvasZoom;
+        const lineWidth = Math.max(1.5, worldScale * 0.06);
+        const outlineColor = '#334155';
+        const parts: string[] = [];
+
+        this.tensors.forEach((tensor) => {
+            const shape = this.layoutShape(tensor.view);
+            const instanceShape = this.instanceShape(tensor.view);
+            const labels = this.layoutAxisLabels(tensor.view);
+            const extent = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+            const outlineSpan = Math.max(extent.x, extent.y);
+            const baseOutlineLabelScale2D = Math.max(1.25, Math.min(10, outlineSpan * 0.05));
+            const guideLabelScale2D = baseOutlineLabelScale2D / 5;
+            const guideStartOffset2D = Math.max(1.15, guideLabelScale2D * 2.5);
+            const guideLevelStep2D = Math.max(0.75, guideLabelScale2D * 3.5);
+            const guideLabelOffset2D = Math.max(0.3, guideLabelScale2D * 1.2);
+            const tensorNameScale2D = (baseOutlineLabelScale2D * 1.25) / 2;
+            const count = product(instanceShape);
+            const heatmapRange = this.state.heatmap && tensor.hasData ? tensor.valueRange : null;
+
+            for (let index = 0; index < count; index += 1) {
+                const viewCoord = count === 1 && tensor.view.viewShape.length === 0 ? [] : unravelIndex(index, instanceShape);
+                const tensorCoord = mapViewCoordToTensorCoord(viewCoord, tensor.view);
+                const layoutCoord = this.mapViewCoordToLayoutCoord(viewCoord, tensor.view);
+                const position = displayPositionForCoord2D(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+                const topLeft = this.projectCanvasPoint(tensor.offset[0] + position.x - 0.5, tensor.offset[1] + position.y + 0.5);
+                const bottomRight = this.projectCanvasPoint(tensor.offset[0] + position.x + 0.5, tensor.offset[1] + position.y - 0.5);
+                const x = Math.min(topLeft.x, bottomRight.x);
+                const y = Math.min(topLeft.y, bottomRight.y);
+                const rectWidth = Math.abs(bottomRight.x - topLeft.x);
+                const rectHeight = Math.abs(bottomRight.y - topLeft.y);
+                const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
+                const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
+                parts.push(`<rect x="${x}" y="${y}" width="${rectWidth}" height="${rectHeight}" fill="${this.svgColor(color)}" />`);
+            }
+
+            const outlineTopLeft = this.projectCanvasPoint(tensor.offset[0] - extent.x / 2, tensor.offset[1] + extent.y / 2);
+            const outlineBottomRight = this.projectCanvasPoint(tensor.offset[0] + extent.x / 2, tensor.offset[1] - extent.y / 2);
+            parts.push(
+                `<rect x="${Math.min(outlineTopLeft.x, outlineBottomRight.x)}" y="${Math.min(outlineTopLeft.y, outlineBottomRight.y)}" width="${Math.abs(outlineBottomRight.x - outlineTopLeft.x)}" height="${Math.abs(outlineBottomRight.y - outlineTopLeft.y)}" fill="none" stroke="${outlineColor}" stroke-width="${lineWidth}" />`,
+            );
+
+            if (this.state.showDimensionLines && labels.length > 0) {
+                const rank = shape.length;
+                const families = new Map<number, number[]>();
+                for (let axis = 0; axis < rank; axis += 1) {
+                    const key = axisWorldKeyForMode('2d', rank, axis, this.state.dimensionMappingScheme) as 0 | 1;
+                    const family = families.get(key) ?? [];
+                    family.push(axis);
+                    families.set(key, family);
+                }
+                shape.forEach((size, axis) => {
+                    const familyKey = axisWorldKeyForMode('2d', rank, axis, this.state.dimensionMappingScheme) as 0 | 1;
+                    const family = families.get(familyKey) ?? [axis];
+                    const familyPos = Math.max(0, family.indexOf(axis));
+                    const start = new Array(rank).fill(0);
+                    const end = start.slice();
+                    family.forEach((familyAxis) => {
+                        if (familyAxis >= axis) end[familyAxis] = Math.max(0, shape[familyAxis] - 1);
+                    });
+                    const startPos = displayPositionForCoord2D(start, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+                    const endPos = displayPositionForCoord2D(end, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
+                    const delta = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
+                    const length = Math.hypot(delta.x, delta.y) || 1;
+                    const axisDir = { x: delta.x / length, y: delta.y / length };
+                    const extentStart = { x: tensor.offset[0] + startPos.x - axisDir.x * 0.5, y: tensor.offset[1] + startPos.y - axisDir.y * 0.5 };
+                    const extentEnd = { x: tensor.offset[0] + endPos.x + axisDir.x * 0.5, y: tensor.offset[1] + endPos.y + axisDir.y * 0.5 };
+                    const color = axisFamilyColor(familyKey as 0 | 1 | 2, familyPos, family.length);
+                    const dir = familyKey === 0 ? { x: 0, y: 1 } : { x: -1, y: 0 };
+                    const reverseIndex = family.length - 1 - familyPos;
+                    const worldOffset = guideStartOffset2D + reverseIndex * guideLevelStep2D;
+                    const startGuide = { x: extentStart.x + dir.x * worldOffset, y: extentStart.y + dir.y * worldOffset };
+                    const endGuide = { x: extentEnd.x + dir.x * worldOffset, y: extentEnd.y + dir.y * worldOffset };
+                    const projectedPoints = [extentStart, startGuide, endGuide, extentEnd].map((point) => this.projectCanvasPoint(point.x, point.y));
+                    parts.push(
+                        `<path d="M ${projectedPoints[0].x} ${projectedPoints[0].y} L ${projectedPoints[1].x} ${projectedPoints[1].y} L ${projectedPoints[2].x} ${projectedPoints[2].y} L ${projectedPoints[3].x} ${projectedPoints[3].y}" fill="none" stroke="${color}" stroke-width="${lineWidth}" stroke-linecap="round" stroke-linejoin="round" />`,
+                    );
+                    const labelPoint = this.projectCanvasPoint(
+                        (startGuide.x + endGuide.x) / 2 + dir.x * guideLabelOffset2D,
+                        (startGuide.y + endGuide.y) / 2 + dir.y * guideLabelOffset2D,
+                    );
+                    parts.push(
+                        `<text x="${labelPoint.x}" y="${labelPoint.y}" fill="${color}" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${guideLabelScale2D * worldScale}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${this.svgEscape(`${labels[axis] ?? 'X'}: ${size}`)}</text>`,
+                    );
+                });
+            }
+
+            if (this.state.showTensorNames) {
+                const topGuideCount = shape.reduce((countByAxis, _size, axis) => (
+                    countByAxis + Number(axisWorldKeyForMode('2d', shape.length, axis, this.state.dimensionMappingScheme) === 0)
+                ), 0);
+                const guideClearance = this.state.showDimensionLines && labels.length > 0
+                    ? guideStartOffset2D + Math.max(0, topGuideCount - 1) * guideLevelStep2D + guideLabelOffset2D + tensorNameScale2D * 1.5
+                    : tensorNameScale2D * 1.75;
+                const namePoint = this.projectCanvasPoint(tensor.offset[0], tensor.offset[1] + extent.y / 2 + guideClearance);
+                parts.push(
+                    `<text x="${namePoint.x}" y="${namePoint.y}" fill="#0f172a" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="${tensorNameScale2D * worldScale}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${this.svgEscape(tensor.name || tensor.id)}</text>`,
+                );
+            }
+        });
+
+        if (this.flatOverlay.style.display !== 'none' && this.selectionBox.getAttribute('display') !== 'none') {
+            const x = this.selectionBox.getAttribute('x') ?? '0';
+            const y = this.selectionBox.getAttribute('y') ?? '0';
+            const rectWidth = this.selectionBox.getAttribute('width') ?? '0';
+            const rectHeight = this.selectionBox.getAttribute('height') ?? '0';
+            const fill = this.selectionBox.getAttribute('fill') ?? '#1976d220';
+            const stroke = this.selectionBox.getAttribute('stroke') ?? '#1976d2';
+            const strokeWidth = this.selectionBox.getAttribute('stroke-width') ?? '2';
+            const dash = this.selectionBox.getAttribute('stroke-dasharray');
+            parts.push(
+                `<rect x="${x}" y="${y}" width="${rectWidth}" height="${rectHeight}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"${dash ? ` stroke-dasharray="${dash}"` : ''} />`,
+            );
+        }
+
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  ${parts.join('\n  ')}
+</svg>`;
+    }
+
+    /** Convert one three.js color into an SVG rgb() string. */
+    private svgColor(color: Color): string {
+        return `rgb(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)})`;
+    }
+
+    /** Escape text so it is safe to place inside SVG text nodes. */
+    private svgEscape(value: string): string {
+        return value
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&apos;');
     }
 
     /** Restore a previously captured viewer snapshot. */

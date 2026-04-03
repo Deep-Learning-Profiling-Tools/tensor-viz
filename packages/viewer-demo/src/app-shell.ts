@@ -5,8 +5,10 @@ export type AppShellRefs = {
     controlDock: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
     linearLayoutWidget: HTMLElement;
+    linearLayoutVisibleTensorsWidget: HTMLElement;
     cellTextWidget: HTMLElement;
     linearLayoutColorWidget: HTMLElement;
+    sidebarHeader: HTMLDivElement;
     tensorViewWidget: HTMLElement;
     inspectorWidget: HTMLElement;
     selectionWidget: HTMLElement;
@@ -101,13 +103,15 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
         <section class="widget" id="linear-layout-widget"></section>
+        <section class="widget" id="linear-layout-visible-tensors-widget"></section>
         <section class="widget" id="linear-layout-color-widget"></section>
         <section class="widget" id="cell-text-widget"></section>
+        <div class="sidebar-header">Widgets</div>
+        <section class="widget" id="tensor-view-widget"></section>
         <section class="widget" id="inspector-widget"></section>
         <section class="widget" id="selection-widget"></section>
         <section class="widget" id="advanced-settings-widget"></section>
         <section class="widget" id="colorbar-widget"></section>
-        <section class="widget" id="tensor-view-widget"></section>
       </aside>
       <div class="command-palette hidden" id="command-palette">
         <div class="command-palette-backdrop" id="command-palette-backdrop"></div>
@@ -126,8 +130,10 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         controlDock: requireElement(app, '#control-dock', 'control dock'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
         linearLayoutWidget: requireElement(app, '#linear-layout-widget', 'linear layout widget'),
+        linearLayoutVisibleTensorsWidget: requireElement(app, '#linear-layout-visible-tensors-widget', 'linear layout visible tensors widget'),
         cellTextWidget: requireElement(app, '#cell-text-widget', 'cell text widget'),
         linearLayoutColorWidget: requireElement(app, '#linear-layout-color-widget', 'linear layout color widget'),
+        sidebarHeader: requireElement(app, '.sidebar-header', 'sidebar header'),
         tensorViewWidget: requireElement(app, '#tensor-view-widget', 'tensor view widget'),
         inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),
         selectionWidget: requireElement(app, '#selection-widget', 'selection widget'),

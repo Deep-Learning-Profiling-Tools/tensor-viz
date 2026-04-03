@@ -1,4 +1,4 @@
-import { escapeInfo, labelWithInfo, titleWithInfo } from './app-format.js';
+import { escapeInfo, labelWithInfo } from './app-format.js';
 import { bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument } from './linear-layout.js';
 import {
     cloneLinearLayoutCellTextState,
@@ -23,7 +23,7 @@ export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
         return;
     }
     ctx.cellTextWidget.innerHTML = `
-      ${titleWithInfo('Cell Text', 'Overlay selected root-input label values directly on every visible tensor cell in 2D. Labels only appear when cells are large enough to read.')}
+      ${ctx.widgetTitle('cell-text', 'Overlay selected root-input label values directly on every visible tensor cell in 2D. Labels only appear when cells are large enough to read.')}
       <div class="widget-body">
         <p class="widget-copy">Choose which root-input label values to draw on each cell. Every visible tensor shows the values of the root coordinate that maps to that cell.</p>
         <div class="checklist-field">
@@ -53,26 +53,11 @@ export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
 export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     const statusClass = ctx.state.linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
     const status = ctx.state.linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(ctx.state.linearLayoutNotice.text)}</div>` : '';
-    const tab = activeLinearLayoutTab(ctx);
-    const meta = tab ? composeLayoutMetaForTab(tab) : null;
-    const visibilityField = !meta ? '' : `
-      <div class="field">
-        ${labelWithInfo('Visible Tensors', 'Toggle which tensors in the render chain stay visible for the current tab.')}
-        <div class="checklist-field">
-          ${meta.tensors.map((tensor) => `
-            <label class="checklist-row" for="linear-layout-visible-${tensor.id}">
-              <span>${escapeInfo(tensor.title)}</span>
-              <input id="linear-layout-visible-${tensor.id}" type="checkbox" ${ctx.state.linearLayoutState.visibleTensors[tensor.id] !== false ? 'checked' : ''} />
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    `;
     const matrixBlock = !ctx.state.showLinearLayoutMatrix
         ? ''
         : `<div class="mono-block linear-layout-matrix-preview">${ctx.state.linearLayoutMatrixPreview}</div>`;
     ctx.linearLayoutWidget.innerHTML = `
-      ${titleWithInfo('Linear Layout Specifications', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
+      ${ctx.widgetTitle('linear-layout', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
       <div class="widget-body">
         <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one JSON basis row per input label. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
         <div class="field">
@@ -87,7 +72,6 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
           ${labelWithInfo('Input Tensor Name', 'Sets the display name of the root tensor at the start of the rendered chain.', 'linear-layout-input-name')}
           <input id="linear-layout-input-name" type="text" value="${escapeInfo(ctx.state.linearLayoutState.inputName)}" />
         </div>
-        ${visibilityField}
         <div class="button-row">
           <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
           <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
@@ -117,13 +101,6 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     inputNameInput?.addEventListener('input', () => {
         ctx.state.linearLayoutState.inputName = inputNameInput.value;
     });
-    meta?.tensors.forEach((tensor) => {
-        ctx.linearLayoutWidget.querySelector<HTMLInputElement>(`#linear-layout-visible-${CSS.escape(tensor.id)}`)?.addEventListener('change', async (event) => {
-            const target = event.currentTarget as HTMLInputElement;
-            ctx.state.linearLayoutState.visibleTensors[tensor.id] = target.checked;
-            await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
-        });
-    });
     apply?.addEventListener('click', async () => {
         await applyLinearLayoutSpec(ctx);
     });
@@ -140,7 +117,39 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
         ctx.state.showLinearLayoutMatrix = !ctx.state.showLinearLayoutMatrix;
         renderLinearLayoutWidget(ctx);
     });
+    renderLinearLayoutVisibleTensorsWidget(ctx);
     renderLinearLayoutColorWidget(ctx);
+}
+
+export function renderLinearLayoutVisibleTensorsWidget(ctx: LinearLayoutUiContext): void {
+    const tab = activeLinearLayoutTab(ctx);
+    const meta = tab ? composeLayoutMetaForTab(tab) : null;
+    if (!meta) {
+        ctx.linearLayoutVisibleTensorsWidget.classList.add('hidden');
+        ctx.linearLayoutVisibleTensorsWidget.innerHTML = '';
+        return;
+    }
+    ctx.linearLayoutVisibleTensorsWidget.classList.remove('hidden');
+    ctx.linearLayoutVisibleTensorsWidget.innerHTML = `
+      ${ctx.widgetTitle('linear-layout-visible-tensors', 'Toggle which tensors in the render chain stay visible for the current tab.')}
+      <div class="widget-body">
+        <div class="checklist-field">
+          ${meta.tensors.map((tensor) => `
+            <label class="checklist-row" for="linear-layout-visible-${tensor.id}">
+              <span>${escapeInfo(tensor.title)}</span>
+              <input id="linear-layout-visible-${tensor.id}" type="checkbox" ${ctx.state.linearLayoutState.visibleTensors[tensor.id] !== false ? 'checked' : ''} />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    meta.tensors.forEach((tensor) => {
+        ctx.linearLayoutVisibleTensorsWidget.querySelector<HTMLInputElement>(`#linear-layout-visible-${CSS.escape(tensor.id)}`)?.addEventListener('change', async (event) => {
+            const target = event.currentTarget as HTMLInputElement;
+            ctx.state.linearLayoutState.visibleTensors[tensor.id] = target.checked;
+            await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
+        });
+    });
 }
 
 export async function applyLinearLayoutSpec(
@@ -292,7 +301,7 @@ function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
     );
     const availableLabels = rootLabels.filter((label) => !assignedLabels.has(label));
     ctx.linearLayoutColorWidget.innerHTML = `
-      ${titleWithInfo('Color Mapping', 'Select which root-input axis drives each color channel and set channel ranges.')}
+      ${ctx.widgetTitle('linear-layout-color', 'Select which root-input axis drives each color channel and set channel ranges.')}
       <div class="widget-body">
         <div class="field">
           ${labelWithInfo('Available Axes', 'Drag one root-input axis onto H, S, or L. Drag a colored axis back here to clear that channel.')}

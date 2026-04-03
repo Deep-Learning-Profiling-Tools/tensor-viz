@@ -61,9 +61,11 @@ export type LinearLayoutUiContext = {
     viewer: TensorViewer;
     viewport: HTMLElement;
     linearLayoutWidget: HTMLElement;
+    linearLayoutVisibleTensorsWidget: HTMLElement;
     cellTextWidget: HTMLElement;
     linearLayoutColorWidget: HTMLElement;
     state: LinearLayoutUiState;
+    widgetTitle: (widgetId: string, info: string) => string;
     getActiveTab: () => LoadedBundleDocument | undefined;
     getActiveTabId: () => string | null;
     getSessionTabs: () => LoadedBundleDocument[];
