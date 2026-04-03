@@ -1176,7 +1176,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     }
 
     /** Fit one tensor title to the tensor's visible width in 2d canvas pixels. */
-    private fitTensorNameFontSize(name: string, preferredFontSize: number, outlineExtent2D: Vector2): number {
+    private fitTensorNameFontSize(
+        name: string,
+        preferredFontSize: number,
+        outlineExtent2D: { x: number; y: number },
+    ): number {
         const maxWidth = Math.max(1, outlineExtent2D.x * CANVAS_WORLD_SCALE * this.canvasZoom - 12);
         this.flatContext.font = `700 ${preferredFontSize}px ${TENSOR_NAME_FONT_FAMILY}`;
         const measuredWidth = this.flatContext.measureText(name).width;

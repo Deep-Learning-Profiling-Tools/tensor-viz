@@ -1,18 +1,13 @@
 import {
     createTypedArray,
-    coordFromKey,
-    coordKey,
     parseTensorView,
     TensorViewer,
     product,
-    unravelIndex,
     type BundleManifest,
     type DimensionMappingScheme,
     type LoadedBundleDocument,
     type NumericArray,
     type SessionBundleManifest,
-    type SelectionCoords,
-    type TensorViewSnapshot,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import {
@@ -27,20 +22,43 @@ import {
     titleWithInfo,
 } from './app-format.js';
 import {
-    bakedComposeLayoutExamples,
-    buildComposeRuntime,
-    cloneComposeLayoutState,
     composeLayoutStateFromLegacySpec,
     createComposeLayoutDocument,
-    defaultComposeLayoutState,
-    emptyComposeLayoutState,
-    isComposeLayoutMeta,
-    isComposeLayoutState,
-    type ComposeLayoutMeta,
-    type ComposeLayoutState,
-    type ComposeTensorMeta,
-    type MatrixBlock,
 } from './linear-layout.js';
+import {
+    applyLinearLayoutCellText,
+    applyLinearLayoutSpec,
+    cloneLinearLayoutCellTextState,
+    cloneLinearLayoutState,
+    cloneLinearLayoutTensorViewsState,
+    composeLayoutMetaForTab,
+    defaultLinearLayoutCellTextState,
+    emptyLinearLayoutState,
+    inspectorCoordEntries,
+    isLinearLayoutCellTextState,
+    isLinearLayoutState,
+    isLinearLayoutTab,
+    linearLayoutSelectionMapForTab,
+    loadBakedLinearLayoutTabs,
+    loadLinearLayoutState,
+    preservedLinearLayoutTensorViews,
+    renderCellTextWidget,
+    renderLinearLayoutWidget,
+    snapshotTensorViews,
+    syncLinearLayoutCellTextState,
+    syncLinearLayoutSelection,
+    syncLinearLayoutSelectionPreview,
+    syncLinearLayoutState,
+    syncLinearLayoutViewFilters,
+    type InspectorCoordEntry,
+    type LinearLayoutCellTextState,
+    type LinearLayoutFormState,
+    type LinearLayoutNotice,
+    type LinearLayoutSelectionMap,
+    type LinearLayoutTensorViewsState,
+    type LinearLayoutUiContext,
+    type LinearLayoutUiState,
+} from './linear-layout-ui.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
 
@@ -85,8 +103,6 @@ let commandPaletteOpen = false;
 let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 let appliedStartupWidgetDefaults = false;
-let showLinearLayoutMatrix = false;
-let linearLayoutMatrixPreview = '';
 
 const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
@@ -100,46 +116,36 @@ type InspectorRefs = {
 };
 
 let inspectorRefs: InspectorRefs | null = null;
-type InspectorCoordEntry = {
-    title: string;
-    labels: string[];
-    shape: number[];
-    coord: number[] | null;
-    hovered: boolean;
-};
-type LinearLayoutNotice = {
-    tone: 'error' | 'success';
-    text: string;
-};
-
-const LINEAR_LAYOUT_CHANNELS = ['H', 'S', 'L'] as const;
-type LinearLayoutCellTextState = Record<string, boolean>;
-type LinearLayoutTensorViewsState = Record<string, TensorViewSnapshot>;
-type LinearLayoutChannel = typeof LINEAR_LAYOUT_CHANNELS[number];
-type LinearLayoutMappingValue = ComposeLayoutState['mapping'][LinearLayoutChannel];
-type LinearLayoutFormState = ComposeLayoutState;
-
-const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
-let linearLayoutState = loadLinearLayoutState();
-const linearLayoutStates = new Map<string, LinearLayoutFormState>();
-let linearLayoutCellTextState = defaultLinearLayoutCellTextState();
-const linearLayoutCellTextStates = new Map<string, LinearLayoutCellTextState>();
-const linearLayoutTensorViewsStates = new Map<string, LinearLayoutTensorViewsState>();
-let linearLayoutNotice: LinearLayoutNotice | null = null;
-type LinearLayoutSelectionMap = {
-    rootInputLabels: string[];
-    rootInputShape: number[];
-    rootKeyToIndex: Map<string, number>;
-    tensors: Map<string, {
-        meta: ComposeTensorMeta;
-        rootToTensorKeys: string[];
-        tensorToRoot: Map<string, string>;
-    }>;
-    orderedTensorIds: string[];
+const linearLayoutUiState: LinearLayoutUiState = {
+    linearLayoutState: loadLinearLayoutState(),
+    linearLayoutStates: new Map<string, LinearLayoutFormState>(),
+    linearLayoutCellTextState: defaultLinearLayoutCellTextState(),
+    linearLayoutCellTextStates: new Map<string, LinearLayoutCellTextState>(),
+    linearLayoutTensorViewsStates: new Map<string, LinearLayoutTensorViewsState>(),
+    linearLayoutSelectionMaps: new Map<string, LinearLayoutSelectionMap>(),
+    linearLayoutNotice: null,
+    linearLayoutMatrixPreview: '',
+    showLinearLayoutMatrix: false,
+    syncingLinearLayoutSelection: false,
 };
 
-const linearLayoutSelectionMaps = new Map<string, LinearLayoutSelectionMap>();
-let syncingLinearLayoutSelection = false;
+const linearLayoutUi: LinearLayoutUiContext = {
+    viewer,
+    viewport,
+    linearLayoutWidget,
+    cellTextWidget,
+    linearLayoutColorWidget,
+    state: linearLayoutUiState,
+    getActiveTab: () => activeTab(),
+    getActiveTabId: () => activeTabId,
+    getSessionTabs: () => sessionTabs,
+    setSessionTabs: (tabs) => {
+        sessionTabs = tabs;
+    },
+    loadTab: async (tabId) => {
+        await loadTab(tabId);
+    },
+};
 
 type CommandAction = {
     action: string;
@@ -176,915 +182,6 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
 }
 
 /** Load the persisted linear-layout JSON used by the static demo sidebar. */
-function loadLinearLayoutState(): LinearLayoutFormState {
-    const fallback = defaultLinearLayoutState();
-    try {
-        const stored = window.localStorage.getItem(LINEAR_LAYOUT_STORAGE_KEY);
-        if (!stored) return fallback;
-        const parsed = JSON.parse(stored);
-        if (isLinearLayoutState(parsed)) return cloneLinearLayoutState(parsed);
-        if (parsed && typeof parsed === 'object' && ('specsText' in parsed || 'operationText' in parsed)) {
-            return {
-                ...fallback,
-                ...(parsed as Partial<LinearLayoutFormState>),
-            };
-        }
-        if (parsed && typeof parsed === 'object' && (parsed.basesText || parsed.bases)) {
-            return legacyEditorState(parsed as Record<string, unknown>, fallback);
-        }
-        if (parsed && typeof parsed === 'object' && (parsed.input_dims || parsed.bases)) {
-            return composeLayoutStateFromLegacySpec(parsed, 'Layout_1');
-        }
-    } catch {
-        return fallback;
-    }
-    return fallback;
-}
-
-/** Persist the current linear-layout JSON for the next browser session. */
-function storeLinearLayoutState(): void {
-    try {
-        window.localStorage.setItem(LINEAR_LAYOUT_STORAGE_KEY, JSON.stringify(linearLayoutState));
-    } catch {
-        // ignore storage failures in restricted browsers
-    }
-}
-
-function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
-    return isComposeLayoutState(value);
-}
-
-function defaultLinearLayoutState(): LinearLayoutFormState {
-    return defaultComposeLayoutState();
-}
-
-function emptyLinearLayoutState(): LinearLayoutFormState {
-    return emptyComposeLayoutState();
-}
-
-function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
-    return cloneComposeLayoutState(state);
-}
-
-function defaultLinearLayoutCellTextState(): LinearLayoutCellTextState {
-    return {};
-}
-
-function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState): LinearLayoutCellTextState {
-    return { ...state };
-}
-
-function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViewsState): LinearLayoutTensorViewsState {
-    return Object.fromEntries(Object.entries(state).map(([tensorId, view]) => [
-        tensorId,
-        {
-            view: view.view,
-            hiddenIndices: view.hiddenIndices.slice(),
-        },
-    ]));
-}
-
-function isLinearLayoutCellTextState(value: unknown): value is LinearLayoutCellTextState {
-    if (!value || typeof value !== 'object') return false;
-    return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'boolean');
-}
-
-function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTensorViewsState {
-    return Object.fromEntries(snapshot.tensors.map((tensor) => [
-        tensor.id,
-        {
-            view: tensor.view.view,
-            hiddenIndices: tensor.view.hiddenIndices.slice(),
-        },
-    ]));
-}
-
-function preservedLinearLayoutTensorViews(tabId: string | null = activeTabId): LinearLayoutTensorViewsState {
-    const stored = tabId ? cloneLinearLayoutTensorViewsState(linearLayoutTensorViewsStates.get(tabId) ?? {}) : {};
-    if (!tabId || activeTabId !== tabId) return stored;
-    return {
-        ...stored,
-        ...snapshotTensorViews(viewer.getSnapshot()),
-    };
-}
-
-function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutFormState): LinearLayoutFormState {
-    const textByLabel = new Map<string, string>([['T', '[]'], ['W', '[]'], ['R', '[]']]);
-    if (typeof raw.basesText === 'string') {
-        raw.basesText.split('\n').forEach((line) => {
-            const match = line.trim().match(/^([TWR])\s*:\s*(.+)$/i);
-            if (!match) return;
-            textByLabel.set(match[1]!.toUpperCase(), match[2]!.trim());
-        });
-    }
-    if (raw.bases && typeof raw.bases === 'object') {
-        const bases = raw.bases as Record<string, unknown>;
-        if (typeof bases.thread === 'string') textByLabel.set('T', bases.thread);
-        if (typeof bases.warp === 'string') textByLabel.set('W', bases.warp);
-        if (typeof bases.register === 'string') textByLabel.set('R', bases.register);
-    }
-    const rows = ['T', 'W', 'R'].map((label) => parseBasesField(label, textByLabel.get(label) ?? '[]'));
-    const outputRank = Math.max(1, ...rows.flatMap((entry) => entry.map((basis) => basis.length)));
-    const outputs = Array.from({ length: outputRank }, (_entry, axis) => String.fromCharCode(65 + axis));
-    const mapping = { ...fallback.mapping };
-    if (raw.mapping && typeof raw.mapping === 'object') {
-        Object.entries(raw.mapping as Record<string, unknown>).forEach(([channel, axisName]) => {
-            const normalized = String(channel).toUpperCase() as LinearLayoutChannel;
-            if (!LINEAR_LAYOUT_CHANNELS.includes(normalized) || typeof axisName !== 'string') return;
-            mapping[normalized] = axisName === 'thread' ? 'T' : axisName === 'warp' ? 'W' : axisName === 'register' ? 'R' : 'none';
-        });
-    }
-    const ranges = {
-        H: [...fallback.ranges.H],
-        S: [...fallback.ranges.S],
-        L: [...fallback.ranges.L],
-    } as Record<LinearLayoutChannel, [string, string]>;
-    if (raw.ranges && typeof raw.ranges === 'object') {
-        Object.entries(raw.ranges as Record<string, unknown>).forEach(([channel, range]) => {
-            const normalized = String(channel).toUpperCase() as LinearLayoutChannel;
-            if (!LINEAR_LAYOUT_CHANNELS.includes(normalized) || !Array.isArray(range) || range.length !== 2) return;
-            ranges[normalized] = [String(range[0]), String(range[1])];
-        });
-    }
-    return {
-        specsText: [
-            `Layout_1: [T,W,R] -> [${outputs.join(',')}]`,
-            ...rows.map((row) => JSON.stringify(row)),
-        ].join('\n'),
-        operationText: 'Layout_1',
-        inputName: fallback.inputName,
-        visibleTensors: {},
-        mapping,
-        ranges,
-    };
-}
-
-function composeLayoutMetaForTab(tab: LoadedBundleDocument): ComposeLayoutMeta | null {
-    const candidate = (tab.manifest.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
-    if (!isComposeLayoutMeta(candidate)) return null;
-    return candidate;
-}
-
-function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
-    return composeLayoutMetaForTab(tab) !== null;
-}
-
-function syncLinearLayoutState(tab: LoadedBundleDocument): void {
-    if (!isLinearLayoutTab(tab)) return;
-    const stored = linearLayoutStates.get(tab.id);
-    if (stored) {
-        linearLayoutState = cloneLinearLayoutState(stored);
-        refreshLinearLayoutMatrixPreview(linearLayoutState);
-        renderLinearLayoutWidget();
-        return;
-    }
-    const candidate = (tab.manifest.viewer as { composeLayoutState?: unknown }).composeLayoutState;
-    if (isComposeLayoutState(candidate)) {
-        linearLayoutState = cloneLinearLayoutState(candidate);
-        linearLayoutStates.set(tab.id, cloneLinearLayoutState(candidate));
-        refreshLinearLayoutMatrixPreview(linearLayoutState);
-        renderLinearLayoutWidget();
-        return;
-    }
-    const meta = composeLayoutMetaForTab(tab);
-    linearLayoutState = meta
-        ? {
-            ...defaultLinearLayoutState(),
-            specsText: meta.specsText,
-            operationText: meta.operationText,
-            inputName: meta.inputName ?? defaultLinearLayoutState().inputName,
-            visibleTensors: Object.fromEntries(meta.tensors.map((tensor) => [tensor.id, tensor.visible])),
-        }
-        : defaultLinearLayoutState();
-    linearLayoutStates.set(tab.id, cloneLinearLayoutState(linearLayoutState));
-    refreshLinearLayoutMatrixPreview(linearLayoutState);
-    renderLinearLayoutWidget();
-}
-
-function syncLinearLayoutCellTextState(tab: LoadedBundleDocument): void {
-    if (!isLinearLayoutTab(tab)) {
-        linearLayoutCellTextState = defaultLinearLayoutCellTextState();
-        return;
-    }
-    const stored = linearLayoutCellTextStates.get(tab.id);
-    if (stored) {
-        linearLayoutCellTextState = cloneLinearLayoutCellTextState(stored);
-        return;
-    }
-    const candidate = (tab.manifest.viewer as { linearLayoutCellTextState?: unknown }).linearLayoutCellTextState;
-    if (isLinearLayoutCellTextState(candidate)) {
-        linearLayoutCellTextState = cloneLinearLayoutCellTextState(candidate);
-        linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(candidate));
-        return;
-    }
-    linearLayoutCellTextState = defaultLinearLayoutCellTextState();
-    linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
-}
-
-function normalizeCellTextState(
-    state: LinearLayoutCellTextState,
-    labels: string[],
-): LinearLayoutCellTextState {
-    return Object.fromEntries(labels.map((label) => [label, state[label] ?? false]));
-}
-
-function linearLayoutSelectionMapForTab(tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
-    const cached = linearLayoutSelectionMaps.get(tab.id);
-    if (cached) return cached;
-    const meta = composeLayoutMetaForTab(tab);
-    if (!meta || meta.tensors.length === 0) return null;
-    const rootInputShape = meta.rootInputBitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
-    const rootKeys = meta.tensors[0]!.rootToTensor.map((coord) => coordKey(coord));
-    const loadedTensorIds = new Set(tab.manifest.tensors.map((tensor) => tensor.id));
-    const tensors = new Map<string, {
-        meta: ComposeTensorMeta;
-        rootToTensorKeys: string[];
-        tensorToRoot: Map<string, string>;
-    }>();
-    meta.tensors.forEach((tensorMeta) => {
-        if (!loadedTensorIds.has(tensorMeta.id)) return;
-        const rootToTensorKeys = tensorMeta.rootToTensor.map((coord) => coordKey(coord));
-        const tensorToRoot = new Map<string, string>();
-        rootToTensorKeys.forEach((tensorKey, rootIndex) => {
-            tensorToRoot.set(tensorKey, rootKeys[rootIndex]!);
-        });
-        tensors.set(tensorMeta.id, {
-            meta: tensorMeta,
-            rootToTensorKeys,
-            tensorToRoot,
-        });
-    });
-    const map = {
-        rootInputLabels: meta.rootInputLabels.slice(),
-        rootInputShape,
-        rootKeyToIndex: new Map(rootKeys.map((key, index) => [key, index])),
-        tensors,
-        orderedTensorIds: meta.tensors.map((tensor) => tensor.id).filter((id) => tensors.has(id)),
-    };
-    linearLayoutSelectionMaps.set(tab.id, map);
-    return map;
-}
-
-function selectionKeys(coords: number[][]): Set<string> {
-    return new Set(coords.map((coord) => coordKey(coord)));
-}
-
-function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>): boolean {
-    if (left.size !== right.size) return false;
-    for (const [tensorId, coords] of right) {
-        const leftCoords = left.get(tensorId);
-        if (!leftCoords) return false;
-        const leftKeys = selectionKeys(leftCoords);
-        const rightKeys = selectionKeys(coords);
-        if (leftKeys.size !== rightKeys.size) return false;
-        for (const key of rightKeys) {
-            if (!leftKeys.has(key)) return false;
-        }
-    }
-    return true;
-}
-
-/** Build inspector coord rows for the hovered cell across every visible tensor in a compose chain. */
-function inspectorCoordEntries(
-    hover: ReturnType<TensorViewer['getHover']>,
-    hoveredStatus: ReturnType<TensorViewer['getTensorStatus']>,
-    linearLayout: LinearLayoutSelectionMap | null,
-): InspectorCoordEntry[] {
-    if (!hover) return [];
-    if (!linearLayout) {
-        return [{
-            title: hover.tensorName,
-            labels: hoveredStatus?.axisLabels ?? [],
-            shape: hoveredStatus?.shape ?? [],
-            coord: hover.tensorCoord,
-            hovered: true,
-        }];
-    }
-    const rootKey = linearLayout.tensors.get(hover.tensorId)?.tensorToRoot.get(coordKey(hover.tensorCoord));
-    if (!rootKey) return [];
-    const rootIndex = linearLayout.rootKeyToIndex.get(rootKey);
-    if (rootIndex === undefined) return [];
-    return linearLayout.orderedTensorIds.map((tensorId) => {
-        const entry = linearLayout.tensors.get(tensorId)!;
-        return {
-            title: entry.meta.title,
-            labels: entry.meta.axisLabels,
-            shape: entry.meta.shape,
-            coord: coordFromKey(entry.rootToTensorKeys[rootIndex] ?? ''),
-            hovered: tensorId === hover.tensorId,
-        };
-    });
-}
-
-function activeLinearLayoutTab(): LoadedBundleDocument | null {
-    const tab = activeTab();
-    return tab && isLinearLayoutTab(tab) ? tab : null;
-}
-
-function clearCellTextLabels(): void {
-    viewer.getInspectorModel().tensors.forEach((tensor) => {
-        viewer.setTensorCellLabels(tensor.id, null);
-    });
-}
-
-function rootKeysForCoords(
-    coords: number[][],
-    tensor: {
-        tensorToRoot: Map<string, string>;
-    },
-): Set<string> {
-    return new Set(coords.flatMap((coord) => {
-        const rootKey = tensor.tensorToRoot.get(coordKey(coord));
-        return rootKey ? [rootKey] : [];
-    }));
-}
-
-function coordsForRootKeys(
-    rootKeys: Set<string>,
-    mapping: LinearLayoutSelectionMap,
-    tensorId: string,
-): number[][] {
-    const tensor = mapping.tensors.get(tensorId);
-    if (!tensor || rootKeys.size === 0) return [];
-    return Array.from(rootKeys, (rootKey) => {
-        const rootIndex = mapping.rootKeyToIndex.get(rootKey);
-        return rootIndex === undefined ? null : coordFromKey(tensor.rootToTensorKeys[rootIndex]!);
-    }).filter((coord): coord is number[] => coord !== null);
-}
-
-function selectionSourceTensorId(selection: SelectionCoords, mapping: LinearLayoutSelectionMap): string | null {
-    const nonEmpty = mapping.orderedTensorIds.filter((tensorId) => (selection.get(tensorId)?.length ?? 0) > 0);
-    if (nonEmpty.length === 0) return null;
-    if (nonEmpty.length === 1) return nonEmpty[0]!;
-    const activeId = viewer.getState().activeTensorId;
-    return activeId && nonEmpty.includes(activeId) ? activeId : nonEmpty[0]!;
-}
-
-function mappedSelectionFromSource(
-    selection: SelectionCoords,
-    mapping: LinearLayoutSelectionMap,
-): SelectionCoords {
-    const sourceTensorId = selectionSourceTensorId(selection, mapping);
-    if (!sourceTensorId) return new Map();
-    const sourceTensor = mapping.tensors.get(sourceTensorId);
-    const sourceCoords = selection.get(sourceTensorId) ?? [];
-    if (!sourceTensor || sourceCoords.length === 0) return new Map();
-    const rootKeys = rootKeysForCoords(sourceCoords, sourceTensor);
-    const nextSelection = new Map<string, number[][]>();
-    mapping.orderedTensorIds.forEach((tensorId) => {
-        const coords = coordsForRootKeys(rootKeys, mapping, tensorId);
-        if (coords.length) nextSelection.set(tensorId, coords);
-    });
-    return nextSelection;
-}
-
-function linearLayoutCellTextForCoord(
-    coord: number[],
-    labels: string[],
-    state: LinearLayoutCellTextState,
-): string {
-    return labels
-        .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}${coord[axis] ?? 0}`] : []))
-        .join('\n');
-}
-
-function linearLayoutCellLabelsForTab(
-    tab: LoadedBundleDocument,
-    state: LinearLayoutCellTextState,
-): Array<{ tensorId: string; labels: Array<{ coord: number[]; text: string }> }> | null {
-    const mapping = linearLayoutSelectionMapForTab(tab);
-    if (!mapping || !mapping.rootInputLabels.some((label) => state[label])) return null;
-    return mapping.orderedTensorIds.map((tensorId) => {
-        const tensor = mapping.tensors.get(tensorId)!;
-        const labels = tensor.rootToTensorKeys.map((tensorKey) => {
-            const rootKey = tensor.tensorToRoot.get(tensorKey);
-            if (!rootKey) return null;
-            return {
-                coord: coordFromKey(tensorKey),
-                text: linearLayoutCellTextForCoord(coordFromKey(rootKey), mapping.rootInputLabels, state),
-            };
-        }).filter((entry): entry is { coord: number[]; text: string } => entry !== null);
-        return { tensorId, labels };
-    });
-}
-
-function applyLinearLayoutCellText(): void {
-    const tab = activeLinearLayoutTab();
-    if (!tab) {
-        clearCellTextLabels();
-        return;
-    }
-    const labels = linearLayoutCellLabelsForTab(tab, linearLayoutCellTextState);
-    if (!labels) {
-        const mapping = linearLayoutSelectionMapForTab(tab);
-        mapping?.orderedTensorIds.forEach((tensorId) => viewer.setTensorCellLabels(tensorId, null));
-        return;
-    }
-    labels.forEach(({ tensorId, labels: tensorLabels }) => {
-        viewer.setTensorCellLabels(tensorId, tensorLabels);
-    });
-}
-
-function slicedTensorCoords(tensorId: string): number[][] | null {
-    const status = viewer.getTensorStatus(tensorId);
-    const snapshot = viewer.getTensorView(tensorId);
-    const parsed = parseTensorView(
-        status.shape.slice(),
-        snapshot.view,
-        snapshot.hiddenIndices,
-        status.axisLabels,
-    );
-    if (!parsed.ok || parsed.spec.sliceTokens.length === 0) return null;
-    const hiddenAxes = parsed.spec.tokens
-        .filter((token) => token.kind === 'axis_group' && !token.visible)
-        .flatMap((token) => token.axes);
-    if (hiddenAxes.length === 0) return null;
-    const coords: number[][] = [];
-    const total = product(status.shape);
-    for (let index = 0; index < total; index += 1) {
-        const coord = unravelIndex(index, status.shape);
-        if (hiddenAxes.every((axis) => coord[axis] === parsed.spec.hiddenIndices[axis])) coords.push(coord);
-    }
-    return coords;
-}
-
-function syncLinearLayoutViewFilters(): void {
-    const tab = activeTab();
-    if (!tab || !isLinearLayoutTab(tab)) return;
-    const mapping = linearLayoutSelectionMapForTab(tab);
-    if (!mapping) return;
-    let allowedRootKeys: Set<string> | null = null;
-    mapping.orderedTensorIds.forEach((tensorId) => {
-        const coords = slicedTensorCoords(tensorId);
-        if (!coords) return;
-        const tensor = mapping.tensors.get(tensorId)!;
-        const rootKeys = rootKeysForCoords(coords, tensor);
-        allowedRootKeys = allowedRootKeys
-            ? new Set(Array.from(allowedRootKeys).filter((key) => rootKeys.has(key)))
-            : rootKeys;
-    });
-    mapping.orderedTensorIds.forEach((tensorId) => {
-        viewer.setTensorVisibleCoords(
-            tensorId,
-            allowedRootKeys ? coordsForRootKeys(allowedRootKeys, mapping, tensorId) : null,
-        );
-    });
-}
-
-function syncLinearLayoutSelection(selection: SelectionCoords): void {
-    if (syncingLinearLayoutSelection) return;
-    const tab = activeTab();
-    if (!tab || !isLinearLayoutTab(tab)) return;
-    const mapping = linearLayoutSelectionMapForTab(tab);
-    if (!mapping) return;
-    const nextSelection = mappedSelectionFromSource(selection, mapping);
-    if (nextSelection.size === 0) return;
-    if (selectionsMatch(selection, nextSelection)) return;
-    syncingLinearLayoutSelection = true;
-    viewer.setSelectedCoords(nextSelection);
-    syncingLinearLayoutSelection = false;
-}
-
-function syncLinearLayoutSelectionPreview(selection: SelectionCoords): void {
-    const tab = activeTab();
-    if (!tab || !isLinearLayoutTab(tab)) {
-        viewer.setPreviewSelectedCoords(selection);
-        return;
-    }
-    const mapping = linearLayoutSelectionMapForTab(tab);
-    if (!mapping) {
-        viewer.setPreviewSelectedCoords(selection);
-        return;
-    }
-    viewer.setPreviewSelectedCoords(mappedSelectionFromSource(selection, mapping));
-}
-
-function parseBasesField(label: string, value: string): number[][] {
-    if (!value.trim()) return [];
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(value);
-    } catch (error) {
-        throw new Error(`${label} bases must be valid JSON.`);
-    }
-    if (!Array.isArray(parsed)) throw new Error(`${label} bases must be a JSON array.`);
-    return parsed.map((basis, index) => {
-        if (!Array.isArray(basis)) throw new Error(`${label} basis ${index + 1} must be an array.`);
-        return basis.map((entry, axis) => {
-            if (typeof entry !== 'number' || Number.isNaN(entry)) {
-                throw new Error(`${label} basis ${index + 1}[${axis + 1}] must be a number.`);
-            }
-            return entry;
-        });
-    });
-}
-
-function matrixAxisColorClass(axis: number): string {
-    return `matrix-axis-${axis % 3}`;
-}
-
-function matrixPreviewFromBlocks(blocks: MatrixBlock[]): string {
-    return blocks.map((block) => {
-        const labelWidth = Math.max(1, ...block.rows.map((row) => row.label.length));
-        const columnWidths = block.columns.map((column) => Math.max(1, column.label.length));
-        const header = block.columns.length === 0
-            ? '<span class="matrix-zero">0</span>'
-            : `${' '.repeat(labelWidth)} | ${block.columns.map((column, index) => (
-                `<span class="matrix-label ${matrixAxisColorClass(column.axis)}">${escapeInfo(column.label.padStart(columnWidths[index] ?? 1))}</span>`
-            )).join(' ')}`;
-        const rows = block.rows.length === 0
-            ? []
-            : block.rows.map((row, rowIndex) => (
-                `<span class="matrix-label ${matrixAxisColorClass(row.axis)}">${escapeInfo(row.label.padStart(labelWidth))}</span> | ${block.columns.map((_column, columnIndex) => {
-                    const value = block.values[rowIndex]?.[columnIndex] === 1 ? '1' : '0';
-                    const klass = value === '1' ? 'matrix-one' : 'matrix-zero';
-                    return `<span class="${klass}">${value.padStart(columnWidths[columnIndex] ?? 1)}</span>`;
-                }).join(' ')}`
-            ));
-        return [
-            '<div class="matrix-block">',
-            `<div class="matrix-block-title">${escapeInfo(block.title)}</div>`,
-            '<div class="matrix-block-body">',
-            header,
-            ...rows,
-            '</div>',
-            '</div>',
-        ].join('\n');
-    }).join('\n');
-}
-
-async function copyText(text: string): Promise<void> {
-    if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        return;
-    }
-    const input = document.createElement('textarea');
-    input.value = text;
-    input.style.position = 'fixed';
-    input.style.opacity = '0';
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand('copy');
-    document.body.removeChild(input);
-}
-
-function refreshLinearLayoutMatrixPreview(state = linearLayoutState): void {
-    try {
-        linearLayoutMatrixPreview = matrixPreviewFromBlocks(buildComposeRuntime(state).matrixBlocks);
-    } catch {
-        linearLayoutMatrixPreview = '';
-    }
-}
-
-function linearLayoutRootLabels(): string[] {
-    const tab = activeLinearLayoutTab();
-    const meta = tab ? composeLayoutMetaForTab(tab) : null;
-    if (meta) return meta.rootInputLabels.slice();
-    try {
-        return buildComposeRuntime(linearLayoutState).inputLabels;
-    } catch {
-        return [];
-    }
-}
-
-function renderLinearLayoutColorWidget(): void {
-    const activeElement = document.activeElement;
-    const focusedInput = activeElement instanceof HTMLInputElement && linearLayoutColorWidget.contains(activeElement)
-        ? {
-            id: activeElement.id,
-            start: activeElement.selectionStart,
-            end: activeElement.selectionEnd,
-        }
-        : null;
-    const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
-    const rootLabels = linearLayoutRootLabels();
-    const assignedLabels = new Set(
-        LINEAR_LAYOUT_CHANNELS
-            .map((channel) => linearLayoutState.mapping[channel])
-            .filter((label): label is string => label !== 'none' && rootLabels.includes(label)),
-    );
-    const availableLabels = rootLabels.filter((label) => !assignedLabels.has(label));
-    linearLayoutColorWidget.innerHTML = `
-      ${titleWithInfo('Color Mapping', 'Select which root-input axis drives each color channel and set channel ranges.')}
-      <div class="widget-body">
-        <div class="field">
-          ${labelWithInfo('Available Axes', 'Drag one root-input axis onto H, S, or L. Drag a colored axis back here to clear that channel.')}
-          <div class="mapping-pool mapping-drop-zone" data-pool="true">
-            ${availableLabels.map((label) => `
-              <button class="mapping-chip" type="button" draggable="true" data-axis="${label}">${label}</button>
-            `).join('')}
-            ${availableLabels.length === 0 ? '<span class="mapping-empty">all axes assigned</span>' : ''}
-          </div>
-        </div>
-        ${LINEAR_LAYOUT_CHANNELS.map((channel) => `
-          <div class="inline-row mapping-row">
-            <span class="range-label">${channelLabels[channel]}</span>
-            <div class="mapping-drop-zone" data-channel="${channel}">
-              ${linearLayoutState.mapping[channel] !== 'none' && rootLabels.includes(linearLayoutState.mapping[channel] as string)
-        ? `<button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${linearLayoutState.mapping[channel]}">
-                ${linearLayoutState.mapping[channel]}
-              </button>`
-        : '<span class="mapping-empty">none</span>'}
-            </div>
-            <input id="linear-layout-${channel.toLowerCase()}-min" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges[channel][0])}" />
-            <span class="range-separator">to</span>
-            <input id="linear-layout-${channel.toLowerCase()}-max" type="number" step="0.01" value="${escapeInfo(linearLayoutState.ranges[channel][1])}" />
-          </div>
-        `).join('')}
-        <div class="button-row">
-          <button class="primary-button" id="linear-layout-recolor" type="button">Recolor Layout</button>
-        </div>
-      </div>
-    `;
-
-    const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
-        event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));
-        event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    };
-    const readDragPayload = (event: DragEvent): Record<string, string> | null => {
-        const raw = event.dataTransfer?.getData('application/x-linear-layout-mapping')
-            || event.dataTransfer?.getData('text/plain');
-        if (!raw) return null;
-        try {
-            return JSON.parse(raw) as Record<string, string>;
-        } catch {
-            return null;
-        }
-    };
-    linearLayoutColorWidget.querySelectorAll<HTMLElement>('[draggable="true"]').forEach((element) => {
-        element.addEventListener('dragstart', (event) => {
-            const channel = element.dataset.channel;
-            const axis = element.dataset.axis;
-            if (!axis) return;
-            writeDragPayload(event, channel ? { kind: 'channel', channel, axis } : { kind: 'axis', axis });
-        });
-    });
-    linearLayoutColorWidget.querySelectorAll<HTMLElement>('.mapping-drop-zone').forEach((element) => {
-        element.addEventListener('dragover', (event) => {
-            event.preventDefault();
-            element.classList.add('drag-over');
-        });
-        element.addEventListener('dragleave', () => {
-            element.classList.remove('drag-over');
-        });
-        element.addEventListener('drop', (event) => {
-            event.preventDefault();
-            element.classList.remove('drag-over');
-            const payload = readDragPayload(event);
-            const targetChannel = element.dataset.channel as LinearLayoutChannel | undefined;
-            if (!payload) return;
-            if (element.dataset.pool === 'true') {
-                if (payload.kind !== 'channel') return;
-                const sourceChannel = payload.channel as LinearLayoutChannel;
-                if (!sourceChannel) return;
-                linearLayoutState.mapping[sourceChannel] = 'none';
-                renderLinearLayoutColorWidget();
-                return;
-            }
-            if (!targetChannel) return;
-            if (payload.kind === 'channel') {
-                const sourceChannel = payload.channel as LinearLayoutChannel;
-                if (!sourceChannel || sourceChannel === targetChannel) return;
-                const sourceAxis = linearLayoutState.mapping[sourceChannel];
-                linearLayoutState.mapping[sourceChannel] = linearLayoutState.mapping[targetChannel];
-                linearLayoutState.mapping[targetChannel] = sourceAxis;
-            } else {
-                const axis = payload.axis;
-                if (!axis) return;
-                LINEAR_LAYOUT_CHANNELS.forEach((channel) => {
-                    if (linearLayoutState.mapping[channel] === axis) linearLayoutState.mapping[channel] = 'none';
-                });
-                linearLayoutState.mapping[targetChannel] = axis;
-            }
-            renderLinearLayoutColorWidget();
-        });
-    });
-    const hueMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-h-min');
-    const hueMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-h-max');
-    const saturationMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-s-min');
-    const saturationMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-s-max');
-    const lightnessMinInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-min');
-    const lightnessMaxInput = linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-l-max');
-    const recolorButton = linearLayoutColorWidget.querySelector<HTMLButtonElement>('#linear-layout-recolor');
-    hueMinInput?.addEventListener('input', () => {
-        linearLayoutState.ranges.H[0] = hueMinInput.value;
-    });
-    hueMaxInput?.addEventListener('input', () => {
-        linearLayoutState.ranges.H[1] = hueMaxInput.value;
-    });
-    saturationMinInput?.addEventListener('input', () => {
-        linearLayoutState.ranges.S[0] = saturationMinInput.value;
-    });
-    saturationMaxInput?.addEventListener('input', () => {
-        linearLayoutState.ranges.S[1] = saturationMaxInput.value;
-    });
-    lightnessMinInput?.addEventListener('input', () => {
-        linearLayoutState.ranges.L[0] = lightnessMinInput.value;
-    });
-    lightnessMaxInput?.addEventListener('input', () => {
-        linearLayoutState.ranges.L[1] = lightnessMaxInput.value;
-    });
-    recolorButton?.addEventListener('click', async () => {
-        await applyLinearLayoutSpec({ silent: true, preserveTensorViews: true });
-    });
-    if (focusedInput) {
-        const nextInput = linearLayoutColorWidget.querySelector<HTMLInputElement>(`#${focusedInput.id}`);
-        nextInput?.focus();
-        if (nextInput && focusedInput.start !== null && focusedInput.end !== null) {
-            nextInput.setSelectionRange(focusedInput.start, focusedInput.end);
-        }
-    }
-}
-
-function renderCellTextWidget(): void {
-    const labels = linearLayoutRootLabels();
-    if (labels.length === 0) {
-        cellTextWidget.innerHTML = '';
-        return;
-    }
-    cellTextWidget.innerHTML = `
-      ${titleWithInfo('Cell Text', 'Overlay selected root-input label values directly on every visible tensor cell in 2D. Labels only appear when cells are large enough to read.')}
-      <div class="widget-body">
-        <p class="widget-copy">Choose which root-input label values to draw on each cell. Every visible tensor shows the values of the root coordinate that maps to that cell.</p>
-        <div class="checklist-field">
-          ${labels.map((label) => `
-            <label class="checklist-row" for="cell-text-${label}">
-              <span>${label}</span>
-              <input id="cell-text-${label}" type="checkbox" ${linearLayoutCellTextState[label] ? 'checked' : ''} />
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    `;
-    const sync = (): void => {
-        linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
-            label,
-            cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.checked ?? false,
-        ]));
-        const tab = activeLinearLayoutTab();
-        if (tab) linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
-        applyLinearLayoutCellText();
-    };
-    labels.forEach((label) => {
-        cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', sync);
-    });
-}
-
-function autosizeTextarea(textarea: HTMLTextAreaElement): void {
-    textarea.style.height = '0';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-}
-
-/** Render the browser-side linear-layout editor that powers the Pages build. */
-function renderLinearLayoutWidget(): void {
-    const statusClass = linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
-    const status = linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(linearLayoutNotice.text)}</div>` : '';
-    const tab = activeLinearLayoutTab();
-    const meta = tab ? composeLayoutMetaForTab(tab) : null;
-    const visibilityField = !meta ? '' : `
-      <div class="field">
-        ${labelWithInfo('Visible Tensors', 'Toggle which tensors in the render chain stay visible for the current tab.')}
-        <div class="checklist-field">
-          ${meta.tensors.map((tensor) => `
-            <label class="checklist-row" for="linear-layout-visible-${tensor.id}">
-              <span>${escapeInfo(tensor.title)}</span>
-              <input id="linear-layout-visible-${tensor.id}" type="checkbox" ${linearLayoutState.visibleTensors[tensor.id] !== false ? 'checked' : ''} />
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    `;
-    const matrixBlock = !showLinearLayoutMatrix
-        ? ''
-        : `<div class="mono-block linear-layout-matrix-preview">${linearLayoutMatrixPreview}</div>`;
-    linearLayoutWidget.innerHTML = `
-      ${titleWithInfo('Linear Layout Specifications', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
-      <div class="widget-body">
-        <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one JSON basis row per input label. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
-        <div class="field">
-          ${labelWithInfo('Linear Layout Specifications', 'Enter one or more specification blocks. Each block has one signature line plus one basis row per input label.', 'linear-layout-specs')}
-          <textarea id="linear-layout-specs" class="compact-textarea" rows="8" spellcheck="false">${escapeInfo(linearLayoutState.specsText)}</textarea>
-        </div>
-        <div class="field">
-          ${labelWithInfo('Layout Operation', 'Enter the layout expression to visualize, such as A(B), inv(A), A * B, or parenthesized combinations.', 'linear-layout-operation')}
-          <textarea id="linear-layout-operation" class="compact-textarea" rows="2" spellcheck="false">${escapeInfo(linearLayoutState.operationText)}</textarea>
-        </div>
-        <div class="field">
-          ${labelWithInfo('Input Tensor Name', 'Sets the display name of the root tensor at the start of the rendered chain.', 'linear-layout-input-name')}
-          <input id="linear-layout-input-name" type="text" value="${escapeInfo(linearLayoutState.inputName)}" />
-        </div>
-        ${visibilityField}
-        <div class="button-row">
-          <button class="primary-button" id="linear-layout-apply" type="button">Render Layout</button>
-          <button class="secondary-button" id="linear-layout-copy" type="button">Copy Init Code</button>
-          <button class="secondary-button" id="linear-layout-matrix" type="button">${showLinearLayoutMatrix ? 'Hide Matrix' : 'Show Matrix'}</button>
-        </div>
-        ${matrixBlock}
-        ${status}
-      </div>
-    `;
-
-    const specsInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-specs');
-    const operationInput = linearLayoutWidget.querySelector<HTMLTextAreaElement>('#linear-layout-operation');
-    const inputNameInput = linearLayoutWidget.querySelector<HTMLInputElement>('#linear-layout-input-name');
-    const apply = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
-    const copy = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-copy');
-    const matrix = linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-matrix');
-    if (specsInput) autosizeTextarea(specsInput);
-    if (operationInput) autosizeTextarea(operationInput);
-    specsInput?.addEventListener('input', () => {
-        linearLayoutState.specsText = specsInput.value;
-        autosizeTextarea(specsInput);
-    });
-    operationInput?.addEventListener('input', () => {
-        linearLayoutState.operationText = operationInput.value;
-        autosizeTextarea(operationInput);
-    });
-    inputNameInput?.addEventListener('input', () => {
-        linearLayoutState.inputName = inputNameInput.value;
-    });
-    meta?.tensors.forEach((tensor) => {
-        linearLayoutWidget.querySelector<HTMLInputElement>(`#linear-layout-visible-${CSS.escape(tensor.id)}`)?.addEventListener('change', async (event) => {
-            const target = event.currentTarget as HTMLInputElement;
-            linearLayoutState.visibleTensors[tensor.id] = target.checked;
-            await applyLinearLayoutSpec({ silent: true, preserveTensorViews: true });
-        });
-    });
-    apply?.addEventListener('click', async () => {
-        await applyLinearLayoutSpec();
-    });
-    copy?.addEventListener('click', async () => {
-        try {
-            const code = buildComposeRuntime(linearLayoutState).pythonCode;
-            await copyText(code);
-            linearLayoutNotice = { tone: 'success', text: 'Copied Python init code.' };
-        } catch (error) {
-            linearLayoutNotice = { tone: 'error', text: error instanceof Error ? error.message : String(error) };
-        }
-        renderLinearLayoutWidget();
-    });
-    matrix?.addEventListener('click', () => {
-        showLinearLayoutMatrix = !showLinearLayoutMatrix;
-        renderLinearLayoutWidget();
-    });
-    renderLinearLayoutColorWidget();
-}
-
-/** Add or replace the linear-layout tab and switch the viewer to it. */
-async function upsertLinearLayoutTab(document: LoadedBundleDocument, replaceTabs = false): Promise<void> {
-    const activeTab = sessionTabs.find((tab) => tab.id === activeTabId);
-    const targetId = activeTab?.id ?? document.id;
-    const targetTitle = activeTab?.title ?? document.title;
-    const nextDocument = {
-        ...document,
-        id: targetId,
-        title: targetTitle,
-    };
-    linearLayoutStates.set(targetId, cloneLinearLayoutState(linearLayoutState));
-    linearLayoutCellTextStates.set(targetId, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
-    linearLayoutSelectionMaps.delete(targetId);
-    if (replaceTabs || sessionTabs.length === 0) {
-        sessionTabs = [nextDocument];
-    } else {
-        const index = sessionTabs.findIndex((tab) => tab.id === targetId);
-        sessionTabs = index === -1
-            ? [...sessionTabs, nextDocument]
-            : sessionTabs.map((tab, tabIndex) => tabIndex === index ? nextDocument : tab);
-    }
-    await loadTab(targetId);
-}
-
-/** Parse the sidebar JSON, rebuild the layout tensors, and load them into the viewer. */
-async function applyLinearLayoutSpec(
-    options: { replaceTabs?: boolean; silent?: boolean; preserveTensorViews?: boolean } = {},
-): Promise<boolean> {
-    try {
-        refreshLinearLayoutMatrixPreview();
-        const document = createComposeLayoutDocument(
-            linearLayoutState,
-            viewer.getSnapshot(),
-            undefined,
-            options.preserveTensorViews ? preservedLinearLayoutTensorViews() : undefined,
-        );
-        const runtime = buildComposeRuntime(linearLayoutState);
-        linearLayoutCellTextState = normalizeCellTextState(linearLayoutCellTextState, runtime.inputLabels);
-        storeLinearLayoutState();
-        await upsertLinearLayoutTab(document, options.replaceTabs);
-        const activeTitle = sessionTabs.find((tab) => tab.id === activeTabId)?.title ?? document.title;
-        linearLayoutNotice = options.silent ? null : { tone: 'success', text: `Rendered ${activeTitle}.` };
-        renderLinearLayoutWidget();
-        return true;
-    } catch (error) {
-        linearLayoutNotice = {
-            tone: 'error',
-            text: error instanceof Error ? error.message : String(error),
-        };
-        renderLinearLayoutWidget();
-        return false;
-    }
-}
-
 function commandActions(): CommandAction[] {
     return [
         { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
@@ -1251,12 +348,12 @@ function captureActiveTabSnapshot(): void {
         composeLayoutTensorViews?: LinearLayoutTensorViewsState;
     };
     if (isLinearLayoutTab(tab)) {
-        const cloned = cloneLinearLayoutState(linearLayoutState);
-        const clonedCellText = cloneLinearLayoutCellTextState(linearLayoutCellTextState);
-        const tensorViews = preservedLinearLayoutTensorViews(tab.id);
-        linearLayoutStates.set(tab.id, cloned);
-        linearLayoutCellTextStates.set(tab.id, clonedCellText);
-        linearLayoutTensorViewsStates.set(tab.id, tensorViews);
+        const cloned = cloneLinearLayoutState(linearLayoutUiState.linearLayoutState);
+        const clonedCellText = cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState);
+        const tensorViews = preservedLinearLayoutTensorViews(linearLayoutUi, tab.id);
+        linearLayoutUiState.linearLayoutStates.set(tab.id, cloned);
+        linearLayoutUiState.linearLayoutCellTextStates.set(tab.id, clonedCellText);
+        linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, tensorViews);
         snapshot.composeLayoutState = cloned;
         snapshot.linearLayoutCellTextState = clonedCellText;
         snapshot.composeLayoutTensorViews = cloneLinearLayoutTensorViewsState(tensorViews);
@@ -1271,10 +368,10 @@ async function closeTab(tabId: string): Promise<void> {
     if (index < 0) return;
     const wasActive = activeTabId === tabId;
     if (wasActive) captureActiveTabSnapshot();
-    linearLayoutStates.delete(tabId);
-    linearLayoutCellTextStates.delete(tabId);
-    linearLayoutTensorViewsStates.delete(tabId);
-    linearLayoutSelectionMaps.delete(tabId);
+    linearLayoutUiState.linearLayoutStates.delete(tabId);
+    linearLayoutUiState.linearLayoutCellTextStates.delete(tabId);
+    linearLayoutUiState.linearLayoutTensorViewsStates.delete(tabId);
+    linearLayoutUiState.linearLayoutSelectionMaps.delete(tabId);
     sessionTabs.splice(index, 1);
     if (sessionTabs.length === 0) {
         activeTabId = null;
@@ -1346,31 +443,31 @@ async function addNewTab(): Promise<void> {
     const id = `tab-${Date.now()}`;
     const title = nextTabTitle();
     if (!currentTab) {
-        linearLayoutState = emptyLinearLayoutState();
-        const document = createComposeLayoutDocument(linearLayoutState, viewer.getSnapshot(), title);
-        linearLayoutCellTextState = defaultLinearLayoutCellTextState();
-        linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutState));
-        linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutCellTextState));
-        linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
+        linearLayoutUiState.linearLayoutState = emptyLinearLayoutState();
+        const document = createComposeLayoutDocument(linearLayoutUiState.linearLayoutState, viewer.getSnapshot(), title);
+        linearLayoutUiState.linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+        linearLayoutUiState.linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutUiState.linearLayoutState));
+        linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState));
+        linearLayoutUiState.linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
         sessionTabs = [{ ...document, id, title }];
         await loadTab(id);
         return;
     }
     captureActiveTabSnapshot();
     const nextTab = cloneTabDocument(currentTab, id, title);
-    const currentLinearLayoutState = linearLayoutStates.get(currentTab.id);
+    const currentLinearLayoutState = linearLayoutUiState.linearLayoutStates.get(currentTab.id);
     if (currentLinearLayoutState) {
-        linearLayoutStates.set(id, cloneLinearLayoutState(currentLinearLayoutState));
+        linearLayoutUiState.linearLayoutStates.set(id, cloneLinearLayoutState(currentLinearLayoutState));
     }
-    const currentCellTextState = linearLayoutCellTextStates.get(currentTab.id);
+    const currentCellTextState = linearLayoutUiState.linearLayoutCellTextStates.get(currentTab.id);
     if (currentCellTextState) {
-        linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(currentCellTextState));
+        linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(currentCellTextState));
     }
-    const currentTensorViewsState = linearLayoutTensorViewsStates.get(currentTab.id);
+    const currentTensorViewsState = linearLayoutUiState.linearLayoutTensorViewsStates.get(currentTab.id);
     if (currentTensorViewsState) {
-        linearLayoutTensorViewsStates.set(id, cloneLinearLayoutTensorViewsState(currentTensorViewsState));
+        linearLayoutUiState.linearLayoutTensorViewsStates.set(id, cloneLinearLayoutTensorViewsState(currentTensorViewsState));
     }
-    linearLayoutSelectionMaps.delete(id);
+    linearLayoutUiState.linearLayoutSelectionMaps.delete(id);
     sessionTabs = [...sessionTabs, nextTab];
     await loadTab(id);
 }
@@ -1624,12 +721,12 @@ async function loadTab(tabId: string): Promise<void> {
     }
     switchingTab = false;
     renderTabStrip();
-    syncLinearLayoutState(tab);
-    syncLinearLayoutCellTextState(tab);
-    renderCellTextWidget();
-    syncLinearLayoutViewFilters();
-    applyLinearLayoutCellText();
-    syncLinearLayoutSelectionPreview(new Map());
+    syncLinearLayoutState(linearLayoutUi, tab);
+    syncLinearLayoutCellTextState(linearLayoutUi, tab);
+    renderCellTextWidget(linearLayoutUi);
+    syncLinearLayoutViewFilters(linearLayoutUi);
+    applyLinearLayoutCellText(linearLayoutUi);
+    syncLinearLayoutSelectionPreview(linearLayoutUi, new Map());
 }
 
 window.addEventListener('pointerup', () => {
@@ -1692,7 +789,7 @@ commandPaletteInput.addEventListener('keydown', async (event) => {
 });
 
 function updateSidebar(snapshot: ViewerSnapshot): void {
-    cellTextWidget.classList.toggle('hidden', !activeLinearLayoutTab());
+    cellTextWidget.classList.toggle('hidden', !(activeTab() && isLinearLayoutTab(activeTab()!)));
     tensorViewWidget.classList.toggle('hidden', !showTensorViewWidget);
     inspectorWidget.classList.toggle('hidden', !snapshot.showInspectorPanel);
     selectionWidget.classList.toggle('hidden', !snapshot.showSelectionPanel);
@@ -1755,7 +852,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             try {
                 logUi('tensor-view:change', { tensorId: model.handle!.id, value: input.value });
                 viewer.setTensorView(model.handle!.id, input.value);
-                syncLinearLayoutViewFilters();
+                syncLinearLayoutViewFilters(linearLayoutUi);
                 viewErrors.delete(model.handle!.id);
             } catch (error) {
                 viewErrors.set(model.handle!.id, error instanceof Error ? error.message : String(error));
@@ -1777,7 +874,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.token, nextValue);
-            syncLinearLayoutViewFilters();
+            syncLinearLayoutViewFilters(linearLayoutUi);
             if (preview) preview.textContent = viewer.getInspectorModel().preview;
         };
         slider?.addEventListener('pointerdown', () => {
@@ -1837,8 +934,8 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
-    const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutTab) : null;
-    const coordEntries = inspectorCoordEntries(hover, hoveredStatus, linearLayout);
+    const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutUi, linearLayoutTab) : null;
+    const coordEntries = inspectorCoordEntries(linearLayoutUi, hover, hoveredStatus, linearLayout);
     const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
         if (!coord || !shape) return '';
         return formatAxisTokens(
@@ -2004,7 +1101,7 @@ function render(snapshot: ViewerSnapshot): void {
     if (!switchingTab) captureActiveTabSnapshot();
     updateSidebar(snapshot);
     renderTabStrip();
-    renderCellTextWidget();
+    renderCellTextWidget(linearLayoutUi);
     renderControlDock(snapshot);
     renderTensorViewWidget(snapshot);
     renderInspectorWidget(snapshot);
@@ -2041,11 +1138,11 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
             ...tab.viewer,
             showSelectionPanel: false,
         }, tab.title);
-        linearLayoutStates.set(tab.id, cloneLinearLayoutState(state));
+        linearLayoutUiState.linearLayoutStates.set(tab.id, cloneLinearLayoutState(state));
         if (storedTensorViews && typeof storedTensorViews === 'object') {
-            linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
+            linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
         } else {
-            linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(document.manifest.viewer));
+            linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(document.manifest.viewer));
         }
         return {
             ...document,
@@ -2061,16 +1158,16 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     };
     const storedLinearLayoutState = (viewerState as { composeLayoutState?: unknown }).composeLayoutState;
     if (isLinearLayout && isLinearLayoutState(storedLinearLayoutState)) {
-        linearLayoutStates.set(tab.id, cloneLinearLayoutState(storedLinearLayoutState));
+        linearLayoutUiState.linearLayoutStates.set(tab.id, cloneLinearLayoutState(storedLinearLayoutState));
     }
     if (isLinearLayout && storedTensorViews && typeof storedTensorViews === 'object') {
-        linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
+        linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
     } else if (isLinearLayout) {
-        linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(viewerState));
+        linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(viewerState));
     }
     const storedCellTextState = (viewerState as { linearLayoutCellTextState?: unknown }).linearLayoutCellTextState;
     if (isLinearLayout && isLinearLayoutCellTextState(storedCellTextState)) {
-        linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(storedCellTextState));
+        linearLayoutUiState.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(storedCellTextState));
     }
     return {
         id: tab.id,
@@ -2091,7 +1188,7 @@ async function tryLoadSession(): Promise<boolean> {
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
     const initialMapping = manifest.tabs[0]?.viewer.dimensionMappingScheme;
     if (initialMapping) viewer.setDimensionMappingScheme(initialMapping);
-    linearLayoutSelectionMaps.clear();
+    linearLayoutUiState.linearLayoutSelectionMaps.clear();
     sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));
     activeTabId = null;
     const initialTabId = sessionTabs[0]?.id ?? null;
@@ -2102,10 +1199,10 @@ async function tryLoadSession(): Promise<boolean> {
 function seedDemoTensor(): void {
     sessionTabs = [];
     activeTabId = null;
-    linearLayoutStates.clear();
-    linearLayoutCellTextStates.clear();
-    linearLayoutTensorViewsStates.clear();
-    linearLayoutSelectionMaps.clear();
+    linearLayoutUiState.linearLayoutStates.clear();
+    linearLayoutUiState.linearLayoutCellTextStates.clear();
+    linearLayoutUiState.linearLayoutTensorViewsStates.clear();
+    linearLayoutUiState.linearLayoutSelectionMaps.clear();
     const shape = [4, 4, 4];
     const data = new Float64Array(product(shape));
     for (let index = 0; index < data.length; index += 1) {
@@ -2114,60 +1211,13 @@ function seedDemoTensor(): void {
     viewer.addTensor(shape, data, 'Sample');
 }
 
-async function loadBakedLinearLayoutTabs(): Promise<boolean> {
-    const examples = bakedComposeLayoutExamples();
-    if (examples.length === 0) return false;
-    const baseViewer = viewer.getSnapshot();
-    linearLayoutStates.clear();
-    linearLayoutCellTextStates.clear();
-    linearLayoutTensorViewsStates.clear();
-    sessionTabs = examples.map(({ state, title }, index) => {
-        const document = createComposeLayoutDocument(state, baseViewer, title);
-        const id = `tab-${index + 1}`;
-        linearLayoutStates.set(id, cloneLinearLayoutState(state));
-        linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState());
-        linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
-        return {
-            ...document,
-            id,
-            title,
-        };
-    });
-    activeTabId = null;
-    linearLayoutSelectionMaps.clear();
-    const initialTabId = sessionTabs[0]?.id ?? null;
-    if (!initialTabId) return false;
-    await loadTab(initialTabId);
-    const settle = async (): Promise<void> => {
-        if ('fonts' in document) {
-            try {
-                await (document as Document & { fonts: { ready: Promise<unknown> } }).fonts.ready;
-            } catch {
-                // ignore font-settlement errors
-            }
-        }
-        let stableFrames = 0;
-        let previousSize = '';
-        while (stableFrames < 2) {
-            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-            const nextSize = `${viewport.clientWidth}x${viewport.clientHeight}`;
-            stableFrames = nextSize === previousSize ? stableFrames + 1 : 0;
-            previousSize = nextSize;
-        }
-        viewer.resize();
-        viewer.refitView();
-    };
-    await settle();
-    return true;
-}
-
 async function openLocalFile(file: File): Promise<void> {
     sessionTabs = [];
     activeTabId = null;
-    linearLayoutStates.clear();
-    linearLayoutCellTextStates.clear();
-    linearLayoutTensorViewsStates.clear();
-    linearLayoutSelectionMaps.clear();
+    linearLayoutUiState.linearLayoutStates.clear();
+    linearLayoutUiState.linearLayoutCellTextStates.clear();
+    linearLayoutUiState.linearLayoutTensorViewsStates.clear();
+    linearLayoutUiState.linearLayoutSelectionMaps.clear();
     renderTabStrip();
     await viewer.openFile(file);
 }
@@ -2358,20 +1408,20 @@ window.addEventListener('keydown', async (event) => {
 viewer.subscribe(render);
 viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
 viewer.subscribeSelectionPreview((selection) => {
-    syncLinearLayoutSelectionPreview(selection);
+    syncLinearLayoutSelectionPreview(linearLayoutUi, selection);
 });
 viewer.subscribeSelection((selection) => {
     renderSelectionWidget(viewer.getSnapshot());
-    syncLinearLayoutSelection(selection);
+    syncLinearLayoutSelection(linearLayoutUi, selection);
 });
-renderLinearLayoutWidget();
+renderLinearLayoutWidget(linearLayoutUi);
 
 tryLoadSession().then(async (loaded) => {
     if (loaded) return;
-    if (await loadBakedLinearLayoutTabs()) return;
+    if (await loadBakedLinearLayoutTabs(linearLayoutUi)) return;
     seedDemoTensor();
 }).catch(async () => {
-    if (await loadBakedLinearLayoutTabs()) return;
+    if (await loadBakedLinearLayoutTabs(linearLayoutUi)) return;
     seedDemoTensor();
 });
 }
