@@ -2,6 +2,7 @@ export type AppShellRefs = {
     app: HTMLDivElement;
     viewport: HTMLDivElement;
     tabStrip: HTMLDivElement;
+    controlDock: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
     tensorViewWidget: HTMLElement;
     inspectorWidget: HTMLElement;
@@ -54,6 +55,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         <div class="menu">
           <button class="menu-trigger" type="button">File</button>
           <div class="menu-list">
+            <button data-action="save-svg" type="button">Save SVG <span>Ctrl+S</span></button>
           </div>
         </div>
         <div class="menu">
@@ -89,6 +91,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       <div class="tab-strip hidden" id="tab-strip"></div>
       <main class="viewport-wrap">
         <div id="viewport"></div>
+        <div class="control-dock" id="control-dock"></div>
       </main>
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
@@ -111,6 +114,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         app,
         viewport: requireElement(app, '#viewport', 'viewport'),
         tabStrip: requireElement(app, '#tab-strip', 'tab strip'),
+        controlDock: requireElement(app, '#control-dock', 'control dock'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
         tensorViewWidget: requireElement(app, '#tensor-view-widget', 'tensor view widget'),
         inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),
