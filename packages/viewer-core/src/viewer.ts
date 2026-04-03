@@ -2329,7 +2329,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         return this.state.showDimensionLines;
     }
 
-    /** Toggle the 2D tensor-name labels. */
+    /** Toggle the tensor-name labels. */
     public toggleTensorNames(force?: boolean): boolean {
         this.state.showTensorNames = force ?? !this.state.showTensorNames;
         logEvent('display:tensor-names', this.state.showTensorNames);
