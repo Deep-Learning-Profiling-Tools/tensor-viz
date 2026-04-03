@@ -215,6 +215,8 @@ let widgetOrder: SidebarWidgetId[] = [
     'colorbar',
 ];
 let draggedWidgetId: SidebarWidgetId | null = null;
+let draggedWidgetSlot: number | null = null;
+let draggedWidgetPointerId: number | null = null;
 const collapsedWidgets = new Set<SidebarWidgetId>(widgetOrder);
 collapsedWidgets.delete('linear-layout');
 
@@ -329,56 +331,80 @@ function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
     const title = sidebarWidgetLabels[widgetId];
     const collapsed = collapsedWidgets.has(widgetId);
     return `
-      <div class="title-row widget-title-row" draggable="true" data-widget-handle="${widgetId}">
-        <div class="widget-title-main">
-          <button class="widget-collapse-button" data-widget-collapse="${widgetId}" type="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${title}">
-            ${collapsed ? '▸' : '▾'}
-          </button>
-          <h2>${title}</h2>
+      <div class="widget-header">
+        <div class="title-row widget-title-row">
+          <div class="widget-title-main" data-widget-collapse="${widgetId}" role="button" tabindex="0" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${title}" aria-expanded="${String(!collapsed)}">
+            <span class="widget-title-chevron" data-widget-chevron="${widgetId}" aria-hidden="true">${collapsed ? '▸' : '▾'}</span>
+            <h2>${title}</h2>
+          </div>
+          <div class="widget-title-controls">
+            <span class="widget-title-icon" aria-hidden="true">${widgetIcon(widgetId)}</span>
+            ${infoButton(info)}
+          </div>
         </div>
-        <div class="widget-title-controls">
-          <span class="widget-title-icon" aria-hidden="true">${widgetIcon(widgetId)}</span>
-          <button class="widget-move-button" data-widget-move="${widgetId}:-1" type="button" aria-label="Move ${title} up">↑</button>
-          <button class="widget-move-button" data-widget-move="${widgetId}:1" type="button" aria-label="Move ${title} down">↓</button>
-          ${infoButton(info)}
-        </div>
+        <button class="widget-drag-button" data-widget-handle="${widgetId}" type="button" aria-label="Drag ${title}" title="Drag ${title}"></button>
       </div>
     `;
 }
 
 function applySidebarOrder(): void {
     sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]));
+    syncSidebarDragState();
 }
 
 function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): void {
     const collapsed = collapsedWidgets.has(widgetId);
     const button = widget.querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
-    if (!button) return;
-    button.textContent = collapsed ? '▸' : '▾';
+    const chevron = widget.querySelector<HTMLElement>(`[data-widget-chevron="${widgetId}"]`);
+    if (!button || !chevron) return;
+    chevron.textContent = collapsed ? '▸' : '▾';
     button.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${sidebarWidgetLabels[widgetId]}`);
+    button.setAttribute('aria-expanded', String(!collapsed));
 }
 
-function moveSidebarWidget(widgetId: SidebarWidgetId, direction: -1 | 1): void {
+function syncSidebarDragState(): void {
+    const visible = visibleSidebarWidgets(viewer.getSnapshot());
+    (Object.entries(sidebarWidgets) as [SidebarWidgetId, HTMLElement][]).forEach(([widgetId, widget]) => {
+        widget.classList.toggle('widget-dragging', widgetId === draggedWidgetId);
+        widget.classList.remove('widget-drop-before', 'widget-drop-after');
+    });
+    if (draggedWidgetSlot === null || visible.length === 0) return;
+    const boundedSlot = Math.max(0, Math.min(visible.length, draggedWidgetSlot));
+    const targetId = visible[Math.min(boundedSlot, visible.length - 1)];
+    if (!targetId) return;
+    sidebarWidgets[targetId].classList.add(boundedSlot >= visible.length ? 'widget-drop-after' : 'widget-drop-before');
+}
+
+function sidebarWidgetSlot(clientY: number): number | null {
+    const visible = visibleSidebarWidgets(viewer.getSnapshot());
+    if (visible.length === 0) return null;
+    for (let index = 0; index < visible.length; index += 1) {
+        const rect = sidebarWidgets[visible[index]!].getBoundingClientRect();
+        if (clientY <= rect.top + rect.height / 2) return index;
+    }
+    return visible.length;
+}
+
+function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
     const visibleIndex = visible.indexOf(widgetId);
     if (visibleIndex < 0) return;
-    const neighbor = visible[Math.max(0, Math.min(visible.length - 1, visibleIndex + direction))];
-    if (!neighbor || neighbor === widgetId) return;
-    const index = widgetOrder.indexOf(widgetId);
-    const neighborIndex = widgetOrder.indexOf(neighbor);
-    if (index < 0 || neighborIndex < 0) return;
-    [widgetOrder[index], widgetOrder[neighborIndex]] = [widgetOrder[neighborIndex]!, widgetOrder[index]!];
+    const boundedSlot = Math.max(0, Math.min(visible.length, slot));
+    const nextVisible = visible.filter((visibleWidgetId) => visibleWidgetId !== widgetId);
+    const nextSlot = boundedSlot - Number(visibleIndex < boundedSlot);
+    const anchor = nextVisible[nextSlot];
+    const nextOrder = widgetOrder.filter((orderedWidgetId) => orderedWidgetId !== widgetId);
+    if (!anchor) nextOrder.push(widgetId);
+    else nextOrder.splice(nextOrder.indexOf(anchor), 0, widgetId);
+    widgetOrder = nextOrder;
     applySidebarOrder();
 }
 
-function moveSidebarWidgetTo(widgetId: SidebarWidgetId, targetIndex: number): void {
-    const index = widgetOrder.indexOf(widgetId);
-    if (index < 0) return;
-    const boundedIndex = Math.max(0, Math.min(widgetOrder.length - 1, targetIndex));
-    if (boundedIndex === index) return;
-    const [widget] = widgetOrder.splice(index, 1);
-    widgetOrder.splice(boundedIndex, 0, widget);
-    applySidebarOrder();
+function clearSidebarDragState(): void {
+    draggedWidgetId = null;
+    draggedWidgetSlot = null;
+    draggedWidgetPointerId = null;
+    syncSidebarDragState();
 }
 
 function widgetIcon(widgetId: SidebarWidgetId): string {
@@ -993,41 +1019,50 @@ sidebar.addEventListener('click', (event) => {
         render(viewer.getSnapshot());
         return;
     }
-    const move = target?.closest<HTMLElement>('[data-widget-move]');
-    if (!move?.dataset.widgetMove) return;
-    const [widgetId, delta] = move.dataset.widgetMove.split(':') as [SidebarWidgetId, string];
-    moveSidebarWidget(widgetId, Number(delta) < 0 ? -1 : 1);
 });
 
-sidebar.addEventListener('dragstart', (event) => {
-    const handle = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-widget-handle]');
+sidebar.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const target = event.target as HTMLElement | null;
+    const collapse = target?.closest<HTMLElement>('[data-widget-collapse]');
+    if (!collapse?.dataset.widgetCollapse) return;
+    event.preventDefault();
+    const widgetId = collapse.dataset.widgetCollapse as SidebarWidgetId;
+    if (collapsedWidgets.has(widgetId)) collapsedWidgets.delete(widgetId);
+    else collapsedWidgets.add(widgetId);
+    render(viewer.getSnapshot());
+});
+
+sidebar.addEventListener('pointerdown', (event) => {
+    const target = event.target as HTMLElement | null;
+    const handle = target?.closest<HTMLElement>('[data-widget-handle]');
     const widgetId = handle?.dataset.widgetHandle as SidebarWidgetId | undefined;
     if (!widgetId) return;
     draggedWidgetId = widgetId;
-    event.dataTransfer?.setData('text/plain', widgetId);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-});
-
-sidebar.addEventListener('dragover', (event) => {
-    const handle = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-widget-handle]');
-    if (!draggedWidgetId || !handle) return;
+    draggedWidgetSlot = null;
+    draggedWidgetPointerId = event.pointerId;
+    sidebar.setPointerCapture(event.pointerId);
+    syncSidebarDragState();
     event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
 });
 
-sidebar.addEventListener('drop', (event) => {
-    const handle = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-widget-handle]');
-    const targetId = handle?.dataset.widgetHandle as SidebarWidgetId | undefined;
-    if (!draggedWidgetId || !targetId || !handle) return;
-    event.preventDefault();
-    const targetIndex = widgetOrder.indexOf(targetId);
-    const targetRect = handle.getBoundingClientRect();
-    moveSidebarWidgetTo(draggedWidgetId, targetIndex + Number(event.clientY > targetRect.top + targetRect.height / 2));
-    draggedWidgetId = null;
+sidebar.addEventListener('pointermove', (event) => {
+    if (!draggedWidgetId || draggedWidgetPointerId !== event.pointerId) return;
+    draggedWidgetSlot = sidebarWidgetSlot(event.clientY);
+    syncSidebarDragState();
 });
 
-sidebar.addEventListener('dragend', () => {
-    draggedWidgetId = null;
+sidebar.addEventListener('pointerup', (event) => {
+    if (!draggedWidgetId || draggedWidgetPointerId !== event.pointerId) return;
+    if (draggedWidgetSlot !== null) moveSidebarWidgetToSlot(draggedWidgetId, draggedWidgetSlot);
+    if (sidebar.hasPointerCapture(event.pointerId)) sidebar.releasePointerCapture(event.pointerId);
+    clearSidebarDragState();
+});
+
+sidebar.addEventListener('pointercancel', (event) => {
+    if (draggedWidgetPointerId !== event.pointerId) return;
+    if (sidebar.hasPointerCapture(event.pointerId)) sidebar.releasePointerCapture(event.pointerId);
+    clearSidebarDragState();
 });
 
 function updateSidebar(snapshot: ViewerSnapshot): void {
@@ -1038,6 +1073,7 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
         widget.classList.toggle('collapsed', collapsedWidgets.has(widgetId));
         syncWidgetHeaderState(widgetId, widget);
     });
+    syncSidebarDragState();
 }
 
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
@@ -1072,7 +1108,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           ${labelWithInfo('Preview', 'Shows the implied permute, reshape, and slice operations for the current Tensor View string.')}
           <div class="mono-block" id="view-preview"></div>
         </div>
-        <div class="slider-list" id="slice-token-controls"></div>
+        ${model.sliceTokens.length === 0 ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
       </div>
     `;
 
