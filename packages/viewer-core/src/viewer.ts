@@ -840,6 +840,11 @@ export class TensorViewer {
 
     private updateSelectionPreview(drag: SelectionDragState): void {
         const selected = this.boxSelectionEntries(drag);
+        const sourceTensorId = this.selectionSourceTensorId(drag, selected);
+        if (sourceTensorId) {
+            drag.tensorId = sourceTensorId;
+            this.state.activeTensorId = sourceTensorId;
+        }
         if (drag.mode === 'replace') {
             drag.previewSelections = selected;
             return;
@@ -855,6 +860,40 @@ export class TensorViewer {
             else nextPreviewSelections.set(tensorId, preview);
         });
         drag.previewSelections = nextPreviewSelections;
+    }
+
+    private selectionSourceTensorId(
+        drag: SelectionDragState,
+        selected: Map<string, Set<string>>,
+    ): string | null {
+        const tensorIds = Array.from(selected.entries())
+            .filter(([_tensorId, coords]) => coords.size !== 0)
+            .map(([tensorId]) => tensorId);
+        if (tensorIds.length === 0) return drag.tensorId;
+        if (tensorIds.length === 1) return tensorIds[0]!;
+        if (drag.source !== '2d' || !drag.startWorld) return drag.tensorId ?? tensorIds[0]!;
+        let bestTensorId: string | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        tensorIds.forEach((tensorId) => {
+            const rect = this.pickMeshes.find((entry) => entry.tensorId === tensorId)?.rect2D;
+            if (!rect) return;
+            const dx = drag.startWorld!.x < rect.minX
+                ? rect.minX - drag.startWorld!.x
+                : drag.startWorld!.x > rect.maxX
+                    ? drag.startWorld!.x - rect.maxX
+                    : 0;
+            const dy = drag.startWorld!.y < rect.minY
+                ? rect.minY - drag.startWorld!.y
+                : drag.startWorld!.y > rect.maxY
+                    ? drag.startWorld!.y - rect.maxY
+                    : 0;
+            const distance = (dx * dx) + (dy * dy);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestTensorId = tensorId;
+            }
+        });
+        return bestTensorId ?? drag.tensorId ?? tensorIds[0]!;
     }
 
     /** Return the shader-side committed-selection attribute for one 2D mesh, if present. */
@@ -1004,7 +1043,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.selectionDrag = {
             source,
             mode,
-            tensorId: hover?.tensorId ?? null,
+            tensorId: hover?.tensorId ?? this.state.activeTensorId,
             startClient: { x: clientX, y: clientY },
             startWorld: startPosition,
             currentClient: { x: clientX, y: clientY },
@@ -2762,7 +2801,9 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.selectedCells.clear();
         nextEntries.forEach((coords, tensorId) => this.selectedCells.set(tensorId, coords));
         if (this.selectedCells.size !== 0) {
-            this.state.activeTensorId = this.selectedCells.keys().next().value ?? this.state.activeTensorId;
+            this.state.activeTensorId = this.state.activeTensorId && this.selectedCells.has(this.state.activeTensorId)
+                ? this.state.activeTensorId
+                : this.selectedCells.keys().next().value ?? this.state.activeTensorId;
         }
         this.selectionDrag = null;
         this.emitSelectionPreview();
