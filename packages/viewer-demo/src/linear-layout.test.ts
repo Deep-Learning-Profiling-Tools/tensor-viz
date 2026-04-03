@@ -139,6 +139,71 @@ describe('compose layout helpers', () => {
         expect(runtime.pythonCode).toContain('layout_tmp1 = Left * Right');
     });
 
+    it('supports products with duplicate inputs and distinct outputs', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'Left: [A,B] -> [C,D]',
+            '[[1,0],[2,0]]',
+            '[[0,1],[0,2]]',
+            '',
+            'Right: [A,B] -> [C2,D2]',
+            '[[1,0],[2,0]]',
+            '[[0,1],[0,2]]',
+        ].join('\n'), 'Left * Right'));
+
+        expect(runtime.inputLabels).toEqual(['A', 'B']);
+        expect(runtime.inputShape).toEqual([16, 16]);
+        expect(runtime.tensors.at(-1)).toMatchObject({
+            axisLabels: ['C', 'D', 'C2', 'D2'],
+            shape: [4, 4, 4, 4],
+        });
+        expect(runtime.matrixBlocks.at(-1)?.values).toEqual([
+            [1, 0, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 1, 0, 0, 0],
+            [0, 0, 0, 0, 0, 1, 0, 0],
+            [0, 0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0, 1],
+        ]);
+    });
+
+    it('supports products with distinct inputs and duplicate outputs', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'Left: [A] -> [C]',
+            '[[1]]',
+            '',
+            'Right: [B] -> [C]',
+            '[[1]]',
+        ].join('\n'), 'Left * Right'));
+
+        expect(runtime.inputLabels).toEqual(['A', 'B']);
+        expect(runtime.inputShape).toEqual([2, 2]);
+        expect(runtime.tensors.at(-1)).toMatchObject({
+            axisLabels: ['C'],
+            shape: [4],
+            rootToTensor: [[0], [2], [1], [3]],
+        });
+    });
+
+    it('supports products with duplicate inputs and duplicate outputs', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'Left: [A] -> [C]',
+            '[[1]]',
+            '',
+            'Right: [A] -> [C]',
+            '[[1]]',
+        ].join('\n'), 'Left * Right'));
+
+        expect(runtime.inputLabels).toEqual(['A']);
+        expect(runtime.inputShape).toEqual([4]);
+        expect(runtime.tensors.at(-1)).toMatchObject({
+            axisLabels: ['C'],
+            shape: [4],
+            rootToTensor: [[0], [1], [2], [3]],
+        });
+    });
+
     it('rejects non-injective specs', () => {
         const state = composeState([
             'Bad: [T] -> [A]',

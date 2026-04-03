@@ -718,24 +718,50 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
 }
 
 function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: string): EvaluatedLayout {
-    const inputDuplicate = duplicateValue([...left.inputs, ...right.inputs]);
-    if (inputDuplicate) {
-        throw new Error(`Layout product ${exprText} has duplicate input label ${inputDuplicate}.`);
-    }
-    const outputDuplicate = duplicateValue([...left.outputs, ...right.outputs]);
-    if (outputDuplicate) {
-        throw new Error(`Layout product ${exprText} has duplicate output label ${outputDuplicate}.`);
-    }
-    return {
+    const inputs = mergeAxisLabels(left.inputs, right.inputs);
+    const inputBitCounts = inputs.map((label) => (
+        (left.inputBitCounts[left.inputs.indexOf(label)] ?? 0)
+        + (right.inputBitCounts[right.inputs.indexOf(label)] ?? 0)
+    ));
+    const outputs = mergeAxisLabels(left.outputs, right.outputs);
+    const outputBitCounts = outputs.map((label) => (
+        (left.outputBitCounts[left.outputs.indexOf(label)] ?? 0)
+        + (right.outputBitCounts[right.outputs.indexOf(label)] ?? 0)
+    ));
+    const rightInputBitOffsets = inputs.map((label) => left.inputBitCounts[left.inputs.indexOf(label)] ?? 0);
+    const rightOutputBitOffsets = outputs.map((label) => left.outputBitCounts[left.outputs.indexOf(label)] ?? 0);
+    const matrix = mergeProductMatrices(
+        embedProductMatrix(
+            left,
+            inputs,
+            inputBitCounts,
+            new Array(inputs.length).fill(0),
+            outputs,
+            outputBitCounts,
+            new Array(outputs.length).fill(0),
+        ),
+        embedProductMatrix(
+            right,
+            inputs,
+            inputBitCounts,
+            rightInputBitOffsets,
+            outputs,
+            outputBitCounts,
+            rightOutputBitOffsets,
+        ),
+    );
+    const layout = {
         kind: 'product',
         exprText,
         codeRef: exprText,
-        inputs: [...left.inputs, ...right.inputs],
-        outputs: [...left.outputs, ...right.outputs],
-        inputBitCounts: [...left.inputBitCounts, ...right.inputBitCounts],
-        outputBitCounts: [...left.outputBitCounts, ...right.outputBitCounts],
-        matrix: blockDiagonal(left.matrix, right.matrix),
+        inputs,
+        outputs,
+        inputBitCounts,
+        outputBitCounts: trimOutputBitCounts(matrix, outputBitCounts),
+        matrix,
     };
+    assertEvaluatedInjective(layout);
+    return layout;
 }
 
 function invertLayout(layout: EvaluatedLayout, exprText: string): EvaluatedLayout {
@@ -902,15 +928,47 @@ function multiplyMatrices(left: number[][], right: number[][]): number[][] {
     ));
 }
 
-function blockDiagonal(left: number[][], right: number[][]): number[][] {
-    const leftRows = left.length;
-    const leftColumns = left[0]?.length ?? 0;
-    const rightRows = right.length;
-    const rightColumns = right[0]?.length ?? 0;
-    return [
-        ...left.map((row) => [...row, ...new Array(rightColumns).fill(0)]),
-        ...right.map((row) => [...new Array(leftColumns).fill(0), ...row]),
-    ].slice(0, leftRows + rightRows);
+function mergeProductMatrices(left: number[][], right: number[][]): number[][] {
+    return left.map((row, rowIndex) => row.map((value, columnIndex) => value | (right[rowIndex]?.[columnIndex] ?? 0)));
+}
+
+function embedProductMatrix(
+    layout: EvaluatedLayout,
+    targetInputs: string[],
+    targetInputBitCounts: number[],
+    sharedInputOffset: number[],
+    targetOutputs: string[],
+    targetOutputBitCounts: number[],
+    sharedOutputOffset: number[],
+): number[][] {
+    const matrix = Array.from({ length: sum(targetOutputBitCounts) }, () => new Array(sum(targetInputBitCounts)).fill(0));
+    const targetInputAxes = new Map(targetInputs.map((label, axis) => [label, axis]));
+    const targetOutputAxes = new Map(targetOutputs.map((label, axis) => [label, axis]));
+    const targetInputOffsets = offsets(targetInputBitCounts);
+    const targetOutputOffsets = offsets(targetOutputBitCounts);
+    const inputOffsets = offsets(layout.inputBitCounts);
+    const outputOffsets = offsets(layout.outputBitCounts);
+    layout.outputs.forEach((label, outputAxis) => {
+        const targetOutputAxis = targetOutputAxes.get(label);
+        if (targetOutputAxis === undefined) return;
+        const outputBase = targetOutputOffsets[targetOutputAxis]! + (sharedOutputOffset[targetOutputAxis] ?? 0);
+        for (let outputBit = 0; outputBit < (layout.outputBitCounts[outputAxis] ?? 0); outputBit += 1) {
+            const row = matrix[outputBase + outputBit]!;
+            layout.inputs.forEach((inputLabel, inputAxis) => {
+                const targetInputAxis = targetInputAxes.get(inputLabel);
+                if (targetInputAxis === undefined) return;
+                const inputBase = targetInputOffsets[targetInputAxis]! + (sharedInputOffset[targetInputAxis] ?? 0);
+                for (let inputBit = 0; inputBit < (layout.inputBitCounts[inputAxis] ?? 0); inputBit += 1) {
+                    row[inputBase + inputBit] = layout.matrix[outputOffsets[outputAxis]! + outputBit]?.[inputOffsets[inputAxis]! + inputBit] ?? 0;
+                }
+            });
+        }
+    });
+    return matrix;
+}
+
+function mergeAxisLabels(left: string[], right: string[]): string[] {
+    return [...left, ...right.filter((label) => !left.includes(label))];
 }
 
 function invertSquareMatrix(matrix: number[][]): number[][] | null {
