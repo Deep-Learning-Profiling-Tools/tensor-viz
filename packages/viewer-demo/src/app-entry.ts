@@ -532,8 +532,7 @@ function linearLayoutCellTextForCoord(
     state: LinearLayoutCellTextState,
 ): string {
     return labels
-        .filter((label, axis) => state[label] && axis < coord.length)
-        .map((label, axis) => `${label}${coord[axis] ?? 0}`)
+        .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}${coord[axis] ?? 0}`] : []))
         .join('\n');
 }
 
