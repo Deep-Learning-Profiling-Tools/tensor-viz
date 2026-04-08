@@ -46,7 +46,7 @@ describe('compose layout helpers', () => {
             axisLabels: tensor.axisLabels,
         }))).toEqual([
             { name: 'Hardware Layout', shape: [32, 4, 4], axisLabels: ['T', 'W', 'R'] },
-            { name: 'Blocked_Layout', shape: [16, 32], axisLabels: ['A', 'B'] },
+            { name: 'Blocked_Layout', shape: [16, 32], axisLabels: ['Y', 'X'] },
         ]);
         expect(state.mapping).toEqual({ H: 'T', S: 'W', L: 'R' });
         expect(state.ranges).toEqual({ H: ['0', '0.8'], S: ['1', '0.2'], L: ['1', '0.2'] });

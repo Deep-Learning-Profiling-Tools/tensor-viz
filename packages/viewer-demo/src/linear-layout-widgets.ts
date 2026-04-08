@@ -106,7 +106,7 @@ function linearLayoutOperationHelpHtml(): string {
           <div class="usage-guide-column">
             <div class="usage-guide-subtitle">Reference Specs</div>
             <div class="usage-guide-step">
-              <span>Copy this entire block into the <strong>Linear Layout Specifications</strong> textbox above.</span>
+              <span>Copy this entire block into the <strong>Layouts</strong> textbox above.</span>
             </div>
             <div class="usage-guide-example">
               <code>Tile2x1: [T,W] -&gt; [Y,X]</code>
@@ -227,11 +227,11 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
         ? ''
         : `<div class="mono-block linear-layout-matrix-preview">${ctx.state.linearLayoutMatrixPreview}</div>`;
     ctx.linearLayoutWidget.innerHTML = `
-      ${ctx.widgetTitle('linear-layout', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.')}
+      ${ctx.widgetTitle('linear-layout', 'Define one or more named injective layouts, then use Layout Operation to build the rendered tensor chain.').replace('<h2>Linear Layout Specifications</h2>', '<h2>Layout Specs</h2>')}
       <div class="widget-body">
         <p class="widget-copy">Each specification starts with <span class="inline-code">name: [inputs] -> [outputs]</span>, followed by exactly one labeled basis row per input such as <span class="inline-code">T: [[1,0],[0,1]]</span>. Separate specifications with blank lines. Layout Operation supports names, <span class="inline-code">inv(...)</span>, <span class="inline-code">*</span>, and parentheses.</p>
         <div class="field">
-          ${labelWithInfo('Linear Layout Specifications', 'Enter one or more specification blocks. Each block has one signature line plus one labeled basis row per input label.', 'linear-layout-specs')}
+          ${labelWithInfo('Layouts', 'Enter one or more specification blocks. Each block has one signature line plus one labeled basis row per input label.', 'linear-layout-specs')}
           ${linearLayoutSpecsHelpHtml()}
           <textarea id="linear-layout-specs" class="compact-textarea" rows="8" spellcheck="false">${escapeInfo(ctx.state.linearLayoutState.specsText)}</textarea>
         </div>
@@ -249,8 +249,8 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
           <button class="secondary-button" id="linear-layout-matrix" type="button" title="${ctx.state.showLinearLayoutMatrix ? 'Hide the matrix blocks for the current layout chain.' : 'Show the matrix blocks for the current layout chain.'}">${ctx.state.showLinearLayoutMatrix ? 'Hide Matrix' : 'Show Matrix'}</button>
           <button class="secondary-button" id="linear-layout-copy" type="button" title="Copy Python initialization code for the current layout definitions and operation.">Copy Init Code</button>
         </div>
-        ${matrixBlock}
         ${status}
+        ${matrixBlock}
       </div>
     `;
 

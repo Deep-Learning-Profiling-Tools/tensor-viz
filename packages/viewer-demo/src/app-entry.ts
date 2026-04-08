@@ -91,6 +91,8 @@ const {
 
 const viewer = new TensorViewer(viewport);
 const sidebar = tensorViewWidget.parentElement as HTMLElement;
+const sidebarScrollPad = document.createElement('div');
+sidebarScrollPad.className = 'sidebar-scroll-pad';
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
 let tensorViewHelpOpen = false;
@@ -352,7 +354,7 @@ function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
 }
 
 function applySidebarOrder(): void {
-    sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]));
+    sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]), sidebarScrollPad);
     syncSidebarDragState();
 }
 
@@ -377,6 +379,26 @@ function syncSidebarDragState(): void {
     const targetId = visible[Math.min(boundedSlot, visible.length - 1)];
     if (!targetId) return;
     sidebarWidgets[targetId].classList.add(boundedSlot >= visible.length ? 'widget-drop-after' : 'widget-drop-before');
+}
+
+function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
+    const header = sidebarWidgets[widgetId].querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
+    const headerOffset = header
+        ? header.getBoundingClientRect().top - sidebar.getBoundingClientRect().top
+        : null;
+    if (collapsedWidgets.has(widgetId)) collapsedWidgets.delete(widgetId);
+    else collapsedWidgets.add(widgetId);
+    render(viewer.getSnapshot());
+    if (headerOffset === null) return;
+    const nextHeader = sidebarWidgets[widgetId].querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
+    if (!nextHeader) return;
+    const nextOffset = nextHeader.getBoundingClientRect().top - sidebar.getBoundingClientRect().top;
+    const targetScrollTop = Math.max(0, sidebar.scrollTop + nextOffset - headerOffset);
+    const currentPadHeight = sidebarScrollPad.getBoundingClientRect().height;
+    const naturalMaxScrollTop = Math.max(0, sidebar.scrollHeight - sidebar.clientHeight - currentPadHeight);
+    const requiredPadHeight = Math.max(0, targetScrollTop - naturalMaxScrollTop);
+    sidebarScrollPad.style.height = `${requiredPadHeight}px`; // keep enough gray gutter to reach the anchored scroll target without an intermediate clamp
+    sidebar.scrollTop = targetScrollTop;
 }
 
 function sidebarWidgetSlot(clientY: number): number | null {
@@ -1017,10 +1039,7 @@ sidebar.addEventListener('click', (event) => {
     const target = event.target as HTMLElement | null;
     const collapse = target?.closest<HTMLElement>('[data-widget-collapse]');
     if (collapse?.dataset.widgetCollapse) {
-        const widgetId = collapse.dataset.widgetCollapse as SidebarWidgetId;
-        if (collapsedWidgets.has(widgetId)) collapsedWidgets.delete(widgetId);
-        else collapsedWidgets.add(widgetId);
-        render(viewer.getSnapshot());
+        toggleWidgetCollapse(collapse.dataset.widgetCollapse as SidebarWidgetId);
         return;
     }
 });
@@ -1031,10 +1050,7 @@ sidebar.addEventListener('keydown', (event) => {
     const collapse = target?.closest<HTMLElement>('[data-widget-collapse]');
     if (!collapse?.dataset.widgetCollapse) return;
     event.preventDefault();
-    const widgetId = collapse.dataset.widgetCollapse as SidebarWidgetId;
-    if (collapsedWidgets.has(widgetId)) collapsedWidgets.delete(widgetId);
-    else collapsedWidgets.add(widgetId);
-    render(viewer.getSnapshot());
+    toggleWidgetCollapse(collapse.dataset.widgetCollapse as SidebarWidgetId);
 });
 
 sidebar.addEventListener('pointerdown', (event) => {

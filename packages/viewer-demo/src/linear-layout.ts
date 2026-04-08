@@ -115,40 +115,6 @@ const LEGACY_AXIS_ALIASES = {
     register: 'R',
 } as const;
 
-const BLOCKED_LAYOUT_TEXT = [
-    'Blocked_Layout: [T,W,R] -> [A,B]',
-    'T: [[4,0],[8,0],[0,1],[0,2],[0,4]]',
-    'W: [[0,8],[0,16]]',
-    'R: [[1,0],[2,0]]',
-].join('\n');
-
-const MMA_A_LAYOUT_TEXT = [
-    'MMA_A_Layout_m16n8k16: [T,W,R] -> [A,B]',
-    'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
-    'W: []',
-    'R: [[0,1],[8,0],[0,8]]',
-].join('\n');
-
-const MMA_B_LAYOUT_TEXT = [
-    'MMA_B_Layout_m16n8k16: [T,W,R] -> [A,B]',
-    'T: [[2,0],[4,0],[0,1],[0,2],[0,4]]',
-    'W: []',
-    'R: [[1,0],[8,0]]',
-].join('\n');
-
-const MMA_C_LAYOUT_TEXT = [
-    'MMA_C_Layout_m16n8k16: [T,W,R] -> [A,B]',
-    'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
-    'W: []',
-    'R: [[0,1],[8,0]]',
-].join('\n');
-
-const SHARED_MEMORY_SWIZZLE_TEXT = [
-    'Shared_Memory_128B_Swizzle: [Y,X] -> [S,B]',
-    'Y: [[1,1],[2,2],[4,4]]',
-    'X: [[0,1],[0,2],[0,4]]',
-].join('\n');
-
 const DEFAULT_EMPTY_SPEC_TEXT = [
     'Layout_1: [T,W,R] -> [A,B]',
     'T: [[0,1],[0,2],[0,4],[0,8],[0,16]]',
@@ -156,13 +122,45 @@ const DEFAULT_EMPTY_SPEC_TEXT = [
     'R: [[1,0],[2,0]]',
 ].join('\n');
 
+// sync-linear-layout-examples:start
+const BLOCKED_LAYOUT_TEXT = [
+    'Blocked_Layout: [T,W,R] -> [Y,X]',
+    'T: [[4,0],[8,0],[0,1],[0,2],[0,4]]',
+    'W: [[0,8],[0,16]]',
+    'R: [[1,0],[2,0]]',
+].join('\n');
+const MMA_A_LAYOUT__M16N8K16_TEXT = [
+    'MMA_A_Layout__m16n8k16: [T,W,R] -> [Y,X]',
+    'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
+    'W: []',
+    'R: [[0,1],[8,0],[0,8]]',
+].join('\n');
+const MMA_B_LAYOUT__M16N8K16_TEXT = [
+    'MMA_B_Layout__m16n8k16: [T,W,R] -> [Y,X]',
+    'T: [[2,0],[4,0],[0,1],[0,2],[0,4]]',
+    'W: []',
+    'R: [[1,0],[8,0]]',
+].join('\n');
+const MMA_C_LAYOUT__M16N8K16_TEXT = [
+    'MMA_C_Layout__m16n8k16: [T,W,R] -> [Y,X]',
+    'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
+    'W: []',
+    'R: [[0,1],[8,0]]',
+].join('\n');
+const SHARED_MEMORY_128B_SWIZZLE_TEXT = [
+    'Shared_Memory_128B_Swizzle: [Y,X] -> [Y,X]',
+    'Y: [[1,1],[2,2],[4,4]]',
+    'X: [[0,1],[0,2],[0,4]]',
+].join('\n');
+
 const BAKED_EXAMPLES: ExampleState[] = [
     bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
-    bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT_TEXT, 'MMA_A_Layout_m16n8k16', 'Hardware Layout'),
-    bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT_TEXT, 'MMA_B_Layout_m16n8k16', 'Hardware Layout'),
-    bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT_TEXT, 'MMA_C_Layout_m16n8k16', 'Hardware Layout'),
-    bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
+    bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT__M16N8K16_TEXT, 'MMA_A_Layout__m16n8k16', 'Hardware Layout'),
+    bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
+    bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
+    bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
 ];
+// sync-linear-layout-examples:end
 
 function bakedExample(
     title: string,

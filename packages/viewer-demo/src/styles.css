@@ -372,6 +372,11 @@ textarea {
     scrollbar-gutter: stable;
 }
 
+.sidebar-scroll-pad {
+    flex: 0 0 auto;
+    height: 0;
+}
+
 .sidebar-header {
     flex: 0 0 auto;
     padding: 0.8rem 1rem;
