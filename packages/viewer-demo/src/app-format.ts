@@ -27,7 +27,7 @@ export function titleWithInfo(title: string, info: string): string {
 
 export function labelWithInfo(label: string, info: string, htmlFor?: string): string {
     const target = htmlFor ? ` for="${htmlFor}"` : '';
-    return `<label${target} class="label-row"><span>${label}</span>${infoButton(info)}</label>`;
+    return `<label${target} class="label-row"><span class="meta-label">${label}</span>${infoButton(info)}</label>`;
 }
 
 function axisColor(displayMode: '2d' | '3d', rank: number, axis: number, scheme: DimensionMappingScheme): string {

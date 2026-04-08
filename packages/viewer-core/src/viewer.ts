@@ -37,9 +37,9 @@ import {
     unravelIndex,
 } from './layout.js';
 import {
+    buildTensorViewExpression,
     buildPreviewExpression,
     defaultTensorView,
-    expandGroupedIndex,
     layoutAxisLabels,
     layoutCoordIsVisible,
     layoutShape,
@@ -48,6 +48,7 @@ import {
     mapViewCoordToTensorCoord,
     parseTensorView,
     product,
+    serializeTensorViewEditor,
     supportsContiguousSelectionFastPath2D,
 } from './view.js';
 import {
@@ -183,7 +184,9 @@ export class TensorViewer {
         if ('outputEncoding' in this.renderer) (this.renderer as WebGLRenderer & { outputEncoding: number }).outputEncoding = 3001;
         if ('outputColorSpace' in this.renderer) this.renderer.outputColorSpace = SRGBColorSpace;
         this.renderer.toneMapping = NoToneMapping;
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        // hidpi scaling makes the webgl canvas and 2d overlay disagree about pixel-space,
+        // which breaks picking/layout alignment on high-density displays, so keep 1:1 pixels
+        this.renderer.setPixelRatio(1);
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         initializeVertexColors(this.cubeGeometry);
         initializeVertexColors(this.planeGeometry);
@@ -287,7 +290,7 @@ export class TensorViewer {
         const width = this.container.clientWidth || 1;
         const height = this.container.clientHeight || 1;
         this.renderer.setSize(width, height);
-        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const pixelRatio = 1;
         const nextWidth = Math.floor(width * pixelRatio);
         const nextHeight = Math.floor(height * pixelRatio);
         this.flatCanvas.width = nextWidth;
@@ -2597,7 +2600,9 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         colorRanges: Array<{ id: string; name: string; min: number; max: number }>;
         viewInput: string;
         preview: string;
-        sliceTokens: Array<{ token: string; size: number; value: number }>;
+        viewEditor: TensorViewSpec['editor'] | null;
+        viewTokens: Array<{ kind: 'axis_group' | 'singleton'; token: string; key: string; size: number; sliced: boolean }>;
+        sliceTokens: Array<{ token: string; key: string; size: number; value: number }>;
         colorRange: { min: number; max: number } | null;
     } {
         const tensors = Array.from(this.tensors.values()).map((tensor) => ({ id: tensor.id, name: tensor.name }));
@@ -2612,7 +2617,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             ? this.state.activeTensorId
             : this.tensors.keys().next().value ?? null;
         if (!activeTensorId) {
-            return { handle: null, tensors, colorRanges, viewInput: '', preview: '', sliceTokens: [], colorRange: null };
+            return { handle: null, tensors, colorRanges, viewInput: '', preview: '', viewEditor: null, viewTokens: [], sliceTokens: [], colorRange: null };
         }
         const tensor = this.requireTensor(activeTensorId);
         return {
@@ -2622,9 +2627,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             tensors,
             colorRanges,
             viewInput: tensor.view.canonical,
-            preview: buildPreviewExpression(tensor.view),
+            preview: buildTensorViewExpression(tensor.view),
+            viewEditor: tensor.view.editor,
+            viewTokens: tensor.view.tokens.map((token) => ({
+                kind: token.kind,
+                token: token.label,
+                key: token.key,
+                size: token.size,
+                sliced: !token.visible,
+            })),
             sliceTokens: tensor.view.sliceTokens.map((token) => ({
                 token: token.token,
+                key: token.key,
                 size: token.size,
                 value: token.value,
             })),
@@ -2640,12 +2654,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         this.emit();
     }
 
-    /** Set the flattened value of one lowercased grouped slice token. */
+    /** Set the flattened value of one slice token. */
     public setSliceTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
-        const sliceToken = tensor.view.sliceTokens.find((entry) => entry.token === token);
+        const sliceToken = tensor.view.sliceTokens.find((entry) => entry.key === token || entry.token === token);
         if (!sliceToken) throw new Error(`Unknown slice token ${token}.`);
-        const nextHiddenIndices = tensor.view.hiddenIndices.slice();
         const clamped = Math.max(0, Math.min(sliceToken.size - 1, Math.floor(value)));
         if (sliceToken.value === clamped) {
             return {
@@ -2653,12 +2666,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
                 hiddenIndices: tensor.view.hiddenIndices.slice(),
             };
         }
-        const expanded = expandGroupedIndex(sliceToken.axes, clamped, tensor.shape);
-        sliceToken.axes.forEach((axis, axisIndex) => {
-            nextHiddenIndices[axis] = expanded[axisIndex];
-        });
         logEvent('tensor:slice-token', { tensorId, token, value: clamped });
-        return this.setTensorView(tensorId, tensor.view.canonical, nextHiddenIndices);
+        const editor = tensor.view.editor;
+        return this.setTensorView(tensorId, serializeTensorViewEditor({
+            ...editor,
+            sliceValues: { ...editor.sliceValues, [sliceToken.key]: clamped },
+        }));
     }
 
     /** Backward-compatible alias for {@link setSliceTokenValue}. */

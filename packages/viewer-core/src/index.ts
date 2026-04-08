@@ -5,6 +5,7 @@ export { createBundleManifest, createSessionBundleManifest, createViewerSnapshot
 export type { BundleDocumentSpec, SessionTabSpec, SessionTensorSpec } from './session.js';
 export {
     buildPreviewExpression,
+    buildTensorViewExpression,
     defaultTensorView,
     expandGroupedIndex,
     layoutAxisLabels,
@@ -16,6 +17,7 @@ export {
     mapViewCoordToTensorCoord,
     parseTensorView,
     product,
+    serializeTensorViewEditor,
 } from './view.js';
 export { TensorViewer } from './viewer.js';
 export type { ViewerOptions } from './viewer.js';
@@ -38,6 +40,9 @@ export type {
     TensorDataRequestReason,
     TensorHandle,
     TensorStatus,
+    TensorViewEditor,
+    TensorViewEditorDim,
+    TensorViewEditorSingleton,
     TensorViewSnapshot,
     TensorViewSpec,
     Vec3,

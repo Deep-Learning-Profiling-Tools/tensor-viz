@@ -1,6 +1,6 @@
 import {
     createTypedArray,
-    parseTensorView,
+    serializeTensorViewEditor,
     TensorViewer,
     product,
     type BundleManifest,
@@ -9,10 +9,10 @@ import {
     type LoadedBundleDocument,
     type NumericArray,
     type SessionBundleManifest,
+    type TensorViewEditor,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
 import {
-    formatAxisTokens,
     formatAxisValues,
     formatRangeValue,
     infoButton,
@@ -48,6 +48,7 @@ const viewer = new TensorViewer(viewport);
 const sidebar = tensorViewWidget.parentElement as HTMLElement;
 const viewErrors = new Map<string, string>();
 let suspendTensorViewRender = false;
+let tensorViewHelpOpen = false;
 let showTensorViewWidget = true;
 let showAdvancedSettingsWidget = false;
 let inspectorReady = false;
@@ -58,6 +59,12 @@ let resizingSidebar = false;
 let commandPaletteOpen = false;
 let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
+let permuteDragDimId: string | null = null;
+let permuteDropSlot: number | null = null;
+let permuteDragPointerId: number | null = null;
+let permuteSwapDimId: string | null = null;
+let permuteDragStartX = 0;
+let permuteDragMoved = false;
 
 const MIN_VIEWPORT_WIDTH = 280;
 
@@ -112,6 +119,9 @@ const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
     'advanced-settings': 'Advanced Settings',
     colorbar: 'Heatmap',
 };
+
+sidebarHeader.classList.add('label-row');
+sidebarHeader.innerHTML = `<span>Widgets</span>${infoButton('Extra settings to inspect/change the visible tensor(s). Click the arrows/widget header text on each widget to expand/collapse them. Change widget position by left-clicking + dragging on the grabber by the right of each widget.')}`;
 
 let widgetOrder: SidebarWidgetId[] = ['tensor-view', 'inspector', 'selection', 'advanced-settings', 'colorbar'];
 let draggedWidgetId: SidebarWidgetId | null = null;
@@ -821,82 +831,537 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     syncSidebarDragState();
 }
 
+type EditorDisplayToken = {
+    key: string;
+    kind: 'axis_group' | 'singleton';
+    label: string;
+    size: number;
+    dimIds: string[];
+    sliced: boolean;
+    value: number;
+};
+
+function editorGroups(editor: TensorViewEditor): EditorDisplayToken[] {
+    const dimById = new Map(editor.baseDims.map((dim) => [dim.id, dim]));
+    const groups: EditorDisplayToken[] = [];
+    let current: typeof editor.baseDims = [];
+    editor.permutedDimIds.forEach((dimId, index) => {
+        const dim = dimById.get(dimId);
+        if (!dim) return;
+        current.push(dim);
+        const split = editor.flattenSeparators[index] ?? true;
+        if (!split) return;
+        const dimIds = current.map((entry) => entry.id);
+        const key = `group:${dimIds.join('+')}`;
+        groups.push({
+            key,
+            kind: 'axis_group',
+            label: current.map((entry) => entry.label).join(''),
+            size: product(current.map((entry) => entry.size)),
+            dimIds,
+            sliced: editor.slicedTokenKeys.includes(key),
+            value: editor.sliceValues[key] ?? 0,
+        });
+        current = [];
+    });
+    if (current.length !== 0) {
+        const dimIds = current.map((entry) => entry.id);
+        const key = `group:${dimIds.join('+')}`;
+        groups.push({
+            key,
+            kind: 'axis_group',
+            label: current.map((entry) => entry.label).join(''),
+            size: product(current.map((entry) => entry.size)),
+            dimIds,
+            sliced: editor.slicedTokenKeys.includes(key),
+            value: editor.sliceValues[key] ?? 0,
+        });
+    }
+    return groups;
+}
+
+function editorStep3Tokens(editor: TensorViewEditor): EditorDisplayToken[] {
+    const groups = editorGroups(editor);
+    const tokens: EditorDisplayToken[] = groups.slice();
+    editor.singletons
+        .slice()
+        .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
+        .forEach((singleton) => {
+            tokens.splice(Math.max(0, Math.min(tokens.length, singleton.position)), 0, {
+                key: `singleton:${singleton.id}`,
+                kind: 'singleton',
+                label: '1',
+                size: 1,
+                dimIds: [],
+                sliced: editor.slicedTokenKeys.includes(`singleton:${singleton.id}`),
+                value: editor.sliceValues[`singleton:${singleton.id}`] ?? 0,
+            });
+        });
+    return tokens;
+}
+
+function applyTensorViewEditor(tensorId: string, editor: TensorViewEditor): void {
+    try {
+        logUi('tensor-view:apply:start', {
+            tensorId,
+            viewTensorInput: editor.viewTensorInput,
+            baseDims: editor.baseDims,
+            permutedDimIds: editor.permutedDimIds,
+            flattenSeparators: editor.flattenSeparators,
+            slicedTokenKeys: editor.slicedTokenKeys,
+            sliceValues: editor.sliceValues,
+        });
+        viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
+        const nextModel = viewer.getInspectorModel();
+        logUi('tensor-view:apply:result', {
+            tensorId,
+            canonicalView: nextModel.viewInput,
+            preview: nextModel.preview,
+            viewEditor: nextModel.viewEditor,
+            sliceTokens: nextModel.sliceTokens,
+        });
+        viewErrors.delete(tensorId);
+    } catch (error) {
+        logUi('tensor-view:apply:error', {
+            tensorId,
+            error: error instanceof Error ? error.message : String(error),
+            editor,
+        });
+        viewErrors.set(tensorId, error instanceof Error ? error.message : String(error));
+    }
+    render(viewer.getSnapshot());
+}
+
+function tensorViewStepGuideHtml(title: string, sections: string[]): string {
+    return `
+      <details class="usage-guide">
+        <summary>${title}</summary>
+        <div class="usage-guide-body">${sections.join('')}</div>
+      </details>
+    `;
+}
+
+function tensorViewStepGuides(editor: TensorViewEditor, preview: string): {
+    view: string;
+    permute: string;
+    flatten: string;
+    singleton: string;
+    slice: string;
+} {
+    const dims = editor.baseDims;
+    const current = editor.viewTensorInput;
+    const currentSizes = `[${dims.map((dim) => String(dim.size)).join(', ')}]`;
+    const currentPreview = preview || 'tensor';
+    const inferred = `[${dims.map((dim, index) => index === dims.length - 1 ? '-1' : String(dim.size)).join(', ')}]`;
+    const merged = dims.length < 2
+        ? currentSizes
+        : `[${product(dims.slice(0, 2).map((dim) => dim.size))}${dims.slice(2).map((dim) => `, ${dim.size}`).join('')}]`;
+    const wrongProduct = `[${dims.map((dim, index) => String(dim.size + (index === 0 ? 1 : 0))).join(', ')}]`;
+    const permutedLabels = editor.permutedDimIds
+        .map((dimId) => editor.baseDims.find((dim) => dim.id === dimId))
+        .filter((dim): dim is TensorViewEditor['baseDims'][number] => dim !== undefined);
+    const permuteOrder = permutedLabels.map((dim) => dim.label).join(', ');
+    const permuteMoved = permutedLabels.length < 2
+        ? permuteOrder || 'A'
+        : [permutedLabels[permutedLabels.length - 1]!, ...permutedLabels.slice(0, -1)].map((dim) => dim.label).join(', ');
+    const flattenBefore = permutedLabels.map((dim) => `${dim.label}=${dim.size}`).join(', ');
+    const flattenAfter = permutedLabels.length < 2
+        ? flattenBefore
+        : [`${permutedLabels[0]!.label}${permutedLabels[1]!.label}=${permutedLabels[0]!.size * permutedLabels[1]!.size}`, ...permutedLabels.slice(2).map((dim) => `${dim.label}=${dim.size}`)].join(', ');
+    const singletonAfter = dims.length === 0
+        ? '[1]'
+        : `[${dims[0]!.label}=${dims[0]!.size}, 1${dims.slice(1).map((dim) => `, ${dim.label}=${dim.size}`).join('')}]`;
+    const sliceTarget = permutedLabels[1] ?? permutedLabels[0] ?? dims[0];
+    const sliceExample = sliceTarget ? `${sliceTarget.label.toLowerCase()} fixed by slider` : 'first visible dimension fixed by slider';
+    return {
+        view: tensorViewStepGuideHtml('How do I use this?', [
+            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Define the logical dimensions that every later step will permute, flatten, expand, or slice. If this step is wrong, every later preview string is built on the wrong shape.</span></div>`,
+            `<div class="usage-guide-step"><strong>Accepted input forms</strong><span>Use bracketed, comma-separated entries. If names are confusing, you can enter just sizes such as <code>[2, 3, 4]</code>, <code>[6, 4]</code>, or <code>[2, 3, -1]</code>. A bare number becomes an anonymous internal label, so the UI still has something to permute and slice later.</span></div>`,
+            `<div class="usage-guide-step"><strong>Inference and validation</strong><span>You may use <code>-1</code> once to infer one size from the tensor element count. Labels must be unique. The final product must equal the original tensor element count. Inputs that change the product or repeat labels are rejected.</span></div>`,
+            `<div class="usage-guide-columns">
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Valid examples</div>
+                <div class="usage-guide-example"><code>${currentSizes}</code><span>The current logical shape written without dimension names.</span></div>
+                <div class="usage-guide-example"><code>${inferred}</code><span>Uses one inferred size while preserving the total product.</span></div>
+                <div class="usage-guide-example"><code>${merged}</code><span>Collapses adjacent dimensions into one explicit logical dimension before any permutation.</span></div>
+              </div>
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Invalid examples</div>
+                <div class="usage-guide-example"><code>${wrongProduct}</code><span>Changes the total element count, so the view no longer matches the tensor.</span></div>
+                <div class="usage-guide-example"><code>[${dims.map(() => '-1').join(', ')}]</code><span>Uses <code>-1</code> more than once, so the missing sizes are underdetermined.</span></div>
+                <div class="usage-guide-example"><code>[${dims.map((_dim, index) => index === 0 ? '0' : '1').join(', ')}]</code><span>Collapses the product instead of preserving it, so it cannot describe the original tensor.</span></div>
+              </div>
+            </div>`,
+        ]),
+        permute: tensorViewStepGuideHtml('How do I use this?', [
+            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Change axis order without changing axis sizes. This is the step that changes which logical dimension becomes the leftmost, topmost, or deepest visible axis in the preview.</span></div>`,
+            `<div class="usage-guide-step"><strong>Ways to reorder</strong><span>Drag a box left or right to insert it at a new position. Or click one axis, then click another to swap them. Clicking the already selected axis cancels the pending swap. With only one dimension visible here, permutation is a no-op.</span></div>`,
+            `<div class="usage-guide-step"><strong>What to expect in the preview</strong><span>If the order matches the underlying logical tensor, the preview omits <code>.permute(...)</code>. As soon as you move dimensions into a different order, the preview adds a <code>.permute(...)</code> term.</span></div>`,
+            `<div class="usage-guide-columns">
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Current order</div>
+                <div class="usage-guide-example"><code>${permuteOrder || 'A'}</code><span>Current logical order after the View Tensor step.</span></div>
+                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before another permutation edit.</span></div>
+              </div>
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Example reorder</div>
+                <div class="usage-guide-example"><code>${permuteMoved}</code><span>Example order after dragging the last dimension to the front.</span></div>
+                <div class="usage-guide-example"><code>click ${permutedLabels[0]?.label ?? 'A'} then ${permutedLabels[1]?.label ?? permutedLabels[0]?.label ?? 'A'}</code><span>Swaps two axes directly instead of dragging.</span></div>
+              </div>
+            </div>`,
+        ]),
+        flatten: tensorViewStepGuideHtml('How do I use this?', [
+            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Merge adjacent dimensions into one grouped axis after they are already in the order you want. Flattening changes the <code>.view(...)</code> part of the preview, not the <code>.permute(...)</code> part.</span></div>`,
+            `<div class="usage-guide-step"><strong>Separator rules</strong><span>A comma keeps two adjacent dimensions separate. A multiply joins them into one grouped dimension. Flatten only works on adjacent dimensions in the current permuted order, so permute first if the pair you want is not adjacent yet.</span></div>`,
+            `<div class="usage-guide-step"><strong>What cases matter</strong><span>Leaving every separator as a comma preserves one axis per logical dimension. Turning one separator into a multiply creates one grouped axis. Turning several separators into multiplies creates larger grouped axes.</span></div>`,
+            `<div class="usage-guide-columns">
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Before flatten</div>
+                <div class="usage-guide-example"><code>${flattenBefore || 'A=1'}</code><span>Every dimension is still separate.</span></div>
+                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before toggling a separator.</span></div>
+              </div>
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">After flatten</div>
+                <div class="usage-guide-example"><code>${flattenAfter || 'A=1'}</code><span>Example result after flattening the first adjacent pair.</span></div>
+                <div class="usage-guide-example"><code>comma keeps axes separate, multiply groups them</code><span>Use comma when you still need those axes to be permuted or sliced independently later.</span></div>
+              </div>
+            </div>`,
+        ]),
+        singleton: tensorViewStepGuideHtml('How do I use this?', [
+            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Insert explicit size-1 axes when you want the preview shape to match a broadcasted, expanded, or layout-sensitive form. Singletons do not change the element count.</span></div>`,
+            `<div class="usage-guide-step"><strong>Where insertion matters</strong><span>Insert before the first axis to create a leading batch-like dimension, between axes to separate two existing dimensions, or at the end to create a trailing singleton. The insertion position changes the preview shape and the later slice positions.</span></div>`,
+            `<div class="usage-guide-step"><strong>What cases to watch</strong><span>You can insert multiple singletons. They can stay visible as <code>1</code> axes, or later be sliced away. Removing a singleton deletes only that size-1 axis.</span></div>`,
+            `<div class="usage-guide-columns">
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Current shape</div>
+                <div class="usage-guide-example"><code>${current}</code><span>Current logical dimensions before inserting a singleton.</span></div>
+                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before insertion.</span></div>
+              </div>
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Example insertions</div>
+                <div class="usage-guide-example"><code>${singletonAfter}</code><span>Example result after inserting one singleton after the first dimension.</span></div>
+                <div class="usage-guide-example"><code>insert at start / middle / end</code><span>Use the position that makes the preview shape line up with the broadcasted form you need.</span></div>
+              </div>
+            </div>`,
+        ]),
+        slice: tensorViewStepGuideHtml('How do I use this?', [
+            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Hide one visible dimension from the layout and replace it with a slider-controlled fixed index. This changes the final bracketed slice term in the preview.</span></div>`,
+            `<div class="usage-guide-step"><strong>How slicing behaves</strong><span>Click a dimension to toggle it into a slice. The visible layout loses that axis, and a slider appears below. Click the same dimension again to restore it as a visible axis. Multiple dimensions can be sliced at the same time.</span></div>`,
+            `<div class="usage-guide-step"><strong>What cases matter</strong><span>Slicing a grouped axis fixes one flattened index, not each original sub-axis separately. If you need finer control, keep axes separate in Flatten Dims before slicing. Singleton slices are always fixed at <code>0</code>.</span></div>`,
+            `<div class="usage-guide-columns">
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">Current state</div>
+                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before toggling another slice.</span></div>
+                <div class="usage-guide-example"><code>${sliceTarget?.label ?? 'A'}</code><span>Example dimension to slice next.</span></div>
+              </div>
+              <div class="usage-guide-column">
+                <div class="usage-guide-subtitle">After slicing</div>
+                <div class="usage-guide-example"><code>${sliceExample}</code><span>The chosen axis disappears from the visible layout and becomes slider-controlled.</span></div>
+                <div class="usage-guide-example"><code>slice grouped axes only when one flattened index is enough</code><span>If you need separate control of the original component axes, undo the flatten first.</span></div>
+              </div>
+            </div>`,
+        ]),
+    };
+}
+
+function tensorCallInputValue(value: string): string {
+    return value.replace(/^\[/, '').replace(/\]$/, '');
+}
+
+function parseIntegerTerm(value: string): number {
+    const term = value.trim();
+    if (term === '') return Number.NaN;
+    if (term === '-1') return -1;
+    const parts = term.split('*').map((part) => Number(part.trim()));
+    if (parts.some((part) => !Number.isFinite(part))) return Number.NaN;
+    return parts.reduce((acc, part) => acc * part, 1);
+}
+
+function parseShapeSpec(
+    value: string,
+    totalElements: number,
+): Array<{ label: string; size: number }> {
+    const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+    let inferredIndex = -1;
+    let anonymousIndex = parts.reduce((maxIndex, part) => {
+        const match = part.match(/^(?:\*A|\*|_)(\d+)(?:\s*=.*)?$/);
+        return match ? Math.max(maxIndex, Number(match[1]) + 1) : maxIndex;
+    }, 0);
+    const dims = parts.map((part, index) => {
+        if (/^-?\d+$/.test(part)) {
+            const size = Number(part);
+            if (size === -1) inferredIndex = index;
+            return { label: `*A${anonymousIndex++}`, size };
+        }
+        const anonymous = part.match(/^((?:\*A|\*|_)\d+)(?:\s*=\s*(-?\d+))?$/);
+        const explicit = part.match(/^([^=,\[\]]+?)(?:\s*=\s*(-?\d+))?$/);
+        const match = anonymous ?? explicit;
+        if (!match) throw new Error(`Invalid view term "${part}".`);
+        const rawLabel = match[1]!.trim();
+        const label = rawLabel;
+        const size = match[2] ? Number(match[2]) : -1;
+        if (size === -1) inferredIndex = index;
+        return { label, size };
+    });
+    if (inferredIndex >= 0) {
+        const known = product(dims.filter((_dim, index) => index !== inferredIndex).map((dim) => dim.size));
+        if (known === 0 || totalElements % known !== 0) throw new Error('Could not infer a valid -1 dimension.');
+        dims[inferredIndex]!.size = totalElements / known;
+    }
+    return dims;
+}
+
+function parseIntegerListInput(value: string): number[] {
+    return value.split(',').map(parseIntegerTerm).filter((part) => Number.isFinite(part));
+}
+
+function buildStep4Editor(
+    previous: TensorViewEditor,
+    viewInput: string,
+    permuteInput: string,
+    finalViewInput: string | null,
+    totalElements: number,
+): TensorViewEditor {
+    const viewChanged = tensorCallInputValue(previous.viewTensorInput).trim() !== viewInput.trim();
+    const parsedView = parseShapeSpec(viewInput, totalElements);
+    const baseDims = viewChanged
+        ? parsedView.map((dim, index) => ({ id: `dim-${index}`, label: dim.label, size: dim.size }))
+        : previous.baseDims.map((dim, index) => ({ ...dim, label: parsedView[index]?.label ?? dim.label, size: parsedView[index]?.size ?? dim.size }));
+    const permuteIndices = parseIntegerListInput(permuteInput);
+    const permutedDimIds = permuteIndices.map((index) => baseDims[index]?.id).filter((dimId): dimId is string => Boolean(dimId));
+    const flattenSeparators = new Array(Math.max(0, permutedDimIds.length - 1)).fill(true);
+    return {
+        ...previous,
+        viewTensorInput: `[${viewInput}]`,
+        finalViewInput: finalViewInput?.trim() ? `[${finalViewInput}]` : undefined,
+        baseDims,
+        permutedDimIds,
+        flattenSeparators,
+        singletons: [],
+    };
+}
+
+function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly string[]): string {
+    const shapeText = shape.join(', ');
+    const reversedRangeText = shape.map((_dim, index) => shape.length - index - 1).join(', ');
+    const labeledShapeText = shape.map((size, index) => `${axisLabels[index] ?? `A${index}`}=${size}`).join(', ');
+    return `
+      <details class="usage-guide">
+        <summary>How do I use this?</summary>
+        <div class="usage-guide-body">
+          <div class="usage-guide-step">
+            <span>In "Tensor View", input the tensor view/permutation/slice.</span>
+          </div>
+          <div class="usage-guide-step">
+            <span>The input is of format "<strong>tensor</strong>[<strong>.view(A)</strong>][<strong>.permute(B)</strong>][<strong>.view(C)</strong>][<strong>[D]</strong>]".</span>
+          </div>
+          <div class="usage-guide-step">
+            <span>View/permutation/slice semantics are similar to torch, but None indexes aren't allowed (instead, just insert a 1 dimension via a view).</span>
+          </div>
+          <div class="usage-guide-column">
+            <div class="usage-guide-subtitle">Examples</div>
+            <div class="usage-guide-example"><code>tensor.view(${shapeText})</code></div>
+            <div class="usage-guide-example"><code>tensor.view(-1)</code></div>
+            <div class="usage-guide-example"><code>tensor.permute(${reversedRangeText})</code></div>
+            <div class="usage-guide-example"><code>tensor[0]</code></div>
+            <div class="usage-guide-example"><code>tensor.view(${labeledShapeText})</code></div>
+            <div class="usage-guide-example"><code>tensor.view(${labeledShapeText}).permute(${reversedRangeText})</code></div>
+            <div class="usage-guide-example"><code>tensor.view(${labeledShapeText}).permute(${reversedRangeText}).view(${labeledShapeText})</code></div>
+            <div class="usage-guide-example"><code>tensor.view(${labeledShapeText}).permute(${reversedRangeText}).view(${labeledShapeText})[0]</code></div>
+          </div>
+        </div>
+      </details>
+    `;
+}
+
+function parseTensorViewExpressionInput(
+    value: string,
+    previous: TensorViewEditor,
+    shape: readonly number[],
+): TensorViewEditor {
+    const text = value.trim();
+    if (!text.startsWith('tensor')) throw new Error('Tensor View must start with "tensor".');
+    let rest = text.slice('tensor'.length);
+    const consumeCall = (name: 'view' | 'permute'): string | null => {
+        if (!rest.startsWith(`.${name}(`)) return null;
+        const start = name.length + 2;
+        let depth = 1;
+        let index = start;
+        while (index < rest.length && depth > 0) {
+            const char = rest[index]!;
+            if (char === '(') depth += 1;
+            else if (char === ')') depth -= 1;
+            index += 1;
+        }
+        if (depth !== 0) throw new Error(`Unclosed ${name}(...) in Tensor View.`);
+        const content = rest.slice(start, index - 1).trim();
+        rest = rest.slice(index);
+        return content;
+    };
+    const defaultView = [...shape].join(', ');
+    const firstView = consumeCall('view') ?? defaultView;
+    const permute = consumeCall('permute') ?? [...shape].map((_dim, index) => index).join(', ');
+    const finalView = consumeCall('view');
+    const nextEditor = buildStep4Editor(previous, firstView, permute, finalView, product([...shape]));
+    let slicedTokenKeys: string[] = [];
+    let sliceValues: Record<string, number> = {};
+    const bracket = rest.trim();
+    if (bracket !== '') {
+        if (bracket.startsWith('.') || !bracket.startsWith('[') || !bracket.endsWith(']')) {
+            throw new Error('Tensor View input must be in form "tensor<.view(A)><.permute(B)><.view(C)><[D]> (text enclosed in <...> are optional)."');
+        }
+        const terms = bracket.slice(1, -1).split(',').map((part) => part.trim());
+        const finalViewDims = finalView ? parseShapeSpec(finalView, product(nextEditor.baseDims.map((dim) => dim.size))) : [];
+        terms.forEach((term, index) => {
+            if (term === ':') return;
+            const value = Number(term);
+            if (!Number.isFinite(value)) throw new Error(`Invalid slice term "${term}".`);
+            // implicit second views made simple edits fragile: changing the first
+            // view left a stale hidden finalViewInput behind, and the next round-trip
+            // failed because that old shape no longer matched the new base product
+            const key = finalView
+                ? `view:${finalViewDims[index]?.label ?? `*A${index}`}`
+                : `group:${nextEditor.permutedDimIds[index] ?? `missing-${index}`}`;
+            slicedTokenKeys.push(key);
+            sliceValues[key] = Math.floor(value);
+        });
+    }
+    return {
+        ...nextEditor,
+        slicedTokenKeys,
+        sliceValues,
+    };
+}
+
+function permuteDropSlotFor(clientX: number): number | null {
+    const boxes = Array.from(tensorViewWidget.querySelectorAll<HTMLElement>('[data-permute-dim]'));
+    if (boxes.length === 0) return null;
+    for (let index = 0; index < boxes.length; index += 1) {
+        const rect = boxes[index]!.getBoundingClientRect();
+        if (clientX <= rect.left + rect.width / 2) return index;
+    }
+    return boxes.length;
+}
+
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
     if (!model.handle) {
-        tensorViewWidget.innerHTML = `${widgetTitle('tensor-view', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}<div class="widget-body">No tensor loaded.</div>`;
+        tensorViewWidget.innerHTML = `${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
     }
 
     const error = viewErrors.get(model.handle.id);
-    const parsedView = parseTensorView(model.handle.shape.slice(), model.viewInput, undefined, model.handle.axisLabels);
-    const visibleTokens = parsedView.ok ? parsedView.spec.tokens.filter((token) => token.visible).map((token) => token.label) : [];
-    const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
+    const editor = model.viewEditor;
+    if (!editor) return;
     const tensorOptions = model.tensors.map((tensor) => `
       <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.name || tensor.id}</option>
     `).join('');
+    const sliceContent = model.viewTokens.map((token) => (
+        token.kind === 'singleton'
+            ? `<span class="dim-chip dim-chip-singleton">1</span>`
+            : `<button class="dim-chip interactive-chip${token.sliced ? ' dim-chip-sliced dim-chip-active' : ''}" data-slice-token="${token.key}" type="button">${token.token}<span>=${token.size}</span></button>`
+    )).join('');
+    const defaultLabeledShape = model.handle.shape.map((size, index) => `${model.handle!.axisLabels[index] ?? `A${index}`}=${size}`).join(', ');
     tensorViewWidget.innerHTML = `
-      ${widgetTitle('tensor-view', 'Edit the active tensor view string, inspect the preview expression, and control slice tokens.')}
+      ${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}
       <div class="widget-body">
         <div class="field">
-          ${labelWithInfo('Tensor', 'Choose which loaded tensor the Tensor View editor controls.', 'tensor-select')}
+          ${labelWithInfo('Tensor', 'Choose which loaded tensor the Permute/Slice editor controls.', 'tensor-select')}
           <select id="tensor-select">${tensorOptions}</select>
         </div>
-        <div class="field">
-          ${labelWithInfo('View String', 'Use the Tensor View grammar. Uppercase tokens stay visible, lowercase tokens become slices, and 1 inserts a singleton dimension.', 'view-input')}
-          <input id="view-input" type="text" value="${model.viewInput}" placeholder="empty resets to default" />
-          <div class="axis-value">${formatAxisTokens(visibleTokens, snapshot.displayMode, dimensionMappingScheme)}</div>
+        <div class="permute-slice-step">
+          ${labelWithInfo('Tensor View', 'Edit the full tensor expression directly. Standard view, permute, and non-none indexing semantics apply.', 'tensor-view-input')}
+          ${tensorViewHelpHtml(model.handle.shape, model.handle.axisLabels).replace('<details class="usage-guide">', `<details class="usage-guide"${tensorViewHelpOpen ? ' open' : ''}>`)}
+          <textarea id="tensor-view-input" rows="3" placeholder="tensor">${model.preview}</textarea>
+        </div>
+        <div class="permute-slice-step">
+          <div class="label-row"><span class="meta-label">Slice Dims</span>${infoButton('Convenience utility for inspecting different slices. Click a dimension to toggle between showing one/all elements at a time. If showing one element of a dimension, drag its slider to change the displayed index.')}</div>
+          <div class="dim-chip-row dim-chip-row-compact" id="slice-dims">${sliceContent}</div>
         </div>
         ${error ? `<div class="error-box">${error}</div>` : ''}
-        <div class="field">
-          ${labelWithInfo('Preview', 'Shows the implied permute, reshape, and slice operations for the current Tensor View string.')}
-          <div class="mono-block" id="view-preview"></div>
-        </div>
         ${model.sliceTokens.length === 0 ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
+        <div class="permute-slice-actions">
+          <button class="reset-view-button interactive-chip" id="reset-view-button" type="button" title="Change tensor view to default view (original shape + dimension labels + no permutations)">Reset View</button>
+        </div>
       </div>
     `;
 
-    const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
-    const preview = tensorViewWidget.querySelector<HTMLElement>('#view-preview');
+    const tensorViewInput = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
     const select = tensorViewWidget.querySelector<HTMLSelectElement>('#tensor-select');
     const sliceHost = tensorViewWidget.querySelector<HTMLElement>('#slice-token-controls');
-    if (preview) preview.textContent = model.preview;
+    const usageGuide = tensorViewWidget.querySelector<HTMLDetailsElement>('.usage-guide');
+    usageGuide?.addEventListener('toggle', () => {
+        tensorViewHelpOpen = usageGuide.open;
+    });
     select?.addEventListener('change', () => {
         logUi('tensor-select', select.value);
         viewer.setActiveTensor(select.value);
     });
-    if (input) {
-        input.addEventListener('keydown', (event) => {
+    tensorViewInput?.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter') return;
-            input.blur();
+            tensorViewInput.blur();
         });
-        input.addEventListener('change', () => {
-            try {
-                logUi('tensor-view:change', { tensorId: model.handle!.id, value: input.value });
-                viewer.setTensorView(model.handle!.id, input.value);
-                viewErrors.delete(model.handle!.id);
-            } catch (error) {
-                viewErrors.set(model.handle!.id, error instanceof Error ? error.message : String(error));
-            }
-            render(snapshot);
+    tensorViewInput?.addEventListener('change', () => {
+        logUi('tensor-view:change', { tensorId: model.handle!.id, value: tensorViewInput.value });
+        try {
+            applyTensorViewEditor(model.handle!.id, parseTensorViewExpressionInput(
+                tensorViewInput.value,
+                editor,
+                model.handle!.shape,
+            ));
+        } catch (error) {
+            viewErrors.set(model.handle!.id, error instanceof Error ? error.message : String(error));
+            render(viewer.getSnapshot());
+        }
+    });
+    tensorViewWidget.querySelectorAll<HTMLElement>('[data-slice-token]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const key = button.dataset.sliceToken;
+            if (!key) return;
+            const sliced = editor.slicedTokenKeys.includes(key);
+            applyTensorViewEditor(model.handle!.id, {
+                ...editor,
+                slicedTokenKeys: sliced ? editor.slicedTokenKeys.filter((entry) => entry !== key) : [...editor.slicedTokenKeys, key],
+                sliceValues: sliced ? editor.sliceValues : { ...editor.sliceValues, [key]: editor.sliceValues[key] ?? 0 },
+            });
         });
-    }
+    });
+    tensorViewWidget.querySelector<HTMLElement>('#reset-view-button')?.addEventListener('click', () => {
+        applyTensorViewEditor(model.handle!.id, {
+            version: 2,
+            viewTensorInput: `[${defaultLabeledShape}]`,
+            baseDims: [],
+            permutedDimIds: [],
+            flattenSeparators: [],
+            singletons: [],
+            slicedTokenKeys: [],
+            sliceValues: {},
+        });
+    });
 
     sliceHost?.replaceChildren(...model.sliceTokens.map((token) => {
         const row = document.createElement('div');
         row.className = 'slider-row';
+        const sliderId = `slice-${token.key.replace(/[^a-z0-9_-]/gi, '-')}`;
         row.innerHTML = `
-          <label for="slice-${token.token}">${token.token}</label>
-          <input id="slice-${token.token}" type="range" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
-          <input id="slice-${token.token}-number" type="number" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
+          <label for="${sliderId}">${token.token}</label>
+          <input id="${sliderId}" type="range" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
+          <input id="${sliderId}-number" type="number" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
         `;
-        const slider = row.querySelector<HTMLInputElement>(`#slice-${token.token}`);
-        const number = row.querySelector<HTMLInputElement>(`#slice-${token.token}-number`);
+        const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
+        const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
+        const syncTensorViewInput = (): void => {
+            const tensorViewInput = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
+            if (tensorViewInput) tensorViewInput.value = viewer.getInspectorModel().preview;
+        };
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
-            viewer.setSliceTokenValue(model.handle!.id, token.token, nextValue);
-            if (preview) preview.textContent = viewer.getInspectorModel().preview;
+            viewer.setSliceTokenValue(model.handle!.id, token.key, nextValue);
+            // updating the whole widget during slider drag resets the active range input,
+            // so keep the drag stable and only sync the expression text in place
+            syncTensorViewInput();
+            requestAnimationFrame(syncTensorViewInput);
         };
         slider?.addEventListener('pointerdown', () => {
             suspendTensorViewRender = true;
@@ -908,7 +1373,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         });
         slider?.addEventListener('change', () => {
             suspendTensorViewRender = false;
-            render(snapshot);
+            render(viewer.getSnapshot());
         });
         number?.addEventListener('change', () => {
             const clamped = Math.max(0, Math.min(token.size - 1, Number(number.value)));
@@ -916,7 +1381,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             if (slider) slider.value = String(clamped);
             applyValue(clamped);
             suspendTensorViewRender = false;
-            render(snapshot);
+            render(viewer.getSnapshot());
         });
         return row;
     }));
@@ -1239,7 +1704,7 @@ async function runAction(action: string): Promise<void> {
             render(viewer.getSnapshot());
             return;
         case 'view': {
-        const input = tensorViewWidget.querySelector<HTMLInputElement>('#view-input');
+        const input = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
         input?.focus();
         input?.select();
         logUi('tensor-view:focus');

@@ -53,6 +53,32 @@ export type TensorViewSnapshot = {
     visible?: string;
 };
 
+/** One logical dimension in the staged tensor-view editor. */
+export type TensorViewEditorDim = {
+    id: string;
+    label: string;
+    size: number;
+};
+
+/** One inserted singleton placeholder in the staged tensor-view editor. */
+export type TensorViewEditorSingleton = {
+    id: string;
+    position: number;
+};
+
+/** Structured staged tensor-view editor state used by the demo UI. */
+export type TensorViewEditor = {
+    version: 2;
+    viewTensorInput: string;
+    finalViewInput?: string;
+    baseDims: TensorViewEditorDim[];
+    permutedDimIds: string[];
+    flattenSeparators: boolean[];
+    singletons: TensorViewEditorSingleton[];
+    slicedTokenKeys: string[];
+    sliceValues: Record<string, number>;
+};
+
 /** Hover payload emitted for the currently pointed tensor cell. */
 export type HoverInfo = {
     tensorId: string;
@@ -116,6 +142,7 @@ export type InspectorTensorOption = {
 /** Parsed hidden-axis token together with its current slice value. */
 export type SliceToken = {
     token: string;
+    key: string;
     axes: number[];
     size: number;
     value: number;
@@ -124,6 +151,7 @@ export type SliceToken = {
 /** One parsed token from a tensor-view string, either visible or sliced away. */
 export type ViewToken = {
     kind: 'axis_group' | 'singleton';
+    key: string;
     visible: boolean;
     label: string;
     axes: number[];
@@ -136,6 +164,11 @@ export type TensorViewSpec = {
     canonical: string;
     axisLabels: string[];
     tensorShape: number[];
+    baseDims: TensorViewEditorDim[];
+    baseShape: number[];
+    permutedBaseShape: number[];
+    permutedBaseIndices: number[];
+    baseIsTensorAxes: boolean;
     tokens: ViewToken[];
     viewAxes: number[];
     sliceAxes: number[];
@@ -143,6 +176,7 @@ export type TensorViewSpec = {
     sliceTokens: SliceToken[];
     viewShape: number[];
     layoutShape: number[];
+    editor: TensorViewEditor;
 };
 
 /** Result of parsing a tensor-view string against one tensor shape. */
