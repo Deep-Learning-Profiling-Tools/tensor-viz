@@ -249,7 +249,7 @@ def demo_long_name() -> None:
     }
     viz(tensors, name="Long Tensor Names")
 
-DEMO = 11
+DEMO = 0
 DEMOS = {
     0: demo_single_tensor,
     1: demo_custom_labels,

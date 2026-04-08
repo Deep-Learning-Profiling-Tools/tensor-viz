@@ -4,8 +4,8 @@ export type { CoordHit2D } from './layout.js';
 export { createBundleManifest, createSessionBundleManifest, createViewerSnapshot } from './session.js';
 export type { BundleDocumentSpec, SessionTabSpec, SessionTensorSpec } from './session.js';
 export {
-    buildPreviewExpression,
-    defaultTensorView,
+    buildTensorViewExpression,
+    defaultTensorViewEditor,
     expandGroupedIndex,
     layoutAxisLabels,
     layoutCoordIsVisible,
@@ -16,6 +16,8 @@ export {
     mapViewCoordToTensorCoord,
     parseTensorView,
     product,
+    serializeTensorViewEditor,
+    visibleTensorCoords,
 } from './view.js';
 export { coordFromKey, coordKey } from './viewer-utils.js';
 export { TensorViewer } from './viewer.js';
@@ -39,6 +41,9 @@ export type {
     TensorDataRequestReason,
     TensorHandle,
     TensorStatus,
+    TensorViewEditor,
+    TensorViewEditorDim,
+    TensorViewEditorSingleton,
     TensorViewSnapshot,
     TensorViewSpec,
     Vec3,

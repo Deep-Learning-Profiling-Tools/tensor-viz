@@ -37,9 +37,8 @@ import {
     unravelIndex,
 } from './layout.js';
 import {
-    buildPreviewExpression,
-    defaultTensorView,
-    expandGroupedIndex,
+    buildTensorViewExpression,
+    defaultTensorViewEditor,
     layoutAxisLabels,
     layoutCoordIsVisible,
     layoutShape,
@@ -48,6 +47,7 @@ import {
     mapViewCoordToTensorCoord,
     parseTensorView,
     product,
+    serializeTensorViewEditor,
     supportsContiguousSelectionFastPath2D,
 } from './view.js';
 import {
@@ -192,6 +192,8 @@ export class TensorViewer {
         if ('outputEncoding' in this.renderer) (this.renderer as WebGLRenderer & { outputEncoding: number }).outputEncoding = 3001;
         if ('outputColorSpace' in this.renderer) this.renderer.outputColorSpace = SRGBColorSpace;
         this.renderer.toneMapping = NoToneMapping;
+        // hidpi scaling makes the webgl canvas and 2d overlay disagree about pixel-space,
+        // which breaks picking/layout alignment on high-density displays, so keep 1:1 pixels
         this.renderer.setPixelRatio(1);
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         initializeVertexColors(this.cubeGeometry);
@@ -2055,7 +2057,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         tensor.view = parsed.spec;
         return {
-            view: tensor.view.canonical,
+            editor: tensor.view.editor,
             hiddenIndices: tensor.view.hiddenIndices.slice(),
         };
     }
@@ -2096,7 +2098,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             const tensor = this.tensors.get(entry.id);
             if (!tensor) return;
             if (entry.offset) tensor.offset = entry.offset;
-            this.assignTensorView(tensor, entry.view.view ?? entry.view.visible ?? '', entry.view.hiddenIndices);
+            this.assignTensorView(tensor, serializeTensorViewEditor(entry.view.editor), entry.view.hiddenIndices);
         });
 
         if (!this.state.activeTensorId || !this.tensors.has(this.state.activeTensorId)) {
@@ -2197,9 +2199,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         const normalizedShape = shape.map((dim) => Math.max(1, Math.floor(dim)));
         const parsed = parseTensorView(
             normalizedShape,
-            defaultTensorView(normalizedShape, options.axisLabels),
-            undefined,
-            options.axisLabels,
+            serializeTensorViewEditor(defaultTensorViewEditor(normalizedShape, options.axisLabels)),
         );
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         const id = options.id ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tensor-${this.tensorCounter += 1}`);
@@ -2296,7 +2296,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 name: tensor.name,
                 offset: tensor.offset,
                 view: {
-                    view: tensor.view.canonical,
+                    editor: tensor.view.editor,
                     hiddenIndices: tensor.view.hiddenIndices.slice(),
                 },
             })),
@@ -2576,7 +2576,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return this.state.showDimensionLines;
     }
 
-    /** Toggle the 2D tensor-name labels. */
+    /** Toggle the tensor-name labels. */
     public toggleTensorNames(force?: boolean): boolean {
         this.state.showTensorNames = force ?? !this.state.showTensorNames;
         logEvent('display:tensor-names', this.state.showTensorNames);
@@ -2661,7 +2661,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     public getTensorView(tensorId: string): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         return {
-            view: tensor.view.canonical,
+            editor: tensor.view.editor,
             hiddenIndices: tensor.view.hiddenIndices.slice(),
         };
     }
@@ -2913,7 +2913,9 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         colorRanges: Array<{ id: string; name: string; min: number; max: number }>;
         viewInput: string;
         preview: string;
-        sliceTokens: Array<{ token: string; size: number; value: number }>;
+        viewEditor: TensorViewSpec['editor'] | null;
+        viewTokens: Array<{ kind: 'axis_group' | 'singleton'; token: string; key: string; size: number; sliced: boolean }>;
+        sliceTokens: Array<{ token: string; key: string; size: number; value: number }>;
         colorRange: { min: number; max: number } | null;
     } {
         const tensors = Array.from(this.tensors.values()).map((tensor) => ({ id: tensor.id, name: tensor.name }));
@@ -2928,7 +2930,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             ? this.state.activeTensorId
             : this.tensors.keys().next().value ?? null;
         if (!activeTensorId) {
-            return { handle: null, tensors, colorRanges, viewInput: '', preview: '', sliceTokens: [], colorRange: null };
+            return { handle: null, tensors, colorRanges, viewInput: '', preview: '', viewEditor: null, viewTokens: [], sliceTokens: [], colorRange: null };
         }
         const tensor = this.requireTensor(activeTensorId);
         return {
@@ -2938,9 +2940,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             tensors,
             colorRanges,
             viewInput: tensor.view.canonical,
-            preview: buildPreviewExpression(tensor.view),
+            preview: buildTensorViewExpression(tensor.view),
+            viewEditor: tensor.view.editor,
+            viewTokens: tensor.view.tokens.map((token) => ({
+                kind: token.kind,
+                token: token.label,
+                key: token.key,
+                size: token.size,
+                sliced: !token.visible,
+            })),
             sliceTokens: tensor.view.sliceTokens.map((token) => ({
                 token: token.token,
+                key: token.key,
                 size: token.size,
                 value: token.value,
             })),
@@ -2956,25 +2967,24 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.emit();
     }
 
-    /** Set the flattened value of one lowercased grouped slice token. */
+    /** Set the flattened value of one slice token. */
     public setSliceTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
-        const sliceToken = tensor.view.sliceTokens.find((entry) => entry.token === token);
+        const sliceToken = tensor.view.sliceTokens.find((entry) => entry.key === token || entry.token === token);
         if (!sliceToken) throw new Error(`Unknown slice token ${token}.`);
-        const nextHiddenIndices = tensor.view.hiddenIndices.slice();
         const clamped = Math.max(0, Math.min(sliceToken.size - 1, Math.floor(value)));
         if (sliceToken.value === clamped) {
             return {
-                view: tensor.view.canonical,
+                editor: tensor.view.editor,
                 hiddenIndices: tensor.view.hiddenIndices.slice(),
             };
         }
-        const expanded = expandGroupedIndex(sliceToken.axes, clamped, tensor.shape);
-        sliceToken.axes.forEach((axis, axisIndex) => {
-            nextHiddenIndices[axis] = expanded[axisIndex];
-        });
         logEvent('tensor:slice-token', { tensorId, token, value: clamped });
-        return this.setTensorView(tensorId, tensor.view.canonical, nextHiddenIndices);
+        const editor = tensor.view.editor;
+        return this.setTensorView(tensorId, serializeTensorViewEditor({
+            ...editor,
+            sliceValues: { ...editor.sliceValues, [sliceToken.key]: clamped },
+        }));
     }
 
     /** Backward-compatible alias for {@link setSliceTokenValue}. */

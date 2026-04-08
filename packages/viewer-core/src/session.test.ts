@@ -11,10 +11,10 @@ describe('session builders', () => {
 
         expect(manifest.tensors[0]?.id).toBe('tensor-1');
         expect(manifest.tensors[0]?.placeholderData).toBe(true);
-        expect(manifest.tensors[0]?.view.view).toBe('O I');
+        expect(manifest.tensors[0]?.view.editor?.viewTensorInput).toBe('[O=4, I=8]');
         expect(manifest.viewer.activeTensorId).toBe('tensor-1');
         expect(manifest.viewer.dimensionMappingScheme).toBe('z-order');
-        expect(manifest.viewer.tensors[0]?.view.view).toBe('O I');
+        expect(manifest.viewer.tensors[0]?.view.editor?.viewTensorInput).toBe('[O=4, I=8]');
     });
 
     it('builds a multi-tab session manifest', () => {
@@ -35,7 +35,7 @@ describe('session builders', () => {
 
         expect(session.tabs.map((tab) => tab.id)).toEqual(['tab-1', 'tab-2']);
         expect(session.tabs.map((tab) => tab.title)).toEqual(['inputs', 'weights']);
-        expect(session.tabs[1]?.viewer.tensors[0]?.view.view).toBe('O I K0 K1');
+        expect(session.tabs[1]?.viewer.tensors[0]?.view.editor?.viewTensorInput).toBe('[O=16, I=3, K0=3, K1=3]');
     });
 
     it('defaults tensor names on and preserves explicit overrides', () => {

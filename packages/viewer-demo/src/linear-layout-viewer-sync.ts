@@ -2,8 +2,8 @@ import {
     coordFromKey,
     coordKey,
     parseTensorView,
-    product,
-    unravelIndex,
+    serializeTensorViewEditor,
+    visibleTensorCoords,
     type LoadedBundleDocument,
     type SelectionCoords,
     type TensorViewer,
@@ -253,17 +253,11 @@ function linearLayoutCellLabelsForTab(
 function slicedTensorCoords(ctx: LinearLayoutUiContext, tensorId: string): number[][] | null {
     const status = ctx.viewer.getTensorStatus(tensorId);
     const snapshot = ctx.viewer.getTensorView(tensorId);
-    const parsed = parseTensorView(status.shape.slice(), snapshot.view, snapshot.hiddenIndices, status.axisLabels);
-    if (!parsed.ok || parsed.spec.sliceTokens.length === 0) return null;
-    const hiddenAxes = parsed.spec.tokens
-        .filter((token) => token.kind === 'axis_group' && !token.visible)
-        .flatMap((token) => token.axes);
-    if (hiddenAxes.length === 0) return null;
-    const coords: number[][] = [];
-    const total = product(status.shape);
-    for (let index = 0; index < total; index += 1) {
-        const coord = unravelIndex(index, status.shape);
-        if (hiddenAxes.every((axis) => coord[axis] === parsed.spec.hiddenIndices[axis])) coords.push(coord);
-    }
-    return coords;
+    const parsed = parseTensorView(
+        status.shape.slice(),
+        serializeTensorViewEditor(snapshot.editor),
+        snapshot.hiddenIndices,
+        status.axisLabels,
+    );
+    return !parsed.ok || parsed.spec.sliceTokens.length === 0 ? null : visibleTensorCoords(parsed.spec);
 }
