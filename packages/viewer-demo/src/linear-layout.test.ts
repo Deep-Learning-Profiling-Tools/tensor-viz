@@ -108,6 +108,24 @@ describe('compose layout helpers', () => {
         expect(runtime.tensors.map((tensor) => tensor.shape)).toEqual([[2], [2], [2]]);
     });
 
+    it('composes swizzles after tiles without dropping reachable coordinates', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'Tile: [T,W] -> [Y,X]',
+            'T: [[0,1],[0,2]]',
+            'W: [[1,0]]',
+            '',
+            'Swizzle: [Y,X] -> [S,B]',
+            'Y: [[1,1],[2,2]]',
+            'X: [[0,1],[0,2]]',
+        ].join('\n'), 'Swizzle(Tile)'));
+
+        expect(runtime.tensors.at(-1)).toMatchObject({
+            axisLabels: ['S', 'B'],
+            shape: [2, 4],
+            rootToTensor: [[0, 0], [1, 1], [0, 1], [1, 0], [0, 2], [1, 3], [0, 3], [1, 2]],
+        });
+    });
+
     it('rejects compositions that become non-injective after width alignment', () => {
         const state = composeState([
             'Blocked_Layout: [T,W,R] -> [Y,X]',

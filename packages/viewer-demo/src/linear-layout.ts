@@ -732,10 +732,14 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
         throw new Error(`${outer.exprText} expects [${outer.inputs.join(',')}] but received [${inner.outputs.join(',')}].`);
     }
     const bridgeBitCounts = inner.outputBitCounts.map((bits, axis) => Math.max(bits, outer.inputBitCounts[axis] ?? 0));
-    const matrix = multiplyMatrices(
+    const rawMatrix = multiplyMatrices(
         expandInputColumns(outer.matrix, outer.inputBitCounts, bridgeBitCounts),
         expandOutputRows(inner.matrix, inner.outputBitCounts, bridgeBitCounts),
     );
+    // trimOutputBitCounts() can shrink one axis without shrinking later row offsets.
+    // if we keep the old rows, coordFromBits() reads the wrong bits for later axes.
+    const outputBitCounts = trimOutputBitCounts(rawMatrix, outer.outputBitCounts);
+    const matrix = trimMatrixRows(rawMatrix, outer.outputBitCounts, outputBitCounts);
     const layout = {
         kind: 'apply',
         exprText,
@@ -743,7 +747,7 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
         inputs: inner.inputs.slice(),
         outputs: outer.outputs.slice(),
         inputBitCounts: inner.inputBitCounts.slice(),
-        outputBitCounts: trimOutputBitCounts(matrix, outer.outputBitCounts),
+        outputBitCounts,
         matrix,
     };
     assertEvaluatedInjective(layout);
@@ -763,7 +767,7 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
     ));
     const rightInputBitOffsets = inputs.map((label) => left.inputBitCounts[left.inputs.indexOf(label)] ?? 0);
     const rightOutputBitOffsets = outputs.map((label) => left.outputBitCounts[left.outputs.indexOf(label)] ?? 0);
-    const matrix = mergeProductMatrices(
+    const rawMatrix = mergeProductMatrices(
         embedProductMatrix(
             left,
             inputs,
@@ -783,6 +787,8 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
             rightOutputBitOffsets,
         ),
     );
+    const trimmedOutputBitCounts = trimOutputBitCounts(rawMatrix, outputBitCounts);
+    const matrix = trimMatrixRows(rawMatrix, outputBitCounts, trimmedOutputBitCounts);
     const layout = {
         kind: 'product',
         exprText,
@@ -790,7 +796,7 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
         inputs,
         outputs,
         inputBitCounts,
-        outputBitCounts: trimOutputBitCounts(matrix, outputBitCounts),
+        outputBitCounts: trimmedOutputBitCounts,
         matrix,
     };
     assertEvaluatedInjective(layout);
@@ -1104,6 +1110,15 @@ function trimOutputBitCounts(matrix: number[][], outputBitCounts: number[]): num
         rowOffset += bitCount;
         return used;
     });
+}
+
+function trimMatrixRows(matrix: number[][], currentBitCounts: number[], nextBitCounts: number[]): number[][] {
+    const currentOffsets = offsets(currentBitCounts);
+    // keep only the still-live rows for each axis so matrix row layout stays aligned
+    // with nextBitCounts; otherwise later axes read stale rows from trimmed-away bits
+    return nextBitCounts.flatMap((bitCount, axis) => (
+        Array.from({ length: bitCount }, (_entry, bit) => matrix[currentOffsets[axis]! + bit]!.slice())
+    ));
 }
 
 function bitLength(value: number): number {
