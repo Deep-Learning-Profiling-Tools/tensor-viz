@@ -12,6 +12,7 @@
     "docs": "npm run docs:ts && npm run docs:py",
     "docs:py": "python -m sphinx -b html docs docs/_build/html",
     "docs:ts": "typedoc --options typedoc.json",
+    "sync:linear-layout-examples": "python tools/sync-linear-layout-examples.py",
     "test": "npm run test --workspace @tensor-viz/viewer-core && npm run test --workspace @tensor-viz/viewer-demo && PYTHONPATH=python/src python -m unittest discover -s python/tests -p 'test_*.py'"
   },
   "devDependencies": {
