@@ -48,7 +48,7 @@ export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): V
         displayMode: overrides.displayMode ?? '2d',
         heatmap: overrides.heatmap ?? true,
         dimensionBlockGapMultiple: overrides.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
-        displayGaps: overrides.displayGaps ?? true,
+        displayGaps: overrides.displayGaps ?? false,
         logScale: overrides.logScale ?? false,
         collapseHiddenAxes: overrides.collapseHiddenAxes ?? overrides.showSlicesInSamePlace ?? false,
         dimensionMappingScheme: overrides.dimensionMappingScheme ?? 'z-order',

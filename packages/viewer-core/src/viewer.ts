@@ -156,7 +156,7 @@ export class TensorViewer {
         interactionMode: 'pan',
         heatmap: true,
         dimensionBlockGapMultiple: DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
-        displayGaps: true,
+        displayGaps: false,
         logScale: false,
         collapseHiddenAxes: false,
         dimensionMappingScheme: 'z-order',
@@ -2066,7 +2066,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.clearSelection(false);
         this.state.heatmap = snapshot.heatmap;
         this.state.dimensionBlockGapMultiple = snapshot.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
-        this.state.displayGaps = snapshot.displayGaps ?? true;
+        this.state.displayGaps = snapshot.displayGaps ?? false;
         this.state.logScale = snapshot.logScale ?? false;
         this.state.collapseHiddenAxes = snapshot.collapseHiddenAxes ?? snapshot.showSlicesInSamePlace ?? false;
         this.state.dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
@@ -2875,7 +2875,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
         this.resetLoadedState();
         this.state.dimensionBlockGapMultiple = manifest.viewer.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
-        this.state.displayGaps = manifest.viewer.displayGaps ?? true;
+        this.state.displayGaps = manifest.viewer.displayGaps ?? false;
         this.state.collapseHiddenAxes = manifest.viewer.collapseHiddenAxes ?? manifest.viewer.showSlicesInSamePlace ?? false;
         this.state.dimensionMappingScheme = manifest.viewer.dimensionMappingScheme ?? 'z-order';
         manifest.tensors.forEach((entry) => {

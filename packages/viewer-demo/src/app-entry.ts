@@ -893,7 +893,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             label: 'Block Gaps',
             description: 'Toggle spacing inside higher-level tensor blocks so grouped dimensions appear either separated or packed.',
             shortcut: 'Ctrl+G',
-            active: snapshot.displayGaps ?? true,
+            active: snapshot.displayGaps ?? false,
             content: iconGaps(),
             onClick: () => viewer.toggleDisplayGaps(),
         },
@@ -1548,7 +1548,7 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
 
 function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
-    const displayGaps = snapshot.displayGaps ?? true;
+    const displayGaps = snapshot.displayGaps ?? false;
     const logScale = snapshot.logScale ?? false;
     const collapseHiddenAxes = snapshot.collapseHiddenAxes ?? snapshot.showSlicesInSamePlace ?? false;
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
