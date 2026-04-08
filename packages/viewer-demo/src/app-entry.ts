@@ -1263,6 +1263,8 @@ function parseTensorViewExpressionInput(
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
+    const tab = activeTab();
+    const linearLayoutMeta = tab && isLinearLayoutTab(tab) ? composeLayoutMetaForTab(tab) : null;
     if (!model.handle) {
         tensorViewWidget.innerHTML = `${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
@@ -1279,7 +1281,8 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             ? `<span class="dim-chip dim-chip-singleton">1</span>`
             : `<button class="dim-chip interactive-chip${token.sliced ? ' dim-chip-sliced dim-chip-active' : ''}" data-slice-token="${token.key}" type="button">${token.token}<span>=${token.size}</span></button>`
     )).join('');
-    const defaultLabeledShape = model.handle.shape.map((size, index) => `${model.handle!.axisLabels[index] ?? `A${index}`}=${size}`).join(', ');
+    const originalAxisLabels = linearLayoutMeta?.tensors.find((tensor) => tensor.id === model.handle!.id)?.axisLabels ?? model.handle.axisLabels;
+    const defaultLabeledShape = model.handle.shape.map((size, index) => `${originalAxisLabels[index] ?? `A${index}`}=${size}`).join(', ');
     tensorViewWidget.innerHTML = `
       ${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}
       <div class="widget-body">
@@ -1289,7 +1292,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         </div>
         <div class="permute-slice-step">
           ${labelWithInfo('Tensor View', 'Edit the full tensor expression directly. Standard view, permute, and non-none indexing semantics apply.', 'tensor-view-input')}
-          ${tensorViewHelpHtml(model.handle.shape, model.handle.axisLabels).replace('<details class="usage-guide">', `<details class="usage-guide"${tensorViewHelpOpen ? ' open' : ''}>`)}
+          ${tensorViewHelpHtml(model.handle.shape, originalAxisLabels).replace('<details class="usage-guide">', `<details class="usage-guide"${tensorViewHelpOpen ? ' open' : ''}>`)}
           <textarea id="tensor-view-input" rows="3" placeholder="tensor">${model.preview}</textarea>
         </div>
         <div class="permute-slice-step">

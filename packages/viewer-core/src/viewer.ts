@@ -2053,7 +2053,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     }
 
     private assignTensorView(tensor: TensorRecord, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
-        const parsed = parseTensorView(tensor.shape, spec, hiddenIndices ?? tensor.view.hiddenIndices, tensor.view.axisLabels);
+        const parsed = parseTensorView(tensor.shape, spec, hiddenIndices ?? tensor.view.hiddenIndices, tensor.axisLabels);
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         tensor.view = parsed.spec;
         return {
@@ -2143,7 +2143,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             name: tensor.name,
             rank: tensor.shape.length,
             shape: tensor.shape,
-            axisLabels: tensor.view.axisLabels,
+            axisLabels: tensor.axisLabels,
             dtype: tensor.dtype,
             hasData: tensor.hasData,
             valueRange: tensor.valueRange,
@@ -2208,6 +2208,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             id,
             name: options.name ?? `Tensor ${this.tensors.size + 1}`,
             shape: normalizedShape,
+            axisLabels: parsed.spec.axisLabels.slice(),
             dtype,
             data: null,
             hasData: false,

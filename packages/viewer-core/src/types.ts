@@ -242,6 +242,7 @@ export type TensorRecord = {
     id: string;
     name: string;
     shape: number[];
+    axisLabels: string[];
     dtype: DType;
     data: NumericArray | null;
     hasData: boolean;
