@@ -1,5 +1,5 @@
 import { escapeInfo, labelWithInfo } from './app-format.js';
-import { bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument } from './linear-layout.js';
+import { autoColorLayoutState, bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument } from './linear-layout.js';
 import {
     cloneLinearLayoutCellTextState,
     cloneLinearLayoutState,
@@ -163,6 +163,19 @@ export async function applyLinearLayoutSpec(
     options: { replaceTabs?: boolean; silent?: boolean; preserveTensorViews?: boolean } = {},
 ): Promise<boolean> {
     try {
+        const activeTab = activeLinearLayoutTab(ctx);
+        const activeMeta = activeTab ? composeLayoutMetaForTab(activeTab) : null;
+        const layoutChanged = !activeMeta
+            || activeMeta.specsText !== ctx.state.linearLayoutState.specsText
+            || activeMeta.operationText !== ctx.state.linearLayoutState.operationText;
+        if (layoutChanged) {
+            const autoColor = autoColorLayoutState(
+                ctx.state.linearLayoutState.specsText,
+                ctx.state.linearLayoutState.operationText,
+            );
+            ctx.state.linearLayoutState.mapping = autoColor.mapping;
+            ctx.state.linearLayoutState.ranges = autoColor.ranges;
+        }
         refreshLinearLayoutMatrixPreview(ctx);
         const document = createComposeLayoutDocument(
             ctx.state.linearLayoutState,
