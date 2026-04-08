@@ -1,5 +1,5 @@
 import { DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE } from './layout.js';
-import { defaultTensorView } from './view.js';
+import { defaultTensorViewEditor } from './view.js';
 import type {
     BundleManifest,
     ColorInstruction,
@@ -69,7 +69,7 @@ export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): V
 
 function tensorView(shape: number[], axisLabels: string[] | undefined, view?: TensorViewSnapshot): TensorViewSnapshot {
     return {
-        view: view?.view ?? defaultTensorView(shape, axisLabels),
+        editor: view?.editor ?? defaultTensorViewEditor(shape, axisLabels),
         hiddenIndices: view?.hiddenIndices ?? [],
     };
 }

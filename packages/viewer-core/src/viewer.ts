@@ -38,8 +38,7 @@ import {
 } from './layout.js';
 import {
     buildTensorViewExpression,
-    buildPreviewExpression,
-    defaultTensorView,
+    defaultTensorViewEditor,
     layoutAxisLabels,
     layoutCoordIsVisible,
     layoutShape,
@@ -1828,7 +1827,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         tensor.view = parsed.spec;
         return {
-            view: tensor.view.canonical,
+            editor: tensor.view.editor,
             hiddenIndices: tensor.view.hiddenIndices.slice(),
         };
     }
@@ -1869,7 +1868,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
             const tensor = this.tensors.get(entry.id);
             if (!tensor) return;
             if (entry.offset) tensor.offset = entry.offset;
-            this.assignTensorView(tensor, entry.view.view ?? entry.view.visible ?? '', entry.view.hiddenIndices);
+            this.assignTensorView(tensor, serializeTensorViewEditor(entry.view.editor), entry.view.hiddenIndices);
         });
 
         if (!this.state.activeTensorId || !this.tensors.has(this.state.activeTensorId)) {
@@ -1970,9 +1969,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         const normalizedShape = shape.map((dim) => Math.max(1, Math.floor(dim)));
         const parsed = parseTensorView(
             normalizedShape,
-            defaultTensorView(normalizedShape, options.axisLabels),
-            undefined,
-            options.axisLabels,
+            serializeTensorViewEditor(defaultTensorViewEditor(normalizedShape, options.axisLabels)),
         );
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         const id = options.id ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tensor-${this.tensorCounter += 1}`);
@@ -2059,7 +2056,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
                 name: tensor.name,
                 offset: tensor.offset,
                 view: {
-                    view: tensor.view.canonical,
+                    editor: tensor.view.editor,
                     hiddenIndices: tensor.view.hiddenIndices.slice(),
                 },
             })),
@@ -2417,7 +2414,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
     public getTensorView(tensorId: string): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         return {
-            view: tensor.view.canonical,
+            editor: tensor.view.editor,
             hiddenIndices: tensor.view.hiddenIndices.slice(),
         };
     }
@@ -2662,7 +2659,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, 0.7 * selected);`,
         const clamped = Math.max(0, Math.min(sliceToken.size - 1, Math.floor(value)));
         if (sliceToken.value === clamped) {
             return {
-                view: tensor.view.canonical,
+                editor: tensor.view.editor,
                 hiddenIndices: tensor.view.hiddenIndices.slice(),
             };
         }

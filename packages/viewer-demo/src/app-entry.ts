@@ -59,12 +59,6 @@ let resizingSidebar = false;
 let commandPaletteOpen = false;
 let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
-let permuteDragDimId: string | null = null;
-let permuteDropSlot: number | null = null;
-let permuteDragPointerId: number | null = null;
-let permuteSwapDimId: string | null = null;
-let permuteDragStartX = 0;
-let permuteDragMoved = false;
 
 const MIN_VIEWPORT_WIDTH = 280;
 
@@ -831,237 +825,14 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     syncSidebarDragState();
 }
 
-type EditorDisplayToken = {
-    key: string;
-    kind: 'axis_group' | 'singleton';
-    label: string;
-    size: number;
-    dimIds: string[];
-    sliced: boolean;
-    value: number;
-};
-
-function editorGroups(editor: TensorViewEditor): EditorDisplayToken[] {
-    const dimById = new Map(editor.baseDims.map((dim) => [dim.id, dim]));
-    const groups: EditorDisplayToken[] = [];
-    let current: typeof editor.baseDims = [];
-    editor.permutedDimIds.forEach((dimId, index) => {
-        const dim = dimById.get(dimId);
-        if (!dim) return;
-        current.push(dim);
-        const split = editor.flattenSeparators[index] ?? true;
-        if (!split) return;
-        const dimIds = current.map((entry) => entry.id);
-        const key = `group:${dimIds.join('+')}`;
-        groups.push({
-            key,
-            kind: 'axis_group',
-            label: current.map((entry) => entry.label).join(''),
-            size: product(current.map((entry) => entry.size)),
-            dimIds,
-            sliced: editor.slicedTokenKeys.includes(key),
-            value: editor.sliceValues[key] ?? 0,
-        });
-        current = [];
-    });
-    if (current.length !== 0) {
-        const dimIds = current.map((entry) => entry.id);
-        const key = `group:${dimIds.join('+')}`;
-        groups.push({
-            key,
-            kind: 'axis_group',
-            label: current.map((entry) => entry.label).join(''),
-            size: product(current.map((entry) => entry.size)),
-            dimIds,
-            sliced: editor.slicedTokenKeys.includes(key),
-            value: editor.sliceValues[key] ?? 0,
-        });
-    }
-    return groups;
-}
-
-function editorStep3Tokens(editor: TensorViewEditor): EditorDisplayToken[] {
-    const groups = editorGroups(editor);
-    const tokens: EditorDisplayToken[] = groups.slice();
-    editor.singletons
-        .slice()
-        .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
-        .forEach((singleton) => {
-            tokens.splice(Math.max(0, Math.min(tokens.length, singleton.position)), 0, {
-                key: `singleton:${singleton.id}`,
-                kind: 'singleton',
-                label: '1',
-                size: 1,
-                dimIds: [],
-                sliced: editor.slicedTokenKeys.includes(`singleton:${singleton.id}`),
-                value: editor.sliceValues[`singleton:${singleton.id}`] ?? 0,
-            });
-        });
-    return tokens;
-}
-
 function applyTensorViewEditor(tensorId: string, editor: TensorViewEditor): void {
     try {
-        logUi('tensor-view:apply:start', {
-            tensorId,
-            viewTensorInput: editor.viewTensorInput,
-            baseDims: editor.baseDims,
-            permutedDimIds: editor.permutedDimIds,
-            flattenSeparators: editor.flattenSeparators,
-            slicedTokenKeys: editor.slicedTokenKeys,
-            sliceValues: editor.sliceValues,
-        });
         viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
-        const nextModel = viewer.getInspectorModel();
-        logUi('tensor-view:apply:result', {
-            tensorId,
-            canonicalView: nextModel.viewInput,
-            preview: nextModel.preview,
-            viewEditor: nextModel.viewEditor,
-            sliceTokens: nextModel.sliceTokens,
-        });
         viewErrors.delete(tensorId);
     } catch (error) {
-        logUi('tensor-view:apply:error', {
-            tensorId,
-            error: error instanceof Error ? error.message : String(error),
-            editor,
-        });
         viewErrors.set(tensorId, error instanceof Error ? error.message : String(error));
     }
     render(viewer.getSnapshot());
-}
-
-function tensorViewStepGuideHtml(title: string, sections: string[]): string {
-    return `
-      <details class="usage-guide">
-        <summary>${title}</summary>
-        <div class="usage-guide-body">${sections.join('')}</div>
-      </details>
-    `;
-}
-
-function tensorViewStepGuides(editor: TensorViewEditor, preview: string): {
-    view: string;
-    permute: string;
-    flatten: string;
-    singleton: string;
-    slice: string;
-} {
-    const dims = editor.baseDims;
-    const current = editor.viewTensorInput;
-    const currentSizes = `[${dims.map((dim) => String(dim.size)).join(', ')}]`;
-    const currentPreview = preview || 'tensor';
-    const inferred = `[${dims.map((dim, index) => index === dims.length - 1 ? '-1' : String(dim.size)).join(', ')}]`;
-    const merged = dims.length < 2
-        ? currentSizes
-        : `[${product(dims.slice(0, 2).map((dim) => dim.size))}${dims.slice(2).map((dim) => `, ${dim.size}`).join('')}]`;
-    const wrongProduct = `[${dims.map((dim, index) => String(dim.size + (index === 0 ? 1 : 0))).join(', ')}]`;
-    const permutedLabels = editor.permutedDimIds
-        .map((dimId) => editor.baseDims.find((dim) => dim.id === dimId))
-        .filter((dim): dim is TensorViewEditor['baseDims'][number] => dim !== undefined);
-    const permuteOrder = permutedLabels.map((dim) => dim.label).join(', ');
-    const permuteMoved = permutedLabels.length < 2
-        ? permuteOrder || 'A'
-        : [permutedLabels[permutedLabels.length - 1]!, ...permutedLabels.slice(0, -1)].map((dim) => dim.label).join(', ');
-    const flattenBefore = permutedLabels.map((dim) => `${dim.label}=${dim.size}`).join(', ');
-    const flattenAfter = permutedLabels.length < 2
-        ? flattenBefore
-        : [`${permutedLabels[0]!.label}${permutedLabels[1]!.label}=${permutedLabels[0]!.size * permutedLabels[1]!.size}`, ...permutedLabels.slice(2).map((dim) => `${dim.label}=${dim.size}`)].join(', ');
-    const singletonAfter = dims.length === 0
-        ? '[1]'
-        : `[${dims[0]!.label}=${dims[0]!.size}, 1${dims.slice(1).map((dim) => `, ${dim.label}=${dim.size}`).join('')}]`;
-    const sliceTarget = permutedLabels[1] ?? permutedLabels[0] ?? dims[0];
-    const sliceExample = sliceTarget ? `${sliceTarget.label.toLowerCase()} fixed by slider` : 'first visible dimension fixed by slider';
-    return {
-        view: tensorViewStepGuideHtml('How do I use this?', [
-            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Define the logical dimensions that every later step will permute, flatten, expand, or slice. If this step is wrong, every later preview string is built on the wrong shape.</span></div>`,
-            `<div class="usage-guide-step"><strong>Accepted input forms</strong><span>Use bracketed, comma-separated entries. If names are confusing, you can enter just sizes such as <code>[2, 3, 4]</code>, <code>[6, 4]</code>, or <code>[2, 3, -1]</code>. A bare number becomes an anonymous internal label, so the UI still has something to permute and slice later.</span></div>`,
-            `<div class="usage-guide-step"><strong>Inference and validation</strong><span>You may use <code>-1</code> once to infer one size from the tensor element count. Labels must be unique. The final product must equal the original tensor element count. Inputs that change the product or repeat labels are rejected.</span></div>`,
-            `<div class="usage-guide-columns">
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Valid examples</div>
-                <div class="usage-guide-example"><code>${currentSizes}</code><span>The current logical shape written without dimension names.</span></div>
-                <div class="usage-guide-example"><code>${inferred}</code><span>Uses one inferred size while preserving the total product.</span></div>
-                <div class="usage-guide-example"><code>${merged}</code><span>Collapses adjacent dimensions into one explicit logical dimension before any permutation.</span></div>
-              </div>
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Invalid examples</div>
-                <div class="usage-guide-example"><code>${wrongProduct}</code><span>Changes the total element count, so the view no longer matches the tensor.</span></div>
-                <div class="usage-guide-example"><code>[${dims.map(() => '-1').join(', ')}]</code><span>Uses <code>-1</code> more than once, so the missing sizes are underdetermined.</span></div>
-                <div class="usage-guide-example"><code>[${dims.map((_dim, index) => index === 0 ? '0' : '1').join(', ')}]</code><span>Collapses the product instead of preserving it, so it cannot describe the original tensor.</span></div>
-              </div>
-            </div>`,
-        ]),
-        permute: tensorViewStepGuideHtml('How do I use this?', [
-            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Change axis order without changing axis sizes. This is the step that changes which logical dimension becomes the leftmost, topmost, or deepest visible axis in the preview.</span></div>`,
-            `<div class="usage-guide-step"><strong>Ways to reorder</strong><span>Drag a box left or right to insert it at a new position. Or click one axis, then click another to swap them. Clicking the already selected axis cancels the pending swap. With only one dimension visible here, permutation is a no-op.</span></div>`,
-            `<div class="usage-guide-step"><strong>What to expect in the preview</strong><span>If the order matches the underlying logical tensor, the preview omits <code>.permute(...)</code>. As soon as you move dimensions into a different order, the preview adds a <code>.permute(...)</code> term.</span></div>`,
-            `<div class="usage-guide-columns">
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Current order</div>
-                <div class="usage-guide-example"><code>${permuteOrder || 'A'}</code><span>Current logical order after the View Tensor step.</span></div>
-                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before another permutation edit.</span></div>
-              </div>
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Example reorder</div>
-                <div class="usage-guide-example"><code>${permuteMoved}</code><span>Example order after dragging the last dimension to the front.</span></div>
-                <div class="usage-guide-example"><code>click ${permutedLabels[0]?.label ?? 'A'} then ${permutedLabels[1]?.label ?? permutedLabels[0]?.label ?? 'A'}</code><span>Swaps two axes directly instead of dragging.</span></div>
-              </div>
-            </div>`,
-        ]),
-        flatten: tensorViewStepGuideHtml('How do I use this?', [
-            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Merge adjacent dimensions into one grouped axis after they are already in the order you want. Flattening changes the <code>.view(...)</code> part of the preview, not the <code>.permute(...)</code> part.</span></div>`,
-            `<div class="usage-guide-step"><strong>Separator rules</strong><span>A comma keeps two adjacent dimensions separate. A multiply joins them into one grouped dimension. Flatten only works on adjacent dimensions in the current permuted order, so permute first if the pair you want is not adjacent yet.</span></div>`,
-            `<div class="usage-guide-step"><strong>What cases matter</strong><span>Leaving every separator as a comma preserves one axis per logical dimension. Turning one separator into a multiply creates one grouped axis. Turning several separators into multiplies creates larger grouped axes.</span></div>`,
-            `<div class="usage-guide-columns">
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Before flatten</div>
-                <div class="usage-guide-example"><code>${flattenBefore || 'A=1'}</code><span>Every dimension is still separate.</span></div>
-                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before toggling a separator.</span></div>
-              </div>
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">After flatten</div>
-                <div class="usage-guide-example"><code>${flattenAfter || 'A=1'}</code><span>Example result after flattening the first adjacent pair.</span></div>
-                <div class="usage-guide-example"><code>comma keeps axes separate, multiply groups them</code><span>Use comma when you still need those axes to be permuted or sliced independently later.</span></div>
-              </div>
-            </div>`,
-        ]),
-        singleton: tensorViewStepGuideHtml('How do I use this?', [
-            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Insert explicit size-1 axes when you want the preview shape to match a broadcasted, expanded, or layout-sensitive form. Singletons do not change the element count.</span></div>`,
-            `<div class="usage-guide-step"><strong>Where insertion matters</strong><span>Insert before the first axis to create a leading batch-like dimension, between axes to separate two existing dimensions, or at the end to create a trailing singleton. The insertion position changes the preview shape and the later slice positions.</span></div>`,
-            `<div class="usage-guide-step"><strong>What cases to watch</strong><span>You can insert multiple singletons. They can stay visible as <code>1</code> axes, or later be sliced away. Removing a singleton deletes only that size-1 axis.</span></div>`,
-            `<div class="usage-guide-columns">
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Current shape</div>
-                <div class="usage-guide-example"><code>${current}</code><span>Current logical dimensions before inserting a singleton.</span></div>
-                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before insertion.</span></div>
-              </div>
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Example insertions</div>
-                <div class="usage-guide-example"><code>${singletonAfter}</code><span>Example result after inserting one singleton after the first dimension.</span></div>
-                <div class="usage-guide-example"><code>insert at start / middle / end</code><span>Use the position that makes the preview shape line up with the broadcasted form you need.</span></div>
-              </div>
-            </div>`,
-        ]),
-        slice: tensorViewStepGuideHtml('How do I use this?', [
-            `<div class="usage-guide-step"><strong>What this step is for</strong><span>Hide one visible dimension from the layout and replace it with a slider-controlled fixed index. This changes the final bracketed slice term in the preview.</span></div>`,
-            `<div class="usage-guide-step"><strong>How slicing behaves</strong><span>Click a dimension to toggle it into a slice. The visible layout loses that axis, and a slider appears below. Click the same dimension again to restore it as a visible axis. Multiple dimensions can be sliced at the same time.</span></div>`,
-            `<div class="usage-guide-step"><strong>What cases matter</strong><span>Slicing a grouped axis fixes one flattened index, not each original sub-axis separately. If you need finer control, keep axes separate in Flatten Dims before slicing. Singleton slices are always fixed at <code>0</code>.</span></div>`,
-            `<div class="usage-guide-columns">
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">Current state</div>
-                <div class="usage-guide-example"><code>${currentPreview}</code><span>Current preview before toggling another slice.</span></div>
-                <div class="usage-guide-example"><code>${sliceTarget?.label ?? 'A'}</code><span>Example dimension to slice next.</span></div>
-              </div>
-              <div class="usage-guide-column">
-                <div class="usage-guide-subtitle">After slicing</div>
-                <div class="usage-guide-example"><code>${sliceExample}</code><span>The chosen axis disappears from the visible layout and becomes slider-controlled.</span></div>
-                <div class="usage-guide-example"><code>slice grouped axes only when one flattened index is enough</code><span>If you need separate control of the original component axes, undo the flatten first.</span></div>
-              </div>
-            </div>`,
-        ]),
-    };
 }
 
 function tensorCallInputValue(value: string): string {
@@ -1231,16 +1002,6 @@ function parseTensorViewExpressionInput(
         slicedTokenKeys,
         sliceValues,
     };
-}
-
-function permuteDropSlotFor(clientX: number): number | null {
-    const boxes = Array.from(tensorViewWidget.querySelectorAll<HTMLElement>('[data-permute-dim]'));
-    if (boxes.length === 0) return null;
-    for (let index = 0; index < boxes.length; index += 1) {
-        const rect = boxes[index]!.getBoundingClientRect();
-        if (clientX <= rect.left + rect.width / 2) return index;
-    }
-    return boxes.length;
 }
 
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {

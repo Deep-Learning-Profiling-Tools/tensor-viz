@@ -2,7 +2,6 @@ import type {
     SliceToken,
     TensorViewEditor,
     TensorViewEditorDim,
-    TensorViewEditorSingleton,
     TensorViewSpec,
     ViewParseResult,
     ViewToken,
@@ -67,21 +66,6 @@ export function normalizeShape(shape: number[]): number[] {
     return shape.map((dim) => {
         const value = Number(dim);
         return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
-    });
-}
-
-/** Build the default canonical view string by exposing every tensor axis in order. */
-export function defaultTensorView(shape: number[], axisLabelsInput?: readonly string[]): string {
-    const normalizedShape = normalizeShape(shape);
-    const axisLabels = parseAxisLabels(normalizedShape, axisLabelsInput);
-    if (!axisLabels.ok) throw new Error(axisLabels.errors.join(' '));
-    return axisLabels.axisLabels.join(' ');
-}
-
-function clampHiddenIndices(shape: number[], hiddenIndices?: number[]): number[] {
-    return normalizeShape(shape).map((dim, axis) => {
-        const value = Math.round(Number(hiddenIndices?.[axis] ?? 0));
-        return Math.min(dim - 1, Math.max(0, Number.isFinite(value) ? value : 0));
     });
 }
 
@@ -441,19 +425,6 @@ function normalizeEditor(
             position: Math.max(0, Math.min(maxPosition, Math.floor(singleton.position))),
         }))
         .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
-    if (baseDimIdChanged || droppedPermutedDimIds.length !== 0) {
-        console.warn('[tensor-viz:view:normalize-editor]', {
-            tensorShape,
-            axisLabels,
-            viewTensorInput: editor.viewTensorInput,
-            incomingBaseDims: editor.baseDims,
-            parsedBaseDims: parsed.baseDims,
-            normalizedBaseDims: baseDims,
-            incomingPermutedDimIds: editor.permutedDimIds,
-            droppedPermutedDimIds,
-            normalizedPermutedDimIds: permutedDimIds,
-        });
-    }
     return {
         ok: true,
         editor: {
@@ -484,36 +455,12 @@ function defaultEditor(shape: number[], axisLabels: string[]): TensorViewEditor 
     };
 }
 
-function editorFromLegacySpec(spec: Omit<TensorViewSpec, 'baseDims' | 'baseShape' | 'baseIsTensorAxes' | 'editor'>): TensorViewEditor {
-    const baseDims = defaultEditorDims(spec.tensorShape, spec.axisLabels);
-    const permutedDimIds = spec.tokens
-        .filter((token) => token.kind === 'axis_group')
-        .flatMap((token) => token.axes.map((axis) => baseDims[axis]!.id));
-    const flattenSeparators = permutedDimIds.slice(0, -1).map((_dimId, index) => {
-        const left = permutedDimIds[index]!;
-        const right = permutedDimIds[index + 1]!;
-        return !spec.tokens.some((token) => token.kind === 'axis_group'
-            && token.axes.length > 1
-            && token.axes.some((axis) => baseDims[axis]!.id === left)
-            && token.axes.some((axis) => baseDims[axis]!.id === right));
-    });
-    const singletons: TensorViewEditorSingleton[] = [];
-    spec.tokens.forEach((token, index) => {
-        if (token.kind === 'singleton') {
-            singletons.push({ id: `singleton-${index}`, position: index });
-            return;
-        }
-    });
-    return {
-        version: 2,
-        viewTensorInput: formatViewTensorInput(baseDims),
-        baseDims,
-        permutedDimIds,
-        flattenSeparators,
-        singletons,
-        slicedTokenKeys: spec.sliceTokens.map((token) => editorTokenKey(token.axes.map((axis) => baseDims[axis]!.id))),
-        sliceValues: Object.fromEntries(spec.sliceTokens.map((token) => [editorTokenKey(token.axes.map((axis) => baseDims[axis]!.id)), token.value])),
-    };
+/** Build the default structured tensor-view editor for one tensor shape. */
+export function defaultTensorViewEditor(shape: number[], axisLabelsInput?: readonly string[]): TensorViewEditor {
+    const normalizedShape = normalizeShape(shape);
+    const axisLabels = parseAxisLabels(normalizedShape, axisLabelsInput);
+    if (!axisLabels.ok) throw new Error(axisLabels.errors.join(' '));
+    return defaultEditor(normalizedShape, axisLabels.axisLabels);
 }
 
 export function serializeTensorViewEditor(editor: TensorViewEditor): string {
@@ -665,54 +612,6 @@ export function supportsContiguousSelectionFastPath2D(spec: TensorViewSpec, coll
     return xVisibleAxes.every((axis, index) => axis === firstXAxis + index);
 }
 
-/** Build a readable summary of the permute, view, and slice implied by one view string. */
-export function buildPreviewExpression(spec: TensorViewSpec): string {
-    const explicitFinalView = spec.editor.finalViewInput?.trim();
-    const viewAxes = explicitFinalView
-        ? spec.permutedBaseIndices.slice()
-        : spec.tokens
-            .filter((token) => token.kind === 'axis_group')
-            .flatMap((token) => token.axes);
-    let expr = 'tensor';
-    const baseTerms = spec.baseShape.map(String);
-    const defaultTerms = normalizeShape(spec.tensorShape).map(String);
-    if (baseTerms.join(',') !== defaultTerms.join(',')) {
-        expr += `.view(${baseTerms.join(', ')})`;
-    }
-    const isIdentity = viewAxes.length === spec.baseShape.length
-        && viewAxes.every((axis, index) => axis === index);
-    if (!isIdentity) expr += `.permute(${viewAxes.join(', ')})`;
-
-    // pure permutations already describe the final layout; adding reshape here
-    // only duplicates the same sizes in permuted order and makes previews noisy
-    // for inputs like A C B where no flattening or singleton insertion happened
-    const needsReshape = explicitFinalView
-        ? spec.layoutShape.join(',') !== spec.permutedBaseShape.join(',')
-        : spec.tokens.some((token) => token.kind === 'singleton' || token.axes.length !== 1);
-    const reshapeTerms = spec.tokens.map((token) => {
-        if (token.kind === 'singleton') return '1';
-        if (token.axes.length === 1) return `${spec.baseShape[token.axes[0]]}`;
-        return token.axes.length === 0 ? `${token.size}` : token.axes.map((axis) => `${spec.baseShape[axis]}`).join('*');
-    });
-    if (needsReshape && reshapeTerms.join(',') !== baseTerms.join(',')) {
-        expr += `.view(${reshapeTerms.join(', ')})`;
-    }
-
-    const sliceTokens = new Map(spec.sliceTokens.map((token) => [token.key, token.value]));
-    const sliceTerms = spec.tokens.map((token) => {
-        if (token.visible) return ':';
-        if (token.kind === 'singleton') return '0';
-        return String(sliceTokens.get(token.key) ?? 0);
-    });
-    let hasHiddenAxis = false;
-    spec.tokens.forEach((token) => {
-        if (token.visible) return;
-        hasHiddenAxis = true;
-    });
-    if (hasHiddenAxis) expr += `[${sliceTerms.join(', ')}]`;
-    return expr;
-}
-
 export function buildTensorViewExpression(spec: TensorViewSpec): string {
     const viewInput = spec.editor.viewTensorInput.trim().replace(/^\[/, '').replace(/\]$/, '');
     const finalViewInput = spec.editor.finalViewInput?.trim().replace(/^\[/, '').replace(/\]$/, '') ?? '';
@@ -733,13 +632,16 @@ export function buildTensorViewExpression(spec: TensorViewSpec): string {
 export function parseTensorView(
     shapeInput: number[],
     input: string,
-    hiddenIndices?: number[],
+    _hiddenIndices?: number[],
     axisLabelsInput?: readonly string[],
 ): ViewParseResult {
     const shape = normalizeShape(shapeInput);
     const axisLabelsResult = parseAxisLabels(shape, axisLabelsInput);
     if (!axisLabelsResult.ok) return axisLabelsResult;
     const axisLabels = axisLabelsResult.axisLabels;
+    if (input.trim() === '') {
+        return { ok: true, spec: buildEditorSpec(shape, axisLabels, defaultEditor(shape, axisLabels)) };
+    }
     if (input.startsWith(TENSOR_VIEW_EDITOR_PREFIX)) {
         try {
             const editor = JSON.parse(decodeURIComponent(input.slice(TENSOR_VIEW_EDITOR_PREFIX.length))) as TensorViewEditor;
@@ -750,111 +652,5 @@ export function parseTensorView(
             return { ok: false, errors: ['Tensor view editor state is invalid.'] };
         }
     }
-    const text = input.trim().replace(/\s+/g, ' ');
-    const normalizedHiddenIndices = clampHiddenIndices(shape, hiddenIndices);
-    if (text === '') {
-        return parseTensorView(shape, defaultTensorView(shape, axisLabels), normalizedHiddenIndices, axisLabels);
-    }
-
-    const labelEntries = axisLabels
-        .map((label, axis) => ({ axis, label, lower: label.toLowerCase() }))
-        .sort((left, right) => right.label.length - left.label.length);
-    const seenAxes = new Set<number>();
-    const tokens: ViewToken[] = [];
-    const errors: string[] = [];
-
-    for (const rawToken of text.split(' ')) {
-        if (rawToken === '1') {
-            tokens.push({ kind: 'singleton', key: `singleton-${tokens.length}`, visible: true, label: '1', axes: [], size: 1 });
-            continue;
-        }
-
-        const lower = rawToken.toLowerCase();
-        const axes: number[] = [];
-        let visible: boolean | null = null;
-        let cursor = 0;
-        while (cursor < lower.length) {
-            const match = labelEntries.find((entry) => lower.startsWith(entry.lower, cursor));
-            if (!match) {
-                errors.push(`Token "${rawToken}" could not be parsed against tensor axes.`);
-                break;
-            }
-            const segment = rawToken.slice(cursor, cursor + match.lower.length);
-            const segmentVisible = segment === match.label;
-            const segmentHidden = segment === match.lower;
-            if (!segmentVisible && !segmentHidden) {
-                errors.push(`Token "${rawToken}" could not be parsed against tensor axes.`);
-                break;
-            }
-            if (visible === null) visible = segmentVisible;
-            else if (visible !== segmentVisible) {
-                errors.push(`Grouped token "${rawToken}" must be all upper or all lower case.`);
-                break;
-            }
-            if (seenAxes.has(match.axis)) {
-                errors.push(`Axis ${match.label} appears more than once.`);
-                break;
-            }
-            seenAxes.add(match.axis);
-            axes.push(match.axis);
-            cursor += match.lower.length;
-        }
-
-        if (axes.length === 0) continue;
-        if (axes.some((axis) => !Number.isInteger(axis))) continue;
-        tokens.push({
-            kind: 'axis_group',
-            key: `group:${axes.join('+')}`,
-            visible: visible ?? true,
-            label: axes.map((axis) => axisLabels[axis]).join(''),
-            axes,
-            size: product(axes.map((axis) => shape[axis])),
-        });
-    }
-
-    axisLabels.forEach((label, axis) => {
-        if (!seenAxes.has(axis)) errors.push(`Axis ${label} is missing from the view string.`);
-    });
-    if (errors.length > 0) return { ok: false, errors };
-
-    const sliceTokens: SliceToken[] = tokens
-        .filter((token) => token.kind === 'axis_group' && !token.visible)
-        .map((token) => ({
-            token: token.label.toLowerCase(),
-            key: token.key,
-            axes: token.axes,
-            size: token.size,
-            value: flattenAxesIndex(token.axes, normalizedHiddenIndices, shape),
-        }));
-
-    const legacySpec = {
-        input,
-        canonical: tokens.map((token) => {
-            if (token.kind === 'singleton') return '1';
-            return token.visible ? token.label : token.label.toLowerCase();
-        }).join(' '),
-        axisLabels,
-        tensorShape: shape,
-        baseDims: defaultEditorDims(shape, axisLabels),
-        baseShape: shape.slice(),
-        permutedBaseShape: tokens
-            .filter((token): token is ViewToken & { kind: 'axis_group' } => token.kind === 'axis_group')
-            .flatMap((token) => token.axes.map((axis) => shape[axis]!)),
-        permutedBaseIndices: tokens
-            .filter((token): token is ViewToken & { kind: 'axis_group' } => token.kind === 'axis_group')
-            .flatMap((token) => token.axes),
-        baseIsTensorAxes: true,
-        tokens,
-        viewAxes: tokens
-            .filter((token) => token.kind === 'axis_group' && token.visible)
-            .flatMap((token) => token.axes),
-        sliceAxes: sliceTokens.flatMap((token) => token.axes),
-        hiddenIndices: normalizedHiddenIndices,
-        sliceTokens,
-        viewShape: tokens.filter((token) => token.visible).map((token) => token.size),
-        layoutShape: tokens.map((token) => token.size),
-        editor: defaultEditor(shape, axisLabels),
-    } satisfies TensorViewSpec;
-    legacySpec.editor = editorFromLegacySpec(legacySpec);
-    return { ok: true, spec: legacySpec };
+    return { ok: false, errors: ['Tensor view state must be serialized editor data.'] };
 }

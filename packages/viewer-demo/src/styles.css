@@ -641,41 +641,6 @@ select {
     text-transform: uppercase;
 }
 
-.dim-chip-draggable {
-    position: relative;
-    cursor: grab;
-}
-
-.dim-chip-permute {
-    display: inline-grid;
-    gap: 0.12rem;
-    justify-items: start;
-    min-width: 3.25rem;
-    text-transform: none;
-    letter-spacing: normal;
-}
-
-.permute-dim-chip-index {
-    color: #0f172a;
-    font-size: 0.88rem;
-    font-weight: 700;
-    line-height: 1.1;
-}
-
-.permute-dim-chip-meta {
-    color: #64748b;
-    font-size: 0.68rem;
-    font-weight: 600;
-    line-height: 1.15;
-}
-
-.dim-chip-ghost {
-    border-style: dashed;
-    border-color: rgba(37, 99, 235, 0.55);
-    background: #eff6ff;
-    color: #1d4ed8;
-}
-
 .dim-chip-sliced {
     opacity: 0.72;
 }

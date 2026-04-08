@@ -46,11 +46,10 @@ export type TensorStatus = TensorHandle & {
 /** Reason the viewer is asking the host to hydrate a metadata-only tensor. */
 export type TensorDataRequestReason = 'explicit' | 'heatmap' | 'save';
 
-/** Persisted tensor-view string plus sliced indices for one tensor. */
+/** Persisted tensor-view state for one tensor. */
 export type TensorViewSnapshot = {
-    view: string;
+    editor: TensorViewEditor;
     hiddenIndices: number[];
-    visible?: string;
 };
 
 /** One logical dimension in the staged tensor-view editor. */
