@@ -15,6 +15,7 @@ import {
 import { applyLinearLayoutCellText, preservedLinearLayoutTensorViews } from './linear-layout-viewer-sync.js';
 
 const LINEAR_LAYOUT_CHANNELS: LinearLayoutChannel[] = ['H', 'S', 'L'];
+const VISIBLE_TENSORS_ERROR = 'At least one tensor in the render chain must stay visible.';
 
 export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
     const labels = linearLayoutRootLabels(ctx);
@@ -51,8 +52,9 @@ export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
 }
 
 export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
+    const showLocalStatus = ctx.state.linearLayoutNotice?.text !== VISIBLE_TENSORS_ERROR;
     const statusClass = ctx.state.linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
-    const status = ctx.state.linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(ctx.state.linearLayoutNotice.text)}</div>` : '';
+    const status = showLocalStatus && ctx.state.linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(ctx.state.linearLayoutNotice.text)}</div>` : '';
     const matrixBlock = !ctx.state.showLinearLayoutMatrix
         ? ''
         : `<div class="mono-block linear-layout-matrix-preview">${ctx.state.linearLayoutMatrixPreview}</div>`;
@@ -130,6 +132,9 @@ export function renderLinearLayoutVisibleTensorsWidget(ctx: LinearLayoutUiContex
         return;
     }
     ctx.linearLayoutVisibleTensorsWidget.classList.remove('hidden');
+    const status = ctx.state.linearLayoutNotice?.text === VISIBLE_TENSORS_ERROR
+        ? `<div class="error-box">${escapeInfo(ctx.state.linearLayoutNotice.text)}</div>`
+        : '';
     ctx.linearLayoutVisibleTensorsWidget.innerHTML = `
       ${ctx.widgetTitle('linear-layout-visible-tensors', 'Toggle which tensors in the render chain stay visible for the current tab.')}
       <div class="widget-body">
@@ -141,6 +146,7 @@ export function renderLinearLayoutVisibleTensorsWidget(ctx: LinearLayoutUiContex
             </label>
           `).join('')}
         </div>
+        ${status}
       </div>
     `;
     meta.tensors.forEach((tensor) => {
