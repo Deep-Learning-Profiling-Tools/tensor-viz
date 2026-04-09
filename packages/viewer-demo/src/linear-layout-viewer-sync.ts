@@ -1,15 +1,19 @@
 import {
     coordFromKey,
     coordKey,
-    parseTensorView,
-    serializeTensorViewEditor,
-    visibleTensorCoords,
     type LoadedBundleDocument,
     type SelectionCoords,
     type TensorViewer,
 } from '@tensor-viz/viewer-core';
 import {
-    composeLayoutMetaForTab,
+    applyLinearLayoutDisplay,
+    coordsForRootIndexes,
+    displayedRootIndexForCoord,
+    linearLayoutDisplayModel,
+    linearLayoutSelectionMapForMeta,
+    rootIndexesForCoords,
+} from './linear-layout-multi-input.js';
+import {
     isLinearLayoutTab,
     snapshotTensorViews,
     type InspectorCoordEntry,
@@ -31,28 +35,8 @@ export function preservedLinearLayoutTensorViews(
 export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = ctx.state.linearLayoutSelectionMaps.get(tab.id);
     if (cached) return cached;
-    const meta = composeLayoutMetaForTab(tab);
-    if (!meta || meta.tensors.length === 0) return null;
-    const rootInputShape = meta.rootInputBitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
-    const rootKeys = meta.tensors[0]!.rootToTensor.map((coord) => coordKey(coord));
-    const loadedTensorIds = new Set(tab.manifest.tensors.map((tensor) => tensor.id));
-    const tensors = new Map<string, LinearLayoutSelectionMap['tensors'] extends Map<string, infer T> ? T : never>();
-    meta.tensors.forEach((tensorMeta) => {
-        if (!loadedTensorIds.has(tensorMeta.id)) return;
-        const rootToTensorKeys = tensorMeta.rootToTensor.map((coord) => coordKey(coord));
-        const tensorToRoot = new Map<string, string>();
-        rootToTensorKeys.forEach((tensorKey, rootIndex) => {
-            tensorToRoot.set(tensorKey, rootKeys[rootIndex]!);
-        });
-        tensors.set(tensorMeta.id, { meta: tensorMeta, rootToTensorKeys, tensorToRoot });
-    });
-    const map = {
-        rootInputLabels: meta.rootInputLabels.slice(),
-        rootInputShape,
-        rootKeyToIndex: new Map(rootKeys.map((key, index) => [key, index])),
-        tensors,
-        orderedTensorIds: meta.tensors.map((tensor) => tensor.id).filter((id) => tensors.has(id)),
-    };
+    const map = linearLayoutSelectionMapForMeta(tab);
+    if (!map) return null;
     ctx.state.linearLayoutSelectionMaps.set(tab.id, map);
     return map;
 }
@@ -73,10 +57,9 @@ export function inspectorCoordEntries(
             hovered: true,
         }];
     }
-    const rootKey = linearLayout.tensors.get(hover.tensorId)?.tensorToRoot.get(coordKey(hover.tensorCoord));
-    if (!rootKey) return [];
-    const rootIndex = linearLayout.rootKeyToIndex.get(rootKey);
-    if (rootIndex === undefined) return [];
+    const display = linearLayoutDisplayModel(_ctx, linearLayout);
+    const rootIndex = displayedRootIndexForCoord(display, linearLayout, hover.tensorId, hover.tensorCoord);
+    if (rootIndex === null) return [];
     return linearLayout.orderedTensorIds.map((tensorId) => {
         const entry = linearLayout.tensors.get(tensorId)!;
         return {
@@ -111,22 +94,8 @@ export function syncLinearLayoutViewFilters(ctx: LinearLayoutUiContext): void {
     if (!tab || !isLinearLayoutTab(tab)) return;
     const mapping = linearLayoutSelectionMapForTab(ctx, tab);
     if (!mapping) return;
-    let allowedRootKeys: Set<string> | null = null;
-    mapping.orderedTensorIds.forEach((tensorId) => {
-        const coords = slicedTensorCoords(ctx, tensorId);
-        if (!coords) return;
-        const tensor = mapping.tensors.get(tensorId)!;
-        const rootKeys = rootKeysForCoords(coords, tensor);
-        allowedRootKeys = allowedRootKeys
-            ? new Set(Array.from(allowedRootKeys).filter((key) => rootKeys.has(key)))
-            : rootKeys;
-    });
-    mapping.orderedTensorIds.forEach((tensorId) => {
-        ctx.viewer.setTensorVisibleCoords(
-            tensorId,
-            allowedRootKeys ? coordsForRootKeys(allowedRootKeys, mapping, tensorId) : null,
-        );
-    });
+    applyLinearLayoutDisplay(ctx);
+    applyLinearLayoutCellText(ctx);
 }
 
 export function syncLinearLayoutSelection(ctx: LinearLayoutUiContext, selection: SelectionCoords): void {
@@ -155,22 +124,6 @@ export function syncLinearLayoutSelectionPreview(ctx: LinearLayoutUiContext, sel
 function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleDocument | null {
     const tab = ctx.getActiveTab();
     return tab && isLinearLayoutTab(tab) ? tab : null;
-}
-
-function rootKeysForCoords(coords: number[][], tensor: { tensorToRoot: Map<string, string> }): Set<string> {
-    return new Set(coords.flatMap((coord) => {
-        const rootKey = tensor.tensorToRoot.get(coordKey(coord));
-        return rootKey ? [rootKey] : [];
-    }));
-}
-
-function coordsForRootKeys(rootKeys: Set<string>, mapping: LinearLayoutSelectionMap, tensorId: string): number[][] {
-    const tensor = mapping.tensors.get(tensorId);
-    if (!tensor || rootKeys.size === 0) return [];
-    return Array.from(rootKeys, (rootKey) => {
-        const rootIndex = mapping.rootKeyToIndex.get(rootKey);
-        return rootIndex === undefined ? null : coordFromKey(tensor.rootToTensorKeys[rootIndex]!);
-    }).filter((coord): coord is number[] => coord !== null);
 }
 
 function selectionKeys(coords: number[][]): Set<string> {
@@ -207,13 +160,13 @@ function mappedSelectionFromSource(
 ): SelectionCoords {
     const sourceTensorId = selectionSourceTensorId(ctx, selection, mapping);
     if (!sourceTensorId) return new Map();
-    const sourceTensor = mapping.tensors.get(sourceTensorId);
     const sourceCoords = selection.get(sourceTensorId) ?? [];
-    if (!sourceTensor || sourceCoords.length === 0) return new Map();
-    const rootKeys = rootKeysForCoords(sourceCoords, sourceTensor);
+    if (sourceCoords.length === 0) return new Map();
+    const display = linearLayoutDisplayModel(ctx, mapping);
+    const rootIndexes = rootIndexesForCoords(mapping, sourceTensorId, sourceCoords);
     const nextSelection = new Map<string, number[][]>();
     mapping.orderedTensorIds.forEach((tensorId) => {
-        const coords = coordsForRootKeys(rootKeys, mapping, tensorId);
+        const coords = coordsForRootIndexes(mapping, tensorId, rootIndexes, display.sliceRootIndexes);
         if (coords.length) nextSelection.set(tensorId, coords);
     });
     return nextSelection;
@@ -236,28 +189,17 @@ function linearLayoutCellLabelsForTab(
 ): Array<{ tensorId: string; labels: Array<{ coord: number[]; text: string }> }> | null {
     const mapping = linearLayoutSelectionMapForTab(ctx, tab);
     if (!mapping || !mapping.rootInputLabels.some((label) => state[label])) return null;
+    const display = linearLayoutDisplayModel(ctx, mapping);
     return mapping.orderedTensorIds.map((tensorId) => {
         const tensor = mapping.tensors.get(tensorId)!;
-        const labels = tensor.rootToTensorKeys.map((tensorKey) => {
-            const rootKey = tensor.tensorToRoot.get(tensorKey);
-            if (!rootKey) return null;
+        const labels = tensor.cellRootIndexes.map((roots, flat) => {
+            const rootIndex = display.displayedRootIndexByTensor.get(tensorId)?.[flat] ?? roots[0] ?? null;
+            if (rootIndex === null) return null;
             return {
-                coord: coordFromKey(tensorKey),
-                text: linearLayoutCellTextForCoord(coordFromKey(rootKey), mapping.rootInputLabels, state),
+                coord: coordFromKey(tensor.rootToTensorKeys[rootIndex] ?? ''),
+                text: linearLayoutCellTextForCoord(coordFromKey(mapping.rootKeys[rootIndex] ?? ''), mapping.rootInputLabels, state),
             };
         }).filter((entry): entry is { coord: number[]; text: string } => entry !== null);
         return { tensorId, labels };
     });
-}
-
-function slicedTensorCoords(ctx: LinearLayoutUiContext, tensorId: string): number[][] | null {
-    const status = ctx.viewer.getTensorStatus(tensorId);
-    const snapshot = ctx.viewer.getTensorView(tensorId);
-    const parsed = parseTensorView(
-        status.shape.slice(),
-        serializeTensorViewEditor(snapshot.editor),
-        snapshot.hiddenIndices,
-        status.axisLabels,
-    );
-    return !parsed.ok || parsed.spec.sliceTokens.length === 0 ? null : visibleTensorCoords(parsed.spec);
 }

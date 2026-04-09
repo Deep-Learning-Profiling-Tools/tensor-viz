@@ -2,9 +2,11 @@ import { escapeInfo, labelWithInfo } from './app-format.js';
 import { autoColorLayoutState, bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument } from './linear-layout.js';
 import {
     cloneLinearLayoutCellTextState,
+    cloneLinearLayoutMultiInputState,
     cloneLinearLayoutState,
     composeLayoutMetaForTab,
     defaultLinearLayoutCellTextState,
+    defaultLinearLayoutMultiInputState,
     isLinearLayoutTab,
     refreshLinearLayoutMatrixPreview,
     snapshotTensorViews,
@@ -375,12 +377,14 @@ export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Pro
     if (examples.length === 0) return false;
     ctx.state.linearLayoutStates.clear();
     ctx.state.linearLayoutCellTextStates.clear();
+    ctx.state.linearLayoutMultiInputStates.clear();
     ctx.state.linearLayoutTensorViewsStates.clear();
     ctx.setSessionTabs(examples.map(({ state, title }, index) => {
         const document = createComposeLayoutDocument(state, undefined, title);
         const id = `tab-${index + 1}`;
         ctx.state.linearLayoutStates.set(id, cloneLinearLayoutState(state));
         ctx.state.linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState());
+        ctx.state.linearLayoutMultiInputStates.set(id, defaultLinearLayoutMultiInputState());
         ctx.state.linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
         return { ...document, id, title };
     }));
@@ -404,6 +408,7 @@ async function upsertLinearLayoutTab(
     const nextDocument = { ...document, id: targetId, title: targetTitle };
     ctx.state.linearLayoutStates.set(targetId, cloneLinearLayoutState(ctx.state.linearLayoutState));
     ctx.state.linearLayoutCellTextStates.set(targetId, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+    ctx.state.linearLayoutMultiInputStates.set(targetId, cloneLinearLayoutMultiInputState(ctx.state.linearLayoutMultiInputState));
     ctx.state.linearLayoutSelectionMaps.delete(targetId);
     if (replaceTabs || ctx.getSessionTabs().length === 0) {
         ctx.setSessionTabs([nextDocument]);

@@ -29,15 +29,19 @@ import {
     applyLinearLayoutCellText,
     applyLinearLayoutSpec,
     cloneLinearLayoutCellTextState,
+    cloneLinearLayoutMultiInputState,
     cloneLinearLayoutState,
     cloneLinearLayoutTensorViewsState,
     composeLayoutMetaForTab,
     defaultLinearLayoutCellTextState,
+    defaultLinearLayoutMultiInputState,
     emptyLinearLayoutState,
     inspectorCoordEntries,
     isLinearLayoutCellTextState,
+    isLinearLayoutMultiInputState,
     isLinearLayoutState,
     isLinearLayoutTab,
+    linearLayoutMultiInputModel,
     linearLayoutSelectionMapForTab,
     loadBakedLinearLayoutTabs,
     loadLinearLayoutState,
@@ -46,6 +50,7 @@ import {
     renderLinearLayoutWidget,
     snapshotTensorViews,
     syncLinearLayoutCellTextState,
+    syncLinearLayoutMultiInputState,
     syncLinearLayoutSelection,
     syncLinearLayoutSelectionPreview,
     syncLinearLayoutState,
@@ -53,6 +58,7 @@ import {
     type InspectorCoordEntry,
     type LinearLayoutCellTextState,
     type LinearLayoutFormState,
+    type LinearLayoutMultiInputState,
     type LinearLayoutNotice,
     type LinearLayoutSelectionMap,
     type LinearLayoutTensorViewsState,
@@ -108,6 +114,7 @@ let commandPaletteOpen = false;
 let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 let appliedStartupWidgetDefaults = false;
+let lastLinearLayoutActiveTensorId: string | null = null;
 
 const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
@@ -126,6 +133,8 @@ const linearLayoutUiState: LinearLayoutUiState = {
     linearLayoutStates: new Map<string, LinearLayoutFormState>(),
     linearLayoutCellTextState: defaultLinearLayoutCellTextState(),
     linearLayoutCellTextStates: new Map<string, LinearLayoutCellTextState>(),
+    linearLayoutMultiInputState: defaultLinearLayoutMultiInputState(),
+    linearLayoutMultiInputStates: new Map<string, LinearLayoutMultiInputState>(),
     linearLayoutTensorViewsStates: new Map<string, LinearLayoutTensorViewsState>(),
     linearLayoutSelectionMaps: new Map<string, LinearLayoutSelectionMap>(),
     linearLayoutNotice: null,
@@ -591,17 +600,21 @@ function captureActiveTabSnapshot(): void {
         composeLayoutMeta?: ComposeLayoutMeta;
         composeLayoutState?: LinearLayoutFormState;
         linearLayoutCellTextState?: LinearLayoutCellTextState;
+        linearLayoutMultiInputState?: LinearLayoutMultiInputState;
         composeLayoutTensorViews?: LinearLayoutTensorViewsState;
     };
     if (isLinearLayoutTab(tab)) {
         const cloned = cloneLinearLayoutState(linearLayoutUiState.linearLayoutState);
         const clonedCellText = cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState);
+        const clonedMultiInput = cloneLinearLayoutMultiInputState(linearLayoutUiState.linearLayoutMultiInputState);
         const tensorViews = preservedLinearLayoutTensorViews(linearLayoutUi, tab.id);
         linearLayoutUiState.linearLayoutStates.set(tab.id, cloned);
         linearLayoutUiState.linearLayoutCellTextStates.set(tab.id, clonedCellText);
+        linearLayoutUiState.linearLayoutMultiInputStates.set(tab.id, clonedMultiInput);
         linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, tensorViews);
         snapshot.composeLayoutState = cloned;
         snapshot.linearLayoutCellTextState = clonedCellText;
+        snapshot.linearLayoutMultiInputState = clonedMultiInput;
         snapshot.composeLayoutTensorViews = cloneLinearLayoutTensorViewsState(tensorViews);
         const composeLayoutMeta = composeLayoutMetaForTab(tab);
         if (composeLayoutMeta) snapshot.composeLayoutMeta = composeLayoutMeta;
@@ -616,6 +629,7 @@ async function closeTab(tabId: string): Promise<void> {
     if (wasActive) captureActiveTabSnapshot();
     linearLayoutUiState.linearLayoutStates.delete(tabId);
     linearLayoutUiState.linearLayoutCellTextStates.delete(tabId);
+    linearLayoutUiState.linearLayoutMultiInputStates.delete(tabId);
     linearLayoutUiState.linearLayoutTensorViewsStates.delete(tabId);
     linearLayoutUiState.linearLayoutSelectionMaps.delete(tabId);
     sessionTabs.splice(index, 1);
@@ -692,8 +706,10 @@ async function addNewTab(): Promise<void> {
         linearLayoutUiState.linearLayoutState = emptyLinearLayoutState();
         const document = createComposeLayoutDocument(linearLayoutUiState.linearLayoutState, viewer.getSnapshot(), title);
         linearLayoutUiState.linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+        linearLayoutUiState.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
         linearLayoutUiState.linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutUiState.linearLayoutState));
         linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState));
+        linearLayoutUiState.linearLayoutMultiInputStates.set(id, cloneLinearLayoutMultiInputState(linearLayoutUiState.linearLayoutMultiInputState));
         linearLayoutUiState.linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
         sessionTabs = [{ ...document, id, title }];
         await loadTab(id);
@@ -708,6 +724,10 @@ async function addNewTab(): Promise<void> {
     const currentCellTextState = linearLayoutUiState.linearLayoutCellTextStates.get(currentTab.id);
     if (currentCellTextState) {
         linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(currentCellTextState));
+    }
+    const currentMultiInputState = linearLayoutUiState.linearLayoutMultiInputStates.get(currentTab.id);
+    if (currentMultiInputState) {
+        linearLayoutUiState.linearLayoutMultiInputStates.set(id, cloneLinearLayoutMultiInputState(currentMultiInputState));
     }
     const currentTensorViewsState = linearLayoutUiState.linearLayoutTensorViewsStates.get(currentTab.id);
     if (currentTensorViewsState) {
@@ -969,6 +989,7 @@ async function loadTab(tabId: string): Promise<void> {
     renderTabStrip();
     syncLinearLayoutState(linearLayoutUi, tab);
     syncLinearLayoutCellTextState(linearLayoutUi, tab);
+    syncLinearLayoutMultiInputState(linearLayoutUi, tab);
     renderLinearLayoutWidget(linearLayoutUi);
     renderCellTextWidget(linearLayoutUi);
     syncLinearLayoutViewFilters(linearLayoutUi);
@@ -1289,6 +1310,8 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const error = viewErrors.get(model.handle.id);
     const editor = model.viewEditor;
     if (!editor) return;
+    const selectionMap = tab && isLinearLayoutTab(tab) ? linearLayoutSelectionMapForTab(linearLayoutUi, tab) : null;
+    const multiInput = selectionMap ? linearLayoutMultiInputModel(linearLayoutUi, selectionMap) : null;
     const tensorOptions = model.tensors.map((tensor) => `
       <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.name || tensor.id}</option>
     `).join('');
@@ -1316,7 +1339,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           <div class="dim-chip-row dim-chip-row-compact" id="slice-dims">${sliceContent}</div>
         </div>
         ${error ? `<div class="error-box">${error}</div>` : ''}
-        ${model.sliceTokens.length === 0 ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
+        ${model.sliceTokens.length === 0 && !multiInput ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
         <div class="permute-slice-actions">
           <button class="reset-view-button interactive-chip" id="reset-view-button" type="button" title="Change tensor view to default view (original shape + dimension labels + no permutations)">Reset View</button>
         </div>
@@ -1376,7 +1399,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         });
     });
 
-    sliceHost?.replaceChildren(...model.sliceTokens.map((token) => {
+    const sliderRows = model.sliceTokens.map((token) => {
         const row = document.createElement('div');
         row.className = 'slider-row';
         const sliderId = `slice-${token.key.replace(/[^a-z0-9_-]/gi, '-')}`;
@@ -1421,7 +1444,48 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             render(viewer.getSnapshot());
         });
         return row;
-    }));
+    });
+    if (multiInput) {
+        const row = document.createElement('div');
+        row.className = 'slider-row';
+        row.innerHTML = `
+          <label for="multi-input-slider">Multi-Input</label>
+          <input id="multi-input-slider" type="range" min="-1" max="${Math.max(0, multiInput.size - 1)}" value="${multiInput.value}" />
+          <input id="multi-input-slider-number" type="number" min="-1" max="${Math.max(0, multiInput.size - 1)}" value="${multiInput.value}" />
+        `;
+        const slider = row.querySelector<HTMLInputElement>('#multi-input-slider');
+        const number = row.querySelector<HTMLInputElement>('#multi-input-slider-number');
+        const applyValue = (nextValue: number): void => {
+            linearLayoutUiState.linearLayoutMultiInputState[multiInput.focusedTensorId] = nextValue;
+            const activeTabId = linearLayoutUi.getActiveTabId();
+            if (activeTabId) {
+                linearLayoutUiState.linearLayoutMultiInputStates.set(activeTabId, cloneLinearLayoutMultiInputState(linearLayoutUiState.linearLayoutMultiInputState));
+            }
+            syncLinearLayoutViewFilters(linearLayoutUi);
+        };
+        slider?.addEventListener('pointerdown', () => {
+            suspendTensorViewRender = true;
+        });
+        slider?.addEventListener('input', () => {
+            if (!number || !slider) return;
+            number.value = slider.value;
+            applyValue(Number(slider.value));
+        });
+        slider?.addEventListener('change', () => {
+            suspendTensorViewRender = false;
+            render(viewer.getSnapshot());
+        });
+        number?.addEventListener('change', () => {
+            const clamped = Math.max(-1, Math.min(multiInput.size - 1, Number(number.value)));
+            number.value = String(clamped);
+            if (slider) slider.value = String(clamped);
+            applyValue(clamped);
+            suspendTensorViewRender = false;
+            render(viewer.getSnapshot());
+        });
+        sliderRows.push(row);
+    }
+    sliceHost?.replaceChildren(...sliderRows);
 }
 
 function renderInspectorWidget(snapshot: ViewerSnapshot): void {
@@ -1625,6 +1689,15 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 
 function render(snapshot: ViewerSnapshot): void {
     if (!switchingTab) captureActiveTabSnapshot();
+    const tab = activeTab();
+    const activeTensorId = tab && isLinearLayoutTab(tab) ? (snapshot.activeTensorId ?? null) : null;
+    if (activeTensorId !== lastLinearLayoutActiveTensorId) {
+        lastLinearLayoutActiveTensorId = activeTensorId;
+        if (activeTensorId) {
+            syncLinearLayoutViewFilters(linearLayoutUi);
+            return;
+        }
+    }
     updateSidebar(snapshot);
     renderTabStrip();
     renderCellTextWidget(linearLayoutUi);
@@ -1656,6 +1729,7 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     const storedComposeState = (tab.viewer as { composeLayoutState?: unknown }).composeLayoutState;
     const storedTensorViews = (tab.viewer as { composeLayoutTensorViews?: unknown }).composeLayoutTensorViews;
     const composeMeta = (tab.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
+    const storedMultiInputState = (tab.viewer as { linearLayoutMultiInputState?: unknown }).linearLayoutMultiInputState;
     if (legacySpec) {
         const state = isLinearLayoutState(storedComposeState)
             ? cloneLinearLayoutState(storedComposeState)
@@ -1669,6 +1743,9 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
             linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
         } else {
             linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(document.manifest.viewer));
+        }
+        if (isLinearLayoutMultiInputState(storedMultiInputState)) {
+            linearLayoutUiState.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(storedMultiInputState));
         }
         return {
             ...document,
@@ -1697,6 +1774,9 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     if (isLinearLayout && isLinearLayoutCellTextState(storedCellTextState)) {
         linearLayoutUiState.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(storedCellTextState));
     }
+    if (isLinearLayout && isLinearLayoutMultiInputState(storedMultiInputState)) {
+        linearLayoutUiState.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(storedMultiInputState));
+    }
     return {
         id: tab.id,
         title: tab.title,
@@ -1716,6 +1796,7 @@ async function tryLoadSession(): Promise<boolean> {
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
     const initialMapping = manifest.tabs[0]?.viewer.dimensionMappingScheme;
     if (initialMapping) viewer.setDimensionMappingScheme(initialMapping);
+    linearLayoutUiState.linearLayoutMultiInputStates.clear();
     linearLayoutUiState.linearLayoutSelectionMaps.clear();
     sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));
     activeTabId = null;
@@ -1729,6 +1810,7 @@ function seedDemoTensor(): void {
     activeTabId = null;
     linearLayoutUiState.linearLayoutStates.clear();
     linearLayoutUiState.linearLayoutCellTextStates.clear();
+    linearLayoutUiState.linearLayoutMultiInputStates.clear();
     linearLayoutUiState.linearLayoutTensorViewsStates.clear();
     linearLayoutUiState.linearLayoutSelectionMaps.clear();
     const shape = [4, 4, 4];
@@ -1744,6 +1826,7 @@ async function openLocalFile(file: File): Promise<void> {
     activeTabId = null;
     linearLayoutUiState.linearLayoutStates.clear();
     linearLayoutUiState.linearLayoutCellTextStates.clear();
+    linearLayoutUiState.linearLayoutMultiInputStates.clear();
     linearLayoutUiState.linearLayoutTensorViewsStates.clear();
     linearLayoutUiState.linearLayoutSelectionMaps.clear();
     renderTabStrip();

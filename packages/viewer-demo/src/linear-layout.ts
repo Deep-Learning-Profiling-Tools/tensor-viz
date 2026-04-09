@@ -441,25 +441,20 @@ export function createComposeLayoutDocument(
     if (visibleTensors.length === 0) {
         throw new Error('At least one tensor in the render chain must stay visible.');
     }
-    const rootLabelToAxis = new Map(runtime.inputLabels.map((label, axis) => [label, axis]));
-    const rootColors = Array.from({ length: product(runtime.inputShape) }, (_entry, rootIndex) => (
-        rgbColorForRootCoord(
-            unravelIndex(rootIndex, runtime.inputShape),
-            runtime.inputShape,
-            rootLabelToAxis,
-            state.mapping,
-            state.ranges,
-        )
-    ));
+    const rootColors = rootColorsForLayoutState(runtime.inputLabels, runtime.inputShape, state);
     const tensors = new Map<string, Float32Array>();
     const manifest = createBundleManifest({
         viewer: persistedViewerSettings(viewer),
         tensors: visibleTensors.map((tensor) => {
+            const cellRootIndexes = Array.from({ length: product(tensor.shape) }, () => [] as number[]);
+            tensor.rootToTensor.forEach((coord, rootIndex) => {
+                cellRootIndexes[flatIndex(coord, tensor.shape)]!.push(rootIndex);
+            });
             const data = new Float32Array(product(tensor.shape)).fill(-1);
             const rgb = new Float32Array(product(tensor.shape) * 3);
-            const rootToTensor = tensor.rootToTensor;
-            rootToTensor.forEach((coord, rootIndex) => {
-                const flat = flatIndex(coord, tensor.shape);
+            cellRootIndexes.forEach((rootIndexes, flat) => {
+                const rootIndex = rootIndexes[0];
+                if (rootIndex === undefined) return;
                 data[flat] = rootIndex;
                 rgb.set(rootColors[rootIndex]!, flat * 3);
             });
@@ -496,6 +491,23 @@ export function createComposeLayoutDocument(
         manifest,
         tensors,
     };
+}
+
+export function rootColorsForLayoutState(
+    inputLabels: string[],
+    inputShape: number[],
+    state: Pick<ComposeLayoutState, 'mapping' | 'ranges'>,
+): Array<[number, number, number]> {
+    const rootLabelToAxis = new Map(inputLabels.map((label, axis) => [label, axis]));
+    return Array.from({ length: product(inputShape) }, (_entry, rootIndex) => (
+        rgbColorForRootCoord(
+            unravelIndex(rootIndex, inputShape),
+            inputShape,
+            rootLabelToAxis,
+            state.mapping,
+            state.ranges,
+        )
+    ));
 }
 
 function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
@@ -539,7 +551,6 @@ function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
             outputs: signature.outputs,
             bases,
         };
-        assertInjective(spec);
         specs.push(spec);
         while (index < lines.length && !lines[index]!.trim()) index += 1;
     }
@@ -730,14 +741,10 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
         throw new Error(`${outer.exprText} expects [${outer.inputs.join(',')}] but received [${inner.outputs.join(',')}].`);
     }
     const bridgeBitCounts = inner.outputBitCounts.map((bits, axis) => Math.max(bits, outer.inputBitCounts[axis] ?? 0));
-    const rawMatrix = multiplyMatrices(
+    const matrix = multiplyMatrices(
         expandInputColumns(outer.matrix, outer.inputBitCounts, bridgeBitCounts),
         expandOutputRows(inner.matrix, inner.outputBitCounts, bridgeBitCounts),
     );
-    // trimOutputBitCounts() can shrink one axis without shrinking later row offsets.
-    // if we keep the old rows, coordFromBits() reads the wrong bits for later axes.
-    const outputBitCounts = trimOutputBitCounts(rawMatrix, outer.outputBitCounts);
-    const matrix = trimMatrixRows(rawMatrix, outer.outputBitCounts, outputBitCounts);
     const layout = {
         kind: 'apply',
         exprText,
@@ -745,10 +752,9 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
         inputs: inner.inputs.slice(),
         outputs: outer.outputs.slice(),
         inputBitCounts: inner.inputBitCounts.slice(),
-        outputBitCounts,
+        outputBitCounts: outer.outputBitCounts.slice(),
         matrix,
     };
-    assertEvaluatedInjective(layout);
     return layout;
 }
 
@@ -765,7 +771,7 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
     ));
     const rightInputBitOffsets = inputs.map((label) => left.inputBitCounts[left.inputs.indexOf(label)] ?? 0);
     const rightOutputBitOffsets = outputs.map((label) => left.outputBitCounts[left.outputs.indexOf(label)] ?? 0);
-    const rawMatrix = mergeProductMatrices(
+    const matrix = mergeProductMatrices(
         embedProductMatrix(
             left,
             inputs,
@@ -785,8 +791,6 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
             rightOutputBitOffsets,
         ),
     );
-    const trimmedOutputBitCounts = trimOutputBitCounts(rawMatrix, outputBitCounts);
-    const matrix = trimMatrixRows(rawMatrix, outputBitCounts, trimmedOutputBitCounts);
     const layout = {
         kind: 'product',
         exprText,
@@ -794,10 +798,9 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
         inputs,
         outputs,
         inputBitCounts,
-        outputBitCounts: trimmedOutputBitCounts,
+        outputBitCounts,
         matrix,
     };
-    assertEvaluatedInjective(layout);
     return layout;
 }
 
@@ -1061,22 +1064,6 @@ function gf2Rank(matrix: number[][]): number {
         rank += 1;
     }
     return rank;
-}
-
-function assertInjective(spec: NamedLayoutSpec): void {
-    const layout = namedLayout(spec);
-    if (!isInjectiveLayout(layout)) {
-        throw new Error(`${spec.name} is not injective over its full input domain.`);
-    }
-}
-
-function assertEvaluatedInjective(layout: EvaluatedLayout): void {
-    if (isInjectiveLayout(layout)) return;
-    throw new Error(`${layout.exprText} is not injective over its full input domain.`);
-}
-
-function isInjectiveLayout(layout: Pick<EvaluatedLayout, 'matrix' | 'inputBitCounts'>): boolean {
-    return gf2Rank(layout.matrix) === sum(layout.inputBitCounts);
 }
 
 function isBijective(layout: EvaluatedLayout): boolean {

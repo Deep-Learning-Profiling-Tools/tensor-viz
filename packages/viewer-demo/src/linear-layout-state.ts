@@ -29,6 +29,7 @@ export type LinearLayoutNotice = {
 };
 
 export type LinearLayoutCellTextState = Record<string, boolean>;
+export type LinearLayoutMultiInputState = Record<string, number>;
 export type LinearLayoutTensorViewsState = Record<string, TensorViewSnapshot>;
 export type LinearLayoutFormState = ComposeLayoutState;
 export type LinearLayoutChannel = 'H' | 'S' | 'L';
@@ -36,11 +37,13 @@ export type LinearLayoutChannel = 'H' | 'S' | 'L';
 export type LinearLayoutSelectionMap = {
     rootInputLabels: string[];
     rootInputShape: number[];
+    rootKeys: string[];
     rootKeyToIndex: Map<string, number>;
     tensors: Map<string, {
         meta: ComposeTensorMeta;
         rootToTensorKeys: string[];
-        tensorToRoot: Map<string, string>;
+        coordKeyToFlatIndex: Map<string, number>;
+        cellRootIndexes: number[][];
     }>;
     orderedTensorIds: string[];
 };
@@ -50,6 +53,8 @@ export type LinearLayoutUiState = {
     linearLayoutStates: Map<string, LinearLayoutFormState>;
     linearLayoutCellTextState: LinearLayoutCellTextState;
     linearLayoutCellTextStates: Map<string, LinearLayoutCellTextState>;
+    linearLayoutMultiInputState: LinearLayoutMultiInputState;
+    linearLayoutMultiInputStates: Map<string, LinearLayoutMultiInputState>;
     linearLayoutTensorViewsStates: Map<string, LinearLayoutTensorViewsState>;
     linearLayoutSelectionMaps: Map<string, LinearLayoutSelectionMap>;
     linearLayoutNotice: LinearLayoutNotice | null;
@@ -131,6 +136,19 @@ export function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState)
     return { ...state };
 }
 
+export function defaultLinearLayoutMultiInputState(): LinearLayoutMultiInputState {
+    return {};
+}
+
+export function cloneLinearLayoutMultiInputState(state: LinearLayoutMultiInputState): LinearLayoutMultiInputState {
+    return { ...state };
+}
+
+export function isLinearLayoutMultiInputState(value: unknown): value is LinearLayoutMultiInputState {
+    if (!value || typeof value !== 'object') return false;
+    return Object.values(value as Record<string, unknown>).every((entry) => Number.isInteger(entry) && Number(entry) >= -1);
+}
+
 export function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViewsState): LinearLayoutTensorViewsState {
     return Object.fromEntries(Object.entries(state).map(([tensorId, view]) => [
         tensorId,
@@ -209,6 +227,26 @@ export function syncLinearLayoutCellTextState(ctx: LinearLayoutUiContext, tab: L
     }
     ctx.state.linearLayoutCellTextState = defaultLinearLayoutCellTextState();
     ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+}
+
+export function syncLinearLayoutMultiInputState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
+    if (!isLinearLayoutTab(tab)) {
+        ctx.state.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
+        return;
+    }
+    const stored = ctx.state.linearLayoutMultiInputStates.get(tab.id);
+    if (stored) {
+        ctx.state.linearLayoutMultiInputState = cloneLinearLayoutMultiInputState(stored);
+        return;
+    }
+    const candidate = (tab.manifest.viewer as { linearLayoutMultiInputState?: unknown }).linearLayoutMultiInputState;
+    if (isLinearLayoutMultiInputState(candidate)) {
+        ctx.state.linearLayoutMultiInputState = cloneLinearLayoutMultiInputState(candidate);
+        ctx.state.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(candidate));
+        return;
+    }
+    ctx.state.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
+    ctx.state.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(ctx.state.linearLayoutMultiInputState));
 }
 
 export function refreshLinearLayoutMatrixPreview(ctx: LinearLayoutUiContext, state = ctx.state.linearLayoutState): void {
