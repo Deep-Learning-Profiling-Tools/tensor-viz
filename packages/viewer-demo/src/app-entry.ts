@@ -41,6 +41,7 @@ import {
     isLinearLayoutMultiInputState,
     isLinearLayoutState,
     isLinearLayoutTab,
+    linearLayoutHoverPopupEntries,
     linearLayoutMultiInputModel,
     linearLayoutSelectionMapForTab,
     loadBakedLinearLayoutTabs,
@@ -96,6 +97,9 @@ const {
 } = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
+const hoverPopup = document.createElement('div');
+hoverPopup.className = 'linear-layout-hover-popup hidden';
+viewport.appendChild(hoverPopup);
 const sidebar = tensorViewWidget.parentElement as HTMLElement;
 const sidebarScrollPad = document.createElement('div');
 sidebarScrollPad.className = 'sidebar-scroll-pad';
@@ -115,6 +119,7 @@ let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 let appliedStartupWidgetDefaults = false;
 let lastLinearLayoutActiveTensorId: string | null = null;
+let hoverPopupPointer = { x: 16, y: 16 };
 
 const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
@@ -1555,6 +1560,50 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.rankValue.textContent = String(hoveredStatus?.rank ?? model.handle.rank);
 }
 
+function renderLinearLayoutHoverPopup(): void {
+    const tab = activeTab();
+    const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
+    const hover = viewer.getHover();
+    const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutUi, linearLayoutTab) : null;
+    const entries = linearLayoutHoverPopupEntries(linearLayoutUi, hover, linearLayout);
+    if (entries.length === 0) {
+        hoverPopup.classList.add('hidden');
+        hoverPopup.innerHTML = '';
+        return;
+    }
+    hoverPopup.innerHTML = `
+      <div class="linear-layout-hover-popup-title">Input Cells</div>
+      <div class="linear-layout-hover-popup-list">${entries.map((entry) => `
+        <div class="linear-layout-hover-popup-item">
+          <span class="linear-layout-hover-popup-swatch" style="--cell-color: ${escapeInfo(entry.color)};"></span>
+          <span class="linear-layout-hover-popup-text">${escapeInfo(entry.text).replace(/\n/g, '<br />')}</span>
+        </div>
+      `).join('')}</div>
+    `;
+    hoverPopup.classList.remove('hidden');
+    placeHoverPopup();
+}
+
+function placeHoverPopup(): void {
+    if (hoverPopup.classList.contains('hidden')) return;
+    const rect = viewport.getBoundingClientRect();
+    const width = hoverPopup.offsetWidth;
+    const height = hoverPopup.offsetHeight;
+    const maxLeft = Math.max(12, rect.width - width - 12);
+    const maxTop = Math.max(12, rect.height - height - 12);
+    hoverPopup.style.left = `${Math.min(maxLeft, hoverPopupPointer.x + 18)}px`;
+    hoverPopup.style.top = `${Math.min(maxTop, hoverPopupPointer.y + 18)}px`;
+}
+
+function updateHoverPopupPointer(event: PointerEvent): void {
+    const rect = viewport.getBoundingClientRect();
+    hoverPopupPointer = {
+        x: Math.max(12, event.clientX - rect.left),
+        y: Math.max(12, event.clientY - rect.top),
+    };
+    placeHoverPopup();
+}
+
 function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     const selectionModeActive = (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select';
@@ -1704,6 +1753,7 @@ function render(snapshot: ViewerSnapshot): void {
     renderControlDock(snapshot);
     renderTensorViewWidget(snapshot);
     renderInspectorWidget(snapshot);
+    renderLinearLayoutHoverPopup();
     renderSelectionWidget(snapshot);
     renderAdvancedSettingsWidget(snapshot);
     renderColorbarWidget(snapshot);
@@ -2018,7 +2068,15 @@ window.addEventListener('keydown', async (event) => {
 });
 
 viewer.subscribe(render);
-viewer.subscribeHover(() => renderInspectorWidget(viewer.getSnapshot()));
+viewport.addEventListener('pointermove', updateHoverPopupPointer);
+viewport.addEventListener('pointerleave', () => {
+    hoverPopup.classList.add('hidden');
+});
+viewer.subscribeHover(() => {
+    const snapshot = viewer.getSnapshot();
+    renderInspectorWidget(snapshot);
+    renderLinearLayoutHoverPopup();
+});
 viewer.subscribeSelectionPreview((selection) => {
     syncLinearLayoutSelectionPreview(linearLayoutUi, selection);
 });

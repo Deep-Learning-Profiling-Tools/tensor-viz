@@ -772,11 +772,18 @@ export class TensorViewer {
     private canvasCellBounds(
         tensor: TensorRecord,
         layoutCoord: number[],
+        bias: readonly [number, number] = [0, 0],
     ): { left: number; right: number; top: number; bottom: number } {
         const shape = this.layoutShape(tensor.view);
         const position = displayPositionForCoord2D(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
-        const topLeft = this.projectCanvasPoint(tensor.offset[0] + position.x - 0.5, tensor.offset[1] + position.y + 0.5);
-        const bottomRight = this.projectCanvasPoint(tensor.offset[0] + position.x + 0.5, tensor.offset[1] + position.y - 0.5);
+        const topLeft = this.projectCanvasPoint(
+            tensor.offset[0] + position.x - 0.5 + (bias[0] ?? 0),
+            tensor.offset[1] + position.y + 0.5 + (bias[1] ?? 0),
+        );
+        const bottomRight = this.projectCanvasPoint(
+            tensor.offset[0] + position.x + 0.5 + (bias[0] ?? 0),
+            tensor.offset[1] + position.y - 0.5 + (bias[1] ?? 0),
+        );
         return {
             left: Math.min(topLeft.x, bottomRight.x),
             right: Math.max(topLeft.x, bottomRight.x),
@@ -1767,6 +1774,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.renderer.render(this.scene, this.camera);
         this.flatContext.setTransform(1, 0, 0, 1, 0, 0);
         this.flatContext.clearRect(0, 0, this.flatCanvas.width, this.flatCanvas.height);
+        this.draw2DGhostLayers();
+        this.draw2DLayerTips();
         this.draw2DMarkers();
         this.draw2DCellLabels();
     }
@@ -1847,6 +1856,49 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.restore();
     }
 
+    private draw2DGhostLayers(): void {
+        this.flatContext.save();
+        this.flatContext.textAlign = 'center';
+        this.flatContext.textBaseline = 'middle';
+        this.tensors.forEach((tensor) => {
+            tensor.ghostLayers?.slice().sort((left, right) => right.layer - left.layer).forEach((layer) => {
+                const bounds = this.canvasCellBounds(tensor, layer.coord, layer.bias);
+                this.flatContext.fillStyle = colorFromRgb(layer.color).getStyle();
+                this.flatContext.fillRect(
+                    bounds.left,
+                    bounds.top,
+                    Math.max(0, bounds.right - bounds.left),
+                    Math.max(0, bounds.bottom - bounds.top),
+                );
+                if (layer.text) this.draw2DCellText(tensor, layer.coord, layer.text, bounds);
+            });
+        });
+        this.flatContext.restore();
+    }
+
+    private draw2DLayerTips(): void {
+        this.flatContext.save();
+        this.tensors.forEach((tensor) => {
+            if (!tensor.ghostLayers?.length) return;
+            const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
+            const coords = new Set(tensor.ghostLayers.map((layer) => coordKey(layer.coord)));
+            coords.forEach((key) => {
+                const tensorCoord = coordFromKey(key);
+                const bounds = this.canvasCellBounds(tensor, tensorCoord);
+                const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
+                const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
+                this.flatContext.fillStyle = color.getStyle();
+                this.flatContext.fillRect(
+                    bounds.left,
+                    bounds.top,
+                    Math.max(0, bounds.right - bounds.left),
+                    Math.max(0, bounds.bottom - bounds.top),
+                );
+            });
+        });
+        this.flatContext.restore();
+    }
+
     private draw2DCellLabels(): void {
         this.flatContext.save();
         this.flatContext.textAlign = 'center';
@@ -1861,26 +1913,35 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 const text = tensor.cellLabels.get(coordKey(tensorCoord));
                 if (!text || !this.tensorCoordVisible(tensor, tensorCoord)) continue;
                 const bounds = this.canvasCellBounds(tensor, this.mapViewCoordToLayoutCoord(viewCoord, tensor.view));
-                const lines = text.split('\n').filter(Boolean);
-                if (lines.length === 0) continue;
-                const width = bounds.right - bounds.left;
-                const height = bounds.bottom - bounds.top;
-                const maxChars = Math.max(...lines.map((line) => line.length), 1);
-                const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
-                if (fontSize < MIN_VISIBLE_CELL_LABEL_FONT_SIZE) continue;
-                const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
-                const centerX = (bounds.left + bounds.right) / 2;
-                const centerY = (bounds.top + bounds.bottom) / 2;
-                const startY = centerY - ((lines.length - 1) * lineHeight) / 2;
-                this.flatContext.font = `${fontSize}px "IBM Plex Mono", "SFMono-Regular", monospace`;
-                this.flatContext.fillStyle = this.cellLabelColor(tensor, tensorCoord);
-                lines.forEach((line, lineIndex) => {
-                    const y = startY + (lineIndex * lineHeight);
-                    this.flatContext.fillText(line, centerX, y);
-                });
+                this.draw2DCellText(tensor, tensorCoord, text, bounds);
             }
         });
         this.flatContext.restore();
+    }
+
+    private draw2DCellText(
+        tensor: TensorRecord,
+        tensorCoord: number[],
+        text: string,
+        bounds: { left: number; right: number; top: number; bottom: number },
+    ): void {
+        const lines = text.split('\n').filter(Boolean);
+        if (lines.length === 0) return;
+        const width = bounds.right - bounds.left;
+        const height = bounds.bottom - bounds.top;
+        const maxChars = Math.max(...lines.map((line) => line.length), 1);
+        const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
+        if (fontSize < MIN_VISIBLE_CELL_LABEL_FONT_SIZE) return;
+        const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
+        const centerX = (bounds.left + bounds.right) / 2;
+        const centerY = (bounds.top + bounds.bottom) / 2;
+        const startY = centerY - ((lines.length - 1) * lineHeight) / 2;
+        this.flatContext.font = `${fontSize}px "IBM Plex Mono", "SFMono-Regular", monospace`;
+        this.flatContext.fillStyle = this.cellLabelColor(tensor, tensorCoord);
+        lines.forEach((line, lineIndex) => {
+            const y = startY + (lineIndex * lineHeight);
+            this.flatContext.fillText(line, centerX, y);
+        });
     }
 
     private escapeSvgText(text: string): string {
@@ -2219,6 +2280,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             markerCoords: null,
             visibleCoords: null,
             cellLabels: null,
+            ghostLayers: null,
             autoOffset: options.offset === undefined,
         };
         this.assignTensorData(tensor, data, dtype);
@@ -2770,6 +2832,24 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.requestRender();
     }
 
+    /** Draw extra 2D-only copies of tensor cells with a small positional bias. */
+    public setTensorGhostLayers(
+        tensorId: string,
+        layers: Array<{ coord: number[]; color: RGB; bias: readonly [number, number]; layer: number; text?: string | null }> | null,
+    ): void {
+        const tensor = this.requireTensor(tensorId);
+        tensor.ghostLayers = layers?.length
+            ? layers.map((layer) => ({
+                coord: layer.coord.slice(),
+                color: [...layer.color] as RGB,
+                bias: [layer.bias[0] ?? 0, layer.bias[1] ?? 0] as const,
+                layer: layer.layer,
+                text: layer.text ?? null,
+            }))
+            : null;
+        this.requestRender();
+    }
+
     /** Alias for {@link getSnapshot}. */
     public getState(): Readonly<ViewerSnapshot> {
         return this.getSnapshot();
@@ -3005,6 +3085,44 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             `<rect width="${this.flatCanvas.width}" height="${this.flatCanvas.height}" fill="#${this.scene.background instanceof Color ? this.scene.background.getHexString() : 'e5e7eb'}" />`,
         );
         this.tensors.forEach((tensor) => {
+            tensor.ghostLayers?.slice().sort((left, right) => right.layer - left.layer).forEach((layer) => {
+                const bounds = this.canvasCellBounds(tensor, layer.coord, layer.bias);
+                parts.push(
+                    `<rect x="${bounds.left}" y="${bounds.top}" width="${Math.max(0, bounds.right - bounds.left)}" height="${Math.max(0, bounds.bottom - bounds.top)}" fill="${this.svgColor(colorFromRgb(layer.color))}" />`,
+                );
+                if (!layer.text) return;
+                const lines = layer.text.split('\n').filter(Boolean);
+                if (lines.length === 0) return;
+                const width = bounds.right - bounds.left;
+                const height = bounds.bottom - bounds.top;
+                const maxChars = Math.max(...lines.map((line) => line.length), 1);
+                const fontSize = Math.floor(Math.min(72, width / Math.max(1.8, maxChars * 0.72), height / Math.max(1.6, lines.length * 1.15)));
+                if (fontSize < MIN_SVG_CELL_LABEL_FONT_SIZE) return;
+                const lineHeight = Math.max(fontSize, Math.floor(fontSize * 1.05));
+                const centerX = (bounds.left + bounds.right) / 2;
+                const centerY = (bounds.top + bounds.bottom) / 2;
+                const startY = centerY - ((lines.length - 1) * lineHeight) / 2;
+                const fill = this.cellLabelColor(tensor, layer.coord);
+                const tspans = lines.map((line, lineIndex) => (
+                    `<tspan x="${centerX}" y="${startY + (lineIndex * lineHeight)}">${this.escapeSvgText(line)}</tspan>`
+                )).join('');
+                parts.push(
+                    `<text text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Mono, SFMono-Regular, monospace" font-size="${fontSize}" fill="${fill}">${tspans}</text>`,
+                );
+            });
+            if (tensor.ghostLayers?.length) {
+                const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
+                const coords = new Set(tensor.ghostLayers.map((layer) => coordKey(layer.coord)));
+                coords.forEach((key) => {
+                    const tensorCoord = coordFromKey(key);
+                    const bounds = this.canvasCellBounds(tensor, tensorCoord);
+                    const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
+                    const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
+                    parts.push(
+                        `<rect x="${bounds.left}" y="${bounds.top}" width="${Math.max(0, bounds.right - bounds.left)}" height="${Math.max(0, bounds.bottom - bounds.top)}" fill="${this.svgColor(color)}" />`,
+                    );
+                });
+            }
             const instanceShape = this.instanceShape(tensor.view);
             const shape = this.layoutShape(tensor.view);
             const labels = this.layoutAxisLabels(tensor.view);

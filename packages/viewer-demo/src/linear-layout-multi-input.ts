@@ -14,6 +14,7 @@ export type LinearLayoutDisplayModel = {
     sliceRootIndexes: Set<number> | null;
     displayedRootIndexByTensor: Map<string, Array<number | null>>;
     visibleCoordsByTensor: Map<string, number[][]>;
+    ghostRootIndexesByTensor: Map<string, Array<{ coord: number[]; rootIndex: number; layer: number }>>;
 };
 
 export type LinearLayoutMultiInputModel = {
@@ -92,6 +93,13 @@ export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
         ctx.viewer.setTensorData(tensorId, data, 'float32');
         ctx.viewer.colorTensor(tensorId, rgb);
         ctx.viewer.setTensorVisibleCoords(tensorId, display.visibleCoordsByTensor.get(tensorId) ?? []);
+        ctx.viewer.setTensorGhostLayers(tensorId, display.ghostRootIndexesByTensor.get(tensorId)?.map((entry) => ({
+            coord: entry.coord,
+            color: rootColors[entry.rootIndex]!.map((value) => Math.round(value * 255)) as [number, number, number],
+            bias: [entry.layer * 0.18, -(entry.layer * 0.18)] as const,
+            layer: entry.layer,
+            text: linearLayoutGhostText(coordFromKey(mapping.rootKeys[entry.rootIndex] ?? ''), mapping.rootInputLabels, ctx.state.linearLayoutCellTextState),
+        })) ?? null);
     });
 }
 
@@ -108,15 +116,24 @@ export function linearLayoutDisplayModel(
     const rootIndexes = focusedRoots ?? slicedRoots ?? new Set(Array.from({ length: mapping.rootKeys.length }, (_entry, index) => index));
     const displayedRootIndexByTensor = new Map<string, Array<number | null>>();
     const visibleCoordsByTensor = new Map<string, number[][]>();
+    const ghostRootIndexesByTensor = new Map<string, Array<{ coord: number[]; rootIndex: number; layer: number }>>();
     mapping.orderedTensorIds.forEach((tensorId) => {
         const tensor = mapping.tensors.get(tensorId)!;
-        const displayed = tensor.cellRootIndexes.map((roots) => roots.find((rootIndex) => rootIndexes.has(rootIndex)) ?? null);
+        const visibleRoots = tensor.cellRootIndexes.map((roots) => roots.filter((rootIndex) => rootIndexes.has(rootIndex)));
+        const displayed = visibleRoots.map((roots) => roots[0] ?? null);
         displayedRootIndexByTensor.set(tensorId, displayed);
         visibleCoordsByTensor.set(tensorId, displayed.flatMap((rootIndex, flat) => (
             rootIndex === null ? [] : [unravelIndex(flat, tensor.meta.shape)]
         )));
+        ghostRootIndexesByTensor.set(tensorId, visibleRoots.flatMap((roots, flat) => (
+            roots.slice(1).map((rootIndex, layer) => ({
+                coord: unravelIndex(flat, tensor.meta.shape),
+                rootIndex,
+                layer: layer + 1,
+            }))
+        )));
     });
-    return { rootIndexes, sliceRootIndexes: slicedRoots, displayedRootIndexByTensor, visibleCoordsByTensor };
+    return { rootIndexes, sliceRootIndexes: slicedRoots, displayedRootIndexByTensor, visibleCoordsByTensor, ghostRootIndexesByTensor };
 }
 
 export function rootIndexesForCoords(
@@ -228,6 +245,13 @@ function unravelIndex(index: number, shape: number[]): number[] {
         remainder = Math.floor(remainder / size);
     }
     return coord;
+}
+
+function linearLayoutGhostText(coord: number[], labels: string[], state: Record<string, boolean>): string | null {
+    const text = labels
+        .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}:${coord[axis] ?? 0}`] : []))
+        .join('\n');
+    return text || null;
 }
 
 function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {

@@ -253,6 +253,13 @@ export type TensorRecord = {
     markerCoords: Set<string> | null;
     visibleCoords: Set<string> | null;
     cellLabels: Map<string, string> | null;
+    ghostLayers: Array<{
+        coord: number[];
+        color: RGB;
+        bias: readonly [number, number];
+        layer: number;
+        text: string | null;
+    }> | null;
     autoOffset: boolean;
 };
 

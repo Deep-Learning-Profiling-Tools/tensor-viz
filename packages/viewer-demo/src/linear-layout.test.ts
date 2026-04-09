@@ -13,6 +13,7 @@ import {
     linearLayoutSelectionMapForMeta,
     rootIndexesForCoords,
 } from './linear-layout-multi-input.js';
+import { linearLayoutHoverPopupEntries } from './linear-layout-viewer-sync.js';
 
 const DEFAULT_RANGES = {
     H: ['0', '0.8'],
@@ -388,6 +389,10 @@ describe('compose layout helpers', () => {
             value: -1,
         });
         expect(Array.from(linearLayoutDisplayModel(ctx, mapping).rootIndexes)).toEqual([0, 1, 2, 3]);
+        expect(linearLayoutDisplayModel(ctx, mapping).ghostRootIndexesByTensor.get('compose-step-1')).toEqual([
+            { coord: [0], rootIndex: 2, layer: 1 },
+            { coord: [1], rootIndex: 3, layer: 1 },
+        ]);
     });
 
     it('switches displayed members for a many-to-one tensor when multi-input changes', () => {
@@ -434,5 +439,35 @@ describe('compose layout helpers', () => {
 
         expect(Array.from(selectedRoots)).toEqual([0, 2]);
         expect(coordsForRootIndexes(mapping, 'compose-root', selectedRoots, null)).toEqual([[0], [2]]);
+    });
+
+    it('lists every hovered input cell with text and color for many-to-one outputs', () => {
+        const document = createComposeLayoutDocument(composeState([
+            'L: [X] -> [X]',
+            'X: [[1],[0]]',
+        ].join('\n'), 'L'));
+        const mapping = linearLayoutSelectionMapForMeta(document)!;
+        const entries = linearLayoutHoverPopupEntries({
+            state: {
+                linearLayoutCellTextState: { X: true },
+                linearLayoutState: composeState([
+                    'L: [X] -> [X]',
+                    'X: [[1],[0]]',
+                ].join('\n'), 'L'),
+            },
+        } as never, {
+            tensorId: 'compose-step-1',
+            tensorName: 'L',
+            viewCoord: [0],
+            layoutCoord: [0],
+            tensorCoord: [0],
+            value: 0,
+            colorSource: 'custom',
+        }, mapping);
+
+        expect(entries).toEqual([
+            { text: 'X:0', color: 'rgb(255 0 0)' },
+            { text: 'X:2', color: 'rgb(255 0 0)' },
+        ]);
     });
 });

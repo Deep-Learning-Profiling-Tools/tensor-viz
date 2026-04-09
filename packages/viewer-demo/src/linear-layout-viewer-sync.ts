@@ -22,6 +22,12 @@ import {
     type LinearLayoutTensorViewsState,
     type LinearLayoutUiContext,
 } from './linear-layout-state.js';
+import { rootColorsForLayoutState } from './linear-layout.js';
+
+export type LinearLayoutHoverPopupEntry = {
+    color: string;
+    text: string;
+};
 
 export function preservedLinearLayoutTensorViews(
     ctx: LinearLayoutUiContext,
@@ -86,6 +92,31 @@ export function applyLinearLayoutCellText(ctx: LinearLayoutUiContext): void {
     }
     labels.forEach(({ tensorId, labels: tensorLabels }) => {
         ctx.viewer.setTensorCellLabels(tensorId, tensorLabels);
+    });
+}
+
+export function linearLayoutHoverPopupEntries(
+    ctx: LinearLayoutUiContext,
+    hover: ReturnType<TensorViewer['getHover']>,
+    linearLayout: LinearLayoutSelectionMap | null,
+): LinearLayoutHoverPopupEntry[] {
+    if (!hover || !linearLayout) return [];
+    const tensor = linearLayout.tensors.get(hover.tensorId);
+    if (!tensor) return [];
+    const flat = tensor.coordKeyToFlatIndex.get(coordKey(hover.tensorCoord));
+    if (flat === undefined) return [];
+    const rootColors = rootColorsForLayoutState(
+        linearLayout.rootInputLabels,
+        linearLayout.rootInputShape,
+        ctx.state.linearLayoutState,
+    );
+    return (tensor.cellRootIndexes[flat] ?? []).map((rootIndex) => {
+        const coord = coordFromKey(linearLayout.rootKeys[rootIndex] ?? '');
+        return {
+            color: cssColor(rootColors[rootIndex] ?? [0, 0, 0]),
+            text: linearLayoutCellTextForCoord(coord, linearLayout.rootInputLabels, ctx.state.linearLayoutCellTextState)
+                || linearLayout.rootInputLabels.map((label, axis) => indexedAxisLabel(label, coord[axis] ?? 0)).join('\n'),
+        };
     });
 }
 
@@ -180,6 +211,10 @@ function linearLayoutCellTextForCoord(coord: number[], labels: string[], state: 
 
 function indexedAxisLabel(label: string, index: number): string {
     return `${label}:${index}`;
+}
+
+function cssColor(color: [number, number, number]): string {
+    return `rgb(${color.map((value) => Math.round(value * 255)).join(' ')})`;
 }
 
 function linearLayoutCellLabelsForTab(
