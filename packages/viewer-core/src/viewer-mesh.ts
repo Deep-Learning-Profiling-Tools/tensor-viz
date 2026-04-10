@@ -2,6 +2,7 @@ import {
     BufferGeometry,
     Box3,
     BoxGeometry,
+    Color,
     EdgesGeometry,
     Group,
     InstancedBufferAttribute,
@@ -21,6 +22,8 @@ import { BASE_COLOR, type MeshMeta } from './viewer-config.js';
 import { axisFamilyColor, createLine, createTextLabel } from './viewer-graphics.js';
 import { coordKey, numericValue, vectorFromTuple } from './viewer-utils.js';
 import type { TensorRecord, TensorViewSpec, ViewerState, Vec3 } from './types.js';
+
+const MULTI_INPUT_Z_STEP = 1.15;
 
 type MeshViewerContext = {
     cubeGeometry: BoxGeometry;
@@ -369,6 +372,28 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
     mesh.material.needsUpdate = true;
     mesh.userData.meta = { tensorId: tensor.id, instanceShape } satisfies MeshMeta;
     group.add(mesh);
+    if (viewer.state.displayMode === '3d' && tensor.ghostLayers?.length) {
+        const ghostMesh = new InstancedMesh(
+            viewer.cubeGeometry,
+            new MeshBasicMaterial({ color: 0xffffff, vertexColors: true, toneMapped: false }),
+            tensor.ghostLayers.length,
+        );
+        ghostMesh.instanceColor = new InstancedBufferAttribute(new Float32Array(tensor.ghostLayers.length * 3), 3);
+        const matrix = new Matrix4();
+        const offset = vectorFromTuple(tensor.offset);
+        tensor.ghostLayers.forEach((layer, index) => {
+            const position = displayPositionForCoord(layer.coord, shape, viewer.layoutGapMultiple(), viewer.state.dimensionMappingScheme)
+                .add(offset)
+                .add(new Vector3(0, 0, -layer.layer * MULTI_INPUT_Z_STEP));
+            matrix.makeTranslation(position.x, position.y, position.z);
+            ghostMesh.setMatrixAt(index, matrix);
+            ghostMesh.setColorAt(index, new Color(layer.color[0] / 255, layer.color[1] / 255, layer.color[2] / 255));
+        });
+        ghostMesh.instanceMatrix.needsUpdate = true;
+        if (ghostMesh.instanceColor) ghostMesh.instanceColor.needsUpdate = true;
+        ghostMesh.material.needsUpdate = true;
+        group.add(ghostMesh);
+    }
     if (viewer.state.displayMode === '2d') {
         group.add(buildOutline2D(outlineExtent2D, tensor.offset));
         const showDimensionGuides = viewer.state.showDimensionLines && labels.length > 0;

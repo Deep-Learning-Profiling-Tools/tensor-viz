@@ -963,6 +963,7 @@ textarea {
 .field input[type="text"],
 .field input[type="number"],
 .field textarea,
+.permute-slice-step textarea,
 .field select,
 .slider-row input[type="number"] {
     width: 100%;
@@ -971,7 +972,8 @@ textarea {
     background: white;
 }
 
-.field textarea {
+.field textarea,
+.permute-slice-step textarea {
     min-height: 18rem;
     resize: vertical;
     font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
@@ -979,7 +981,8 @@ textarea {
     line-height: 1.45;
 }
 
-.field textarea.compact-textarea {
+.field textarea.compact-textarea,
+.permute-slice-step textarea.compact-textarea {
     min-height: 0;
     padding: 0.45rem 0.6rem;
     line-height: 1.3;

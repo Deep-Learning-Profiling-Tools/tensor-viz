@@ -2847,7 +2847,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 text: layer.text ?? null,
             }))
             : null;
-        this.requestRender();
+        if (this.state.displayMode === '3d') this.rebuildAllMeshes();
+        else this.requestRender();
     }
 
     /** Alias for {@link getSnapshot}. */
@@ -2859,6 +2860,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     public getHover(): HoverInfo | null {
         const hover = this.state.hover ?? this.state.lastHover;
         return hover ? { ...hover } : null;
+    }
+
+    /** Return only the cell currently under the pointer, without falling back to last hover. */
+    public getLiveHover(): HoverInfo | null {
+        return this.state.hover ? { ...this.state.hover } : null;
     }
 
     /** Return the current selected coordinates grouped by tensor id. */

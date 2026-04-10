@@ -120,6 +120,9 @@ let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 let appliedStartupWidgetDefaults = false;
 let lastLinearLayoutActiveTensorId: string | null = null;
 let hoverPopupPointer = { x: 16, y: 16 };
+let activeTensorViewSliderPointerId: number | null = null;
+let pendingSidebarScrollTop: number | null = null;
+let pendingSidebarAnchor: { selector: string; top: number } | null = null;
 
 const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
@@ -1004,7 +1007,7 @@ async function loadTab(tabId: string): Promise<void> {
 
 window.addEventListener('pointerup', () => {
     resizingSidebar = false;
-    if (!suspendTensorViewRender) return;
+    if (!suspendTensorViewRender || activeTensorViewSliderPointerId !== null) return;
     suspendTensorViewRender = false;
     render(viewer.getSnapshot());
 });
@@ -1122,6 +1125,57 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     syncSidebarDragState();
 }
 
+function renderPreservingSidebarScroll(): void {
+    const previousScrollTop = sidebar.scrollTop;
+    pendingSidebarScrollTop = previousScrollTop;
+    render(viewer.getSnapshot());
+    sidebar.scrollTop = previousScrollTop;
+    requestAnimationFrame(() => {
+        if (pendingSidebarAnchor) {
+            const anchor = sidebar.querySelector<HTMLElement>(pendingSidebarAnchor.selector);
+            if (anchor) {
+                const nextTop = anchor.getBoundingClientRect().top;
+                sidebar.scrollTop += nextTop - pendingSidebarAnchor.top;
+            }
+            pendingSidebarAnchor = null;
+            pendingSidebarScrollTop = null;
+            return;
+        }
+        if (pendingSidebarScrollTop === null) return;
+        sidebar.scrollTop = pendingSidebarScrollTop;
+        pendingSidebarScrollTop = null;
+    });
+}
+
+function preserveSidebarAnchor(element: HTMLElement | null, selector: string): void {
+    if (!element) return;
+    pendingSidebarAnchor = {
+        selector,
+        top: element.getBoundingClientRect().top,
+    };
+}
+
+/** Keep compact textareas at their content height so widget fields stay visually aligned. */
+function autosizeTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = '0';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function beginTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
+    suspendTensorViewRender = true;
+    activeTensorViewSliderPointerId = pointerId;
+    slider.setPointerCapture(pointerId);
+}
+
+function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
+    if (activeTensorViewSliderPointerId !== pointerId) return;
+    activeTensorViewSliderPointerId = null;
+    suspendTensorViewRender = false;
+    if (slider.hasPointerCapture(pointerId)) slider.releasePointerCapture(pointerId);
+    preserveSidebarAnchor(slider, `#${CSS.escape(slider.id)}`);
+    renderPreservingSidebarScroll();
+}
+
 function applyTensorViewEditor(tensorId: string, editor: TensorViewEditor): void {
     try {
         viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
@@ -1130,7 +1184,7 @@ function applyTensorViewEditor(tensorId: string, editor: TensorViewEditor): void
     } catch (error) {
         viewErrors.set(tensorId, error instanceof Error ? error.message : String(error));
     }
-    render(viewer.getSnapshot());
+    renderPreservingSidebarScroll();
 }
 
 function tensorCallInputValue(value: string): string {
@@ -1337,7 +1391,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         <div class="permute-slice-step">
           ${labelWithInfo('Tensor View', 'Edit the full tensor expression directly. Standard view, permute, and non-none indexing semantics apply.', 'tensor-view-input')}
           ${tensorViewHelpHtml(model.handle.shape, originalAxisLabels).replace('<details class="usage-guide">', `<details class="usage-guide"${tensorViewHelpOpen ? ' open' : ''}>`)}
-          <textarea id="tensor-view-input" rows="3" placeholder="tensor">${model.preview}</textarea>
+          <textarea id="tensor-view-input" class="compact-textarea" rows="1" placeholder="tensor" spellcheck="false">${model.preview}</textarea>
         </div>
         <div class="permute-slice-step">
           <div class="label-row"><span class="meta-label">Slice Dims</span>${infoButton('Convenience utility for inspecting different slices. Click a dimension to toggle between showing one/all elements at a time. If showing one element of a dimension, drag its slider to change the displayed index.')}</div>
@@ -1366,6 +1420,10 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         if (event.key !== 'Enter') return;
         tensorViewInput.blur();
     });
+    if (tensorViewInput) autosizeTextarea(tensorViewInput);
+    tensorViewInput?.addEventListener('input', () => {
+        autosizeTextarea(tensorViewInput);
+    });
     tensorViewInput?.addEventListener('change', () => {
         logUi('tensor-view:change', { tensorId: model.handle!.id, value: tensorViewInput.value });
         try {
@@ -1383,6 +1441,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         button.addEventListener('click', () => {
             const key = button.dataset.sliceToken;
             if (!key) return;
+            preserveSidebarAnchor(button, `[data-slice-token="${CSS.escape(key)}"]`);
             const sliced = editor.slicedTokenKeys.includes(key);
             applyTensorViewEditor(model.handle!.id, {
                 ...editor,
@@ -1417,7 +1476,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
         const syncTensorViewInput = (): void => {
             const tensorViewInput = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
-            if (tensorViewInput) tensorViewInput.value = viewer.getInspectorModel().preview;
+            if (!tensorViewInput) return;
+            tensorViewInput.value = viewer.getInspectorModel().preview;
+            autosizeTextarea(tensorViewInput);
         };
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
@@ -1428,17 +1489,19 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             syncTensorViewInput();
             requestAnimationFrame(syncTensorViewInput);
         };
-        slider?.addEventListener('pointerdown', () => {
-            suspendTensorViewRender = true;
+        slider?.addEventListener('pointerdown', (event) => {
+            beginTensorViewSliderDrag(slider, event.pointerId);
         });
         slider?.addEventListener('input', () => {
             if (!number || !slider) return;
             number.value = slider.value;
             applyValue(Number(slider.value));
         });
-        slider?.addEventListener('change', () => {
-            suspendTensorViewRender = false;
-            render(viewer.getSnapshot());
+        slider?.addEventListener('pointerup', (event) => {
+            endTensorViewSliderDrag(slider, event.pointerId);
+        });
+        slider?.addEventListener('pointercancel', (event) => {
+            endTensorViewSliderDrag(slider, event.pointerId);
         });
         number?.addEventListener('change', () => {
             const clamped = Math.max(0, Math.min(token.size - 1, Number(number.value)));
@@ -1468,17 +1531,19 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             }
             syncLinearLayoutViewFilters(linearLayoutUi);
         };
-        slider?.addEventListener('pointerdown', () => {
-            suspendTensorViewRender = true;
+        slider?.addEventListener('pointerdown', (event) => {
+            beginTensorViewSliderDrag(slider, event.pointerId);
         });
         slider?.addEventListener('input', () => {
             if (!number || !slider) return;
             number.value = slider.value;
             applyValue(Number(slider.value));
         });
-        slider?.addEventListener('change', () => {
-            suspendTensorViewRender = false;
-            render(viewer.getSnapshot());
+        slider?.addEventListener('pointerup', (event) => {
+            endTensorViewSliderDrag(slider, event.pointerId);
+        });
+        slider?.addEventListener('pointercancel', (event) => {
+            endTensorViewSliderDrag(slider, event.pointerId);
         });
         number?.addEventListener('change', () => {
             const clamped = Math.max(-1, Math.min(multiInput.size - 1, Number(number.value)));
@@ -1563,7 +1628,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
 function renderLinearLayoutHoverPopup(): void {
     const tab = activeTab();
     const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
-    const hover = viewer.getHover();
+    const hover = viewer.getLiveHover();
     const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutUi, linearLayoutTab) : null;
     const entries = linearLayoutHoverPopupEntries(linearLayoutUi, hover, linearLayout);
     if (entries.length === 0) {
@@ -1737,6 +1802,11 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 }
 
 function render(snapshot: ViewerSnapshot): void {
+    if (suspendTensorViewRender) {
+        renderInspectorWidget(snapshot);
+        renderLinearLayoutHoverPopup();
+        return;
+    }
     if (!switchingTab) captureActiveTabSnapshot();
     const tab = activeTab();
     const activeTensorId = tab && isLinearLayoutTab(tab) ? (snapshot.activeTensorId ?? null) : null;
