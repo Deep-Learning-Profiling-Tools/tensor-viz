@@ -29,8 +29,10 @@ export function linearLayoutSelectionMapForMeta(
     const meta = composeLayoutMetaForTab(tab);
     if (!meta || meta.tensors.length === 0) return null;
     const loadedTensorIds = new Set(tab.manifest.tensors.map((tensor) => tensor.id));
+    const finalOutputShape = meta.finalOutputBitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
     const rootInputShape = meta.rootInputBitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
     const rootKeys = meta.tensors[0]!.rootToTensor.map((coord) => coordKey(coord));
+    const rootToFinalKeys = meta.tensors[0]!.tensorToFinal.map((coord) => coord ? coordKey(coord) : '');
     const tensors = new Map<string, LinearLayoutSelectionMap['tensors'] extends Map<string, infer T> ? T : never>();
     meta.tensors.forEach((tensorMeta) => {
         if (!loadedTensorIds.has(tensorMeta.id)) return;
@@ -45,10 +47,14 @@ export function linearLayoutSelectionMapForMeta(
         tensors.set(tensorMeta.id, { meta: tensorMeta, rootToTensorKeys, coordKeyToFlatIndex, cellRootIndexes });
     });
     return {
+        injective: meta.injective,
         rootInputLabels: meta.rootInputLabels.slice(),
         rootInputShape,
         rootKeys: rootKeys.slice(),
         rootKeyToIndex: new Map(rootKeys.map((key, index) => [key, index])),
+        finalOutputLabels: meta.finalOutputLabels.slice(),
+        finalOutputShape,
+        rootToFinalKeys,
         tensors,
         orderedTensorIds: meta.tensors.map((tensor) => tensor.id).filter((id) => tensors.has(id)),
     };
@@ -60,6 +66,7 @@ export function linearLayoutMultiInputModel(
 ): LinearLayoutMultiInputModel {
     const focusedTensorId = ctx.viewer.getState().activeTensorId;
     if (!mapping || !focusedTensorId) return null;
+    if (ctx.state.linearLayoutState?.propagateOutputs) return null;
     const tensor = mapping.tensors.get(focusedTensorId);
     if (!tensor) return null;
     const size = Math.max(0, ...tensor.cellRootIndexes.map((roots) => roots.length));
@@ -75,9 +82,12 @@ export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
     const mapping = linearLayoutSelectionMapForTab(ctx, tab);
     if (!mapping) return;
     const display = linearLayoutDisplayModel(ctx, mapping);
-    const rootColors = rootColorsForLayoutState(
-        mapping.rootInputLabels,
-        mapping.rootInputShape,
+    const [colorLabels, colorShape] = ctx.state.linearLayoutState.propagateOutputs
+        ? [mapping.finalOutputLabels, mapping.finalOutputShape]
+        : [mapping.rootInputLabels, mapping.rootInputShape];
+    const colors = rootColorsForLayoutState(
+        colorLabels,
+        colorShape,
         ctx.state.linearLayoutState,
     );
     mapping.orderedTensorIds.forEach((tensorId) => {
@@ -88,17 +98,22 @@ export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
         displayed.forEach((rootIndex, flat) => {
             if (rootIndex === null) return;
             data[flat] = rootIndex;
-            rgb.set(rootColors[rootIndex]!, flat * 3);
+            rgb.set(colors[propagatedIndexForRoot(mapping, rootIndex, ctx.state.linearLayoutState.propagateOutputs)]!, flat * 3);
         });
         ctx.viewer.setTensorData(tensorId, data, 'float32');
         ctx.viewer.colorTensor(tensorId, rgb);
         ctx.viewer.setTensorVisibleCoords(tensorId, display.visibleCoordsByTensor.get(tensorId) ?? []);
-        ctx.viewer.setTensorGhostLayers(tensorId, display.ghostRootIndexesByTensor.get(tensorId)?.map((entry) => ({
+        ctx.viewer.setTensorGhostLayers(tensorId, ctx.state.linearLayoutState.propagateOutputs ? null : display.ghostRootIndexesByTensor.get(tensorId)?.map((entry) => ({
             coord: entry.coord,
-            color: rootColors[entry.rootIndex]!.map((value) => Math.round(value * 255)) as [number, number, number],
+            color: colors[propagatedIndexForRoot(mapping, entry.rootIndex, ctx.state.linearLayoutState.propagateOutputs)]!
+                .map((value) => Math.round(value * 255)) as [number, number, number],
             bias: [entry.layer * 0.18, -(entry.layer * 0.18)] as const,
             layer: entry.layer,
-            text: linearLayoutGhostText(coordFromKey(mapping.rootKeys[entry.rootIndex] ?? ''), mapping.rootInputLabels, ctx.state.linearLayoutCellTextState),
+            text: linearLayoutGhostText(
+                propagatedCoordForRoot(mapping, entry.rootIndex, ctx.state.linearLayoutState.propagateOutputs),
+                ctx.state.linearLayoutState.propagateOutputs ? mapping.finalOutputLabels : mapping.rootInputLabels,
+                ctx.state.linearLayoutCellTextState,
+            ),
         })) ?? null);
     });
 }
@@ -252,6 +267,18 @@ function linearLayoutGhostText(coord: number[], labels: string[], state: Record<
         .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}:${coord[axis] ?? 0}`] : []))
         .join('\n');
     return text || null;
+}
+
+function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number[] {
+    const key = propagateOutputs ? mapping.rootToFinalKeys[rootIndex] : mapping.rootKeys[rootIndex];
+    return coordFromKey(key ?? '');
+}
+
+function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number {
+    return flatIndex(
+        propagatedCoordForRoot(mapping, rootIndex, propagateOutputs),
+        propagateOutputs ? mapping.finalOutputShape : mapping.rootInputShape,
+    );
 }
 
 function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {

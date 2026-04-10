@@ -15,6 +15,7 @@ export type ComposeLayoutState = {
     operationText: string;
     inputName: string;
     visibleTensors: Record<string, boolean>;
+    propagateOutputs: boolean;
     mapping: Record<ComposeChannel, ComposeMappingValue>;
     ranges: Record<ComposeChannel, [string, string]>;
 };
@@ -46,16 +47,20 @@ export type ComposeTensorMeta = {
     axisLabels: string[];
     shape: number[];
     rootToTensor: number[][];
+    tensorToFinal: Array<number[] | null>;
     visible: boolean;
 };
 
 export type ComposeLayoutMeta = {
-    version: 1;
+    version: 3;
     specsText: string;
     operationText: string;
     inputName?: string;
+    injective: boolean;
     rootInputLabels: string[];
     rootInputBitCounts: number[];
+    finalOutputLabels: string[];
+    finalOutputBitCounts: number[];
     tensors: ComposeTensorMeta[];
 };
 
@@ -64,6 +69,10 @@ export type ComposeRuntime = {
     inputLabels: string[];
     inputBitCounts: number[];
     inputShape: number[];
+    finalOutputLabels: string[];
+    finalOutputBitCounts: number[];
+    finalOutputShape: number[];
+    injective: boolean;
     tensors: ComposeTensorMeta[];
     matrixBlocks: MatrixBlock[];
     pythonCode: string;
@@ -152,6 +161,11 @@ const SHARED_MEMORY_128B_SWIZZLE_TEXT = [
     'Y: [[1,1],[2,2],[4,4]]',
     'X: [[0,1],[0,2],[0,4]]',
 ].join('\n');
+const SLICED_LAYOUT_TEXT = [
+    'Sliced_Layout: [Y,X] -> [Y,X]',
+    'Y: [[0,1],[0,2]]',
+    'X: [[0,0],[0,0],[1,0]]',
+].join('\n');
 
 const BAKED_EXAMPLES: ExampleState[] = [
     bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
@@ -159,6 +173,7 @@ const BAKED_EXAMPLES: ExampleState[] = [
     bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
     bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
     bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
+    bakedExample('Sliced Layout', SLICED_LAYOUT_TEXT, 'Sliced_Layout', 'Logical Offsets'),
 ];
 // sync-linear-layout-examples:end
 
@@ -175,6 +190,7 @@ function bakedExample(
             operationText,
             inputName,
             visibleTensors: {},
+            propagateOutputs: false,
             mapping: { H: 'none', S: 'none', L: 'none' },
             ranges: defaultColorRanges(),
         },
@@ -192,6 +208,7 @@ export function emptyComposeLayoutState(): ComposeLayoutState {
         operationText: 'Layout_1',
         inputName: DEFAULT_INPUT_NAME,
         visibleTensors: {},
+        propagateOutputs: false,
         mapping: autoColor.mapping,
         ranges: autoColor.ranges,
     };
@@ -210,6 +227,7 @@ export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayou
         operationText: state.operationText,
         inputName: state.inputName,
         visibleTensors: { ...state.visibleTensors },
+        propagateOutputs: state.propagateOutputs ?? false,
         mapping: { ...state.mapping },
         ranges: {
             H: [...state.ranges.H],
@@ -227,6 +245,7 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
         && typeof record.inputName === 'string'
         && !!record.visibleTensors
         && typeof record.visibleTensors === 'object'
+        && (record.propagateOutputs === undefined || typeof record.propagateOutputs === 'boolean')
         && ['H', 'S', 'L'].every((channel) => typeof record.mapping?.[channel as ComposeChannel] === 'string')
         && ['H', 'S', 'L'].every((channel) => Array.isArray(record.ranges?.[channel as ComposeChannel]));
 }
@@ -234,12 +253,15 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
 export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta {
     if (!value || typeof value !== 'object') return false;
     const record = value as ComposeLayoutMeta;
-    return record.version === 1
+    return (record.version === 1 || record.version === 3)
         && typeof record.specsText === 'string'
         && typeof record.operationText === 'string'
         && (record.inputName === undefined || typeof record.inputName === 'string')
+        && (record.injective === undefined || typeof record.injective === 'boolean')
         && Array.isArray(record.rootInputLabels)
         && Array.isArray(record.rootInputBitCounts)
+        && Array.isArray(record.finalOutputLabels)
+        && Array.isArray(record.finalOutputBitCounts)
         && Array.isArray(record.tensors);
 }
 
@@ -266,6 +288,7 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
         operationText,
         inputName: DEFAULT_INPUT_NAME,
         visibleTensors: {},
+        propagateOutputs: false,
         mapping: Object.keys(legacy.colorAxes).length > 0 ? legacyMapping(labelMap, legacy.colorAxes) : autoColor.mapping,
         ranges: Object.keys(legacy.colorRanges).length > 0 ? legacyRanges(legacy.colorRanges) : autoColor.ranges,
     };
@@ -274,6 +297,7 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
 export function autoColorLayoutState(
     specsText: string,
     operationText: string,
+    propagateOutputs = false,
 ): Pick<ComposeLayoutState, 'mapping' | 'ranges'> {
     const runtime = buildComposeRuntime({
         specsText,
@@ -282,7 +306,7 @@ export function autoColorLayoutState(
         visibleTensors: {},
     });
     return {
-        mapping: autoColorMapping(runtime.inputLabels, runtime.inputShape),
+        mapping: autoColorMapping(...propagationLabels(runtime, propagateOutputs)),
         ranges: defaultColorRanges(),
     };
 }
@@ -368,8 +392,15 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     const inputBitCounts = finalLayout.inputBitCounts.slice();
     const inputShape = shapeFromBitCounts(inputBitCounts);
     const rootCount = product(inputShape);
+    const finalOutputLabels = finalLayout.outputs.slice();
+    const finalOutputBitCounts = finalLayout.outputBitCounts.slice();
+    const finalOutputShape = shapeFromBitCounts(finalOutputBitCounts);
+    const injective = isInjectiveLayout(finalLayout);
     const inputName = state.inputName.trim() || DEFAULT_INPUT_NAME;
     const visibleTensors = state.visibleTensors ?? {};
+    const finalCoords = Array.from({ length: rootCount }, (_entry, rootIndex) => (
+        mapCoord(unravelIndex(rootIndex, inputShape), inputBitCounts, finalLayout.matrix, finalOutputBitCounts)
+    ));
     const rootTensor: ComposeTensorMeta = {
         id: 'compose-root',
         title: inputName,
@@ -378,22 +409,32 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
         axisLabels: inputLabels.slice(),
         shape: inputShape.slice(),
         rootToTensor: Array.from({ length: rootCount }, (_entry, index) => unravelIndex(index, inputShape)),
+        tensorToFinal: finalCoords.map((coord) => coord.slice()),
         visible: visibleTensors['compose-root'] ?? true,
     };
     const tensors = [
         rootTensor,
-        ...renderChain.map(({ layout, exprText }, index) => ({
-            id: `compose-step-${index + 1}`,
-            title: exprText,
-            exprText,
-            kind: 'step' as const,
-            axisLabels: layout.outputs.slice(),
-            shape: shapeFromBitCounts(layout.outputBitCounts),
-            rootToTensor: Array.from({ length: rootCount }, (_entry, rootIndex) => (
+        ...renderChain.map(({ layout, exprText }, index) => {
+            const shape = shapeFromBitCounts(layout.outputBitCounts);
+            const rootToTensor = Array.from({ length: rootCount }, (_entry, rootIndex) => (
                 mapCoord(unravelIndex(rootIndex, inputShape), inputBitCounts, layout.matrix, layout.outputBitCounts)
-            )),
-            visible: visibleTensors[`compose-step-${index + 1}`] ?? true,
-        })),
+            ));
+            const tensorToFinal = Array.from({ length: product(shape) }, () => null as number[] | null);
+            rootToTensor.forEach((coord, rootIndex) => {
+                tensorToFinal[flatIndex(coord, shape)] = finalCoords[rootIndex]!.slice();
+            });
+            return {
+                id: `compose-step-${index + 1}`,
+                title: exprText,
+                exprText,
+                kind: 'step' as const,
+                axisLabels: layout.outputs.slice(),
+                shape,
+                rootToTensor,
+                tensorToFinal,
+                visible: visibleTensors[`compose-step-${index + 1}`] ?? true,
+            };
+        }),
     ];
     const matrixBlocks = [
         ...specs.map((spec) => matrixBlock(spec.name, namedLayout(spec))),
@@ -405,15 +446,19 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
         ...codeLines.map(({ line }) => line),
     ].filter((line, index, lines) => !(line === '' && lines[index - 1] === '')).join('\n').trim();
     const meta: ComposeLayoutMeta = {
-        version: 1,
+        version: 3,
         specsText: state.specsText,
         operationText,
         inputName,
+        injective,
         rootInputLabels: inputLabels.slice(),
         rootInputBitCounts: inputBitCounts.slice(),
+        finalOutputLabels: finalOutputLabels.slice(),
+        finalOutputBitCounts: finalOutputBitCounts.slice(),
         tensors: tensors.map((tensor) => ({
             ...tensor,
             rootToTensor: tensor.rootToTensor.map((coord) => coord.slice()),
+            tensorToFinal: tensor.tensorToFinal.map((coord) => coord ? coord.slice() : null),
             axisLabels: tensor.axisLabels.slice(),
             shape: tensor.shape.slice(),
         })),
@@ -423,6 +468,10 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
         inputLabels,
         inputBitCounts,
         inputShape,
+        finalOutputLabels,
+        finalOutputBitCounts,
+        finalOutputShape,
+        injective,
         tensors,
         matrixBlocks,
         pythonCode,
@@ -441,22 +490,24 @@ export function createComposeLayoutDocument(
     if (visibleTensors.length === 0) {
         throw new Error('At least one tensor in the render chain must stay visible.');
     }
-    const rootColors = rootColorsForLayoutState(runtime.inputLabels, runtime.inputShape, state);
+    const colorBuffers = composeTensorColorBuffers(runtime, state);
     const tensors = new Map<string, Float32Array>();
     const manifest = createBundleManifest({
         viewer: persistedViewerSettings(viewer),
         tensors: visibleTensors.map((tensor) => {
+            const data = new Float32Array(product(tensor.shape)).fill(-1);
             const cellRootIndexes = Array.from({ length: product(tensor.shape) }, () => [] as number[]);
             tensor.rootToTensor.forEach((coord, rootIndex) => {
                 cellRootIndexes[flatIndex(coord, tensor.shape)]!.push(rootIndex);
             });
-            const data = new Float32Array(product(tensor.shape)).fill(-1);
-            const rgb = new Float32Array(product(tensor.shape) * 3);
             cellRootIndexes.forEach((rootIndexes, flat) => {
                 const rootIndex = rootIndexes[0];
                 if (rootIndex === undefined) return;
                 data[flat] = rootIndex;
-                rgb.set(rootColors[rootIndex]!, flat * 3);
+            });
+            const rgb = colorBuffers.get(tensor.id) ?? new Float32Array(product(tensor.shape) * 3);
+            tensor.tensorToFinal.forEach((coord, flat) => {
+                if (coord && state.propagateOutputs) data[flat] = flatIndex(coord, runtime.finalOutputShape);
             });
             const markerCoords = Array.from({ length: data.length }, (_entry, index) => index)
                 .filter((index) => data[index] < 0)
@@ -508,6 +559,54 @@ export function rootColorsForLayoutState(
             state.ranges,
         )
     ));
+}
+
+export function composeTensorColorBuffers(
+    runtime: ComposeRuntime,
+    state: Pick<ComposeLayoutState, 'mapping' | 'ranges' | 'propagateOutputs'>,
+): Map<string, Float32Array> {
+    const [labels, shape] = propagationLabels(runtime, state.propagateOutputs);
+    const labelToAxis = new Map(labels.map((label, axis) => [label, axis]));
+    const colors = Array.from({ length: product(shape) }, (_entry, index) => (
+        rgbColorForRootCoord(
+            unravelIndex(index, shape),
+            shape,
+            labelToAxis,
+            state.mapping,
+            state.ranges,
+        )
+    ));
+    return new Map(runtime.tensors
+        .filter((tensor) => tensor.visible)
+        .map((tensor) => {
+            const rgb = new Float32Array(product(tensor.shape) * 3);
+            propagationCoordsForTensor(runtime, tensor, state.propagateOutputs).forEach((coord, flat) => {
+                if (!coord) return;
+                rgb.set(colors[flatIndex(coord, shape)]!, flat * 3);
+            });
+            return [tensor.id, rgb] as const;
+        }));
+}
+
+export function propagationLabels(
+    runtime: ComposeRuntime,
+    propagateOutputs: boolean,
+): [string[], number[]] {
+    if (propagateOutputs) return [runtime.finalOutputLabels, runtime.finalOutputShape];
+    return [runtime.inputLabels, runtime.inputShape];
+}
+
+function propagationCoordsForTensor(
+    runtime: ComposeRuntime,
+    tensor: ComposeTensorMeta,
+    propagateOutputs: boolean,
+): Array<number[] | null> {
+    if (propagateOutputs) return tensor.tensorToFinal;
+    const coords = Array.from({ length: product(tensor.shape) }, () => null as number[] | null);
+    tensor.rootToTensor.forEach((tensorCoord, rootIndex) => {
+        coords[flatIndex(tensorCoord, tensor.shape)] = unravelIndex(rootIndex, runtime.inputShape);
+    });
+    return coords;
 }
 
 function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
@@ -1070,6 +1169,10 @@ function isBijective(layout: EvaluatedLayout): boolean {
     const inputBits = sum(layout.inputBitCounts);
     const outputBits = sum(layout.outputBitCounts);
     return inputBits === outputBits && gf2Rank(layout.matrix) === inputBits;
+}
+
+function isInjectiveLayout(layout: Pick<EvaluatedLayout, 'matrix' | 'inputBitCounts'>): boolean {
+    return gf2Rank(layout.matrix) === sum(layout.inputBitCounts);
 }
 
 function outputBitCountsFromBases(bases: number[][][], outputCount: number): number[] {

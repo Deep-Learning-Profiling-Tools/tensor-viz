@@ -5,6 +5,7 @@ import {
     composeLayoutStateFromLegacySpec,
     createComposeLayoutDocument,
     defaultComposeLayoutState,
+    propagationLabels,
 } from './linear-layout.js';
 import {
     coordsForRootIndexes,
@@ -27,6 +28,7 @@ function composeState(specsText: string, operationText: string) {
         operationText,
         inputName: 'Input Space',
         visibleTensors: {},
+        propagateOutputs: false,
         mapping: { H: 'none', S: 'none', L: 'none' } as const,
         ranges: {
             H: [...DEFAULT_RANGES.H],
@@ -56,6 +58,7 @@ describe('compose layout helpers', () => {
             { name: 'Hardware Layout', shape: [32, 4, 4], axisLabels: ['T', 'W', 'R'] },
             { name: 'Blocked_Layout', shape: [16, 32], axisLabels: ['Y', 'X'] },
         ]);
+        expect(state.propagateOutputs).toBe(false);
         expect(state.mapping).toEqual({ H: 'T', S: 'W', L: 'R' });
         expect(state.ranges).toEqual({ H: ['0', '0.8'], S: ['1', '0.2'], L: ['1', '0.2'] });
     });
@@ -145,6 +148,32 @@ describe('compose layout helpers', () => {
             shape: [2],
             rootToTensor: [[0], [0], [0], [0]],
         });
+    });
+
+    it('tracks final-output coords for non-injective layouts', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'L1: [X] -> [Y]',
+            'X: [[0],[1]]',
+            '',
+            'L2: [Y] -> [Z]',
+            'Y: [[0],[1]]',
+        ].join('\n'), 'L2(L1)'));
+
+        expect(runtime.injective).toBe(false);
+        expect(runtime.meta.finalOutputLabels).toEqual(['Z']);
+        expect(runtime.tensors[0]?.tensorToFinal).toEqual([[0], [0], [0], [0]]);
+        expect(runtime.tensors[1]?.tensorToFinal).toEqual([[0], [0]]);
+        expect(runtime.tensors[2]?.tensorToFinal).toEqual([[0], null]);
+    });
+
+    it('switches propagated labels between inputs and outputs', () => {
+        const runtime = buildComposeRuntime(composeState([
+            'L: [X] -> [Y]',
+            'X: [[1]]',
+        ].join('\n'), 'L'));
+
+        expect(propagationLabels(runtime, false)).toEqual([['X'], [2]]);
+        expect(propagationLabels(runtime, true)).toEqual([['Y'], [2]]);
     });
 
     it('supports products as atomic render steps', () => {

@@ -101,21 +101,27 @@ export function linearLayoutHoverPopupEntries(
     linearLayout: LinearLayoutSelectionMap | null,
 ): LinearLayoutHoverPopupEntry[] {
     if (!hover || !linearLayout) return [];
+    if (linearLayout.injective || ctx.state.linearLayoutState.propagateOutputs) return [];
     const tensor = linearLayout.tensors.get(hover.tensorId);
     if (!tensor) return [];
     const flat = tensor.coordKeyToFlatIndex.get(coordKey(hover.tensorCoord));
     if (flat === undefined) return [];
     const rootColors = rootColorsForLayoutState(
-        linearLayout.rootInputLabels,
-        linearLayout.rootInputShape,
+        ctx.state.linearLayoutState.propagateOutputs ? linearLayout.finalOutputLabels : linearLayout.rootInputLabels,
+        ctx.state.linearLayoutState.propagateOutputs ? linearLayout.finalOutputShape : linearLayout.rootInputShape,
         ctx.state.linearLayoutState,
     );
     return (tensor.cellRootIndexes[flat] ?? []).map((rootIndex) => {
-        const coord = coordFromKey(linearLayout.rootKeys[rootIndex] ?? '');
+        const coord = propagatedCoordForRoot(linearLayout, rootIndex, ctx.state.linearLayoutState.propagateOutputs);
         return {
-            color: cssColor(rootColors[rootIndex] ?? [0, 0, 0]),
-            text: linearLayoutCellTextForCoord(coord, linearLayout.rootInputLabels, ctx.state.linearLayoutCellTextState)
-                || linearLayout.rootInputLabels.map((label, axis) => indexedAxisLabel(label, coord[axis] ?? 0)).join('\n'),
+            color: cssColor(rootColors[propagatedIndexForRoot(linearLayout, rootIndex, ctx.state.linearLayoutState.propagateOutputs)] ?? [0, 0, 0]),
+            text: linearLayoutCellTextForCoord(
+                coord,
+                ctx.state.linearLayoutState.propagateOutputs ? linearLayout.finalOutputLabels : linearLayout.rootInputLabels,
+                ctx.state.linearLayoutCellTextState,
+            ) || (
+                ctx.state.linearLayoutState.propagateOutputs ? linearLayout.finalOutputLabels : linearLayout.rootInputLabels
+            ).map((label, axis) => indexedAxisLabel(label, coord[axis] ?? 0)).join('\n'),
         };
     });
 }
@@ -223,7 +229,8 @@ function linearLayoutCellLabelsForTab(
     state: LinearLayoutCellTextState,
 ): Array<{ tensorId: string; labels: Array<{ coord: number[]; text: string }> }> | null {
     const mapping = linearLayoutSelectionMapForTab(ctx, tab);
-    if (!mapping || !mapping.rootInputLabels.some((label) => state[label])) return null;
+    const labels = ctx.state.linearLayoutState.propagateOutputs ? mapping?.finalOutputLabels : mapping?.rootInputLabels;
+    if (!mapping || !labels?.some((label) => state[label])) return null;
     const display = linearLayoutDisplayModel(ctx, mapping);
     return mapping.orderedTensorIds.map((tensorId) => {
         const tensor = mapping.tensors.get(tensorId)!;
@@ -232,9 +239,24 @@ function linearLayoutCellLabelsForTab(
             if (rootIndex === null) return null;
             return {
                 coord: coordFromKey(tensor.rootToTensorKeys[rootIndex] ?? ''),
-                text: linearLayoutCellTextForCoord(coordFromKey(mapping.rootKeys[rootIndex] ?? ''), mapping.rootInputLabels, state),
+                text: linearLayoutCellTextForCoord(
+                    propagatedCoordForRoot(mapping, rootIndex, ctx.state.linearLayoutState.propagateOutputs),
+                    ctx.state.linearLayoutState.propagateOutputs ? mapping.finalOutputLabels : mapping.rootInputLabels,
+                    state,
+                ),
             };
         }).filter((entry): entry is { coord: number[]; text: string } => entry !== null);
         return { tensorId, labels };
     });
+}
+
+function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number[] {
+    const key = propagateOutputs ? mapping.rootToFinalKeys[rootIndex] : mapping.rootKeys[rootIndex];
+    return coordFromKey(key ?? '');
+}
+
+function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number {
+    const coord = propagatedCoordForRoot(mapping, rootIndex, propagateOutputs);
+    const shape = propagateOutputs ? mapping.finalOutputShape : mapping.rootInputShape;
+    return coord.reduce((index, value, axis) => (index * shape[axis]!) + value, 0);
 }

@@ -121,8 +121,6 @@ let appliedStartupWidgetDefaults = false;
 let lastLinearLayoutActiveTensorId: string | null = null;
 let hoverPopupPointer = { x: 16, y: 16 };
 let activeTensorViewSliderPointerId: number | null = null;
-let pendingSidebarScrollTop: number | null = null;
-let pendingSidebarAnchor: { selector: string; top: number } | null = null;
 
 const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
@@ -215,7 +213,7 @@ const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
 const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
     'linear-layout': 'Linear Layout Specifications',
     'linear-layout-visible-tensors': 'Visible Tensors',
-    'linear-layout-color': 'Color Mapping',
+    'linear-layout-color': 'Cell Color/Text',
     'cell-text': 'Cell Text',
     'tensor-view': 'Permute/Slice',
     inspector: 'Hover Info',
@@ -228,7 +226,6 @@ let widgetOrder: SidebarWidgetId[] = [
     'linear-layout',
     'linear-layout-visible-tensors',
     'linear-layout-color',
-    'cell-text',
     'tensor-view',
     'inspector',
     'selection',
@@ -339,7 +336,6 @@ function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
         (widgetId === 'linear-layout' && linearLayoutActive)
         || (widgetId === 'linear-layout-visible-tensors' && linearLayoutActive)
         || (widgetId === 'linear-layout-color' && linearLayoutActive)
-        || (widgetId === 'cell-text' && linearLayoutActive)
         || (widgetId === 'tensor-view' && showTensorViewWidget)
         || (widgetId === 'inspector' && snapshot.showInspectorPanel)
         || (widgetId === 'selection'
@@ -1125,34 +1121,24 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     syncSidebarDragState();
 }
 
-function renderPreservingSidebarScroll(): void {
+function captureSidebarAnchor(element: HTMLElement | null, selector: string): { selector: string; top: number } | null {
+    if (!element) return null;
+    return { selector, top: element.getBoundingClientRect().top };
+}
+
+function renderPreservingSidebarScroll(anchor: { selector: string; top: number } | null = null): void {
     const previousScrollTop = sidebar.scrollTop;
-    pendingSidebarScrollTop = previousScrollTop;
     render(viewer.getSnapshot());
     sidebar.scrollTop = previousScrollTop;
     requestAnimationFrame(() => {
-        if (pendingSidebarAnchor) {
-            const anchor = sidebar.querySelector<HTMLElement>(pendingSidebarAnchor.selector);
-            if (anchor) {
-                const nextTop = anchor.getBoundingClientRect().top;
-                sidebar.scrollTop += nextTop - pendingSidebarAnchor.top;
-            }
-            pendingSidebarAnchor = null;
-            pendingSidebarScrollTop = null;
+        if (!anchor) {
+            sidebar.scrollTop = previousScrollTop;
             return;
         }
-        if (pendingSidebarScrollTop === null) return;
-        sidebar.scrollTop = pendingSidebarScrollTop;
-        pendingSidebarScrollTop = null;
+        const nextAnchor = sidebar.querySelector<HTMLElement>(anchor.selector);
+        if (!nextAnchor) return;
+        sidebar.scrollTop += nextAnchor.getBoundingClientRect().top - anchor.top;
     });
-}
-
-function preserveSidebarAnchor(element: HTMLElement | null, selector: string): void {
-    if (!element) return;
-    pendingSidebarAnchor = {
-        selector,
-        top: element.getBoundingClientRect().top,
-    };
 }
 
 /** Keep compact textareas at their content height so widget fields stay visually aligned. */
@@ -1172,11 +1158,14 @@ function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): v
     activeTensorViewSliderPointerId = null;
     suspendTensorViewRender = false;
     if (slider.hasPointerCapture(pointerId)) slider.releasePointerCapture(pointerId);
-    preserveSidebarAnchor(slider, `#${CSS.escape(slider.id)}`);
-    renderPreservingSidebarScroll();
+    renderPreservingSidebarScroll(captureSidebarAnchor(slider, `#${CSS.escape(slider.id)}`));
 }
 
-function applyTensorViewEditor(tensorId: string, editor: TensorViewEditor): void {
+function applyTensorViewEditor(
+    tensorId: string,
+    editor: TensorViewEditor,
+    anchor: { selector: string; top: number } | null = null,
+): void {
     try {
         viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
         syncLinearLayoutViewFilters(linearLayoutUi);
@@ -1184,7 +1173,7 @@ function applyTensorViewEditor(tensorId: string, editor: TensorViewEditor): void
     } catch (error) {
         viewErrors.set(tensorId, error instanceof Error ? error.message : String(error));
     }
-    renderPreservingSidebarScroll();
+    renderPreservingSidebarScroll(anchor);
 }
 
 function tensorCallInputValue(value: string): string {
@@ -1441,13 +1430,13 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         button.addEventListener('click', () => {
             const key = button.dataset.sliceToken;
             if (!key) return;
-            preserveSidebarAnchor(button, `[data-slice-token="${CSS.escape(key)}"]`);
+            const anchor = captureSidebarAnchor(button, `[data-slice-token="${CSS.escape(key)}"]`);
             const sliced = editor.slicedTokenKeys.includes(key);
             applyTensorViewEditor(model.handle!.id, {
                 ...editor,
                 slicedTokenKeys: sliced ? editor.slicedTokenKeys.filter((entry) => entry !== key) : [...editor.slicedTokenKeys, key],
                 sliceValues: sliced ? editor.sliceValues : { ...editor.sliceValues, [key]: editor.sliceValues[key] ?? 0 },
-            });
+            }, anchor);
         });
     });
     tensorViewWidget.querySelector<HTMLElement>('#reset-view-button')?.addEventListener('click', () => {

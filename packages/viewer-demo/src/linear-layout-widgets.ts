@@ -1,5 +1,5 @@
-import { escapeInfo, labelWithInfo } from './app-format.js';
-import { autoColorLayoutState, bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument } from './linear-layout.js';
+import { escapeInfo, infoButton, labelWithInfo } from './app-format.js';
+import { autoColorLayoutState, bakedComposeLayoutExamples, buildComposeRuntime, createComposeLayoutDocument, propagationLabels } from './linear-layout.js';
 import {
     cloneLinearLayoutCellTextState,
     cloneLinearLayoutMultiInputState,
@@ -174,13 +174,13 @@ function linearLayoutColorHelpHtml(): string {
         <summary>How do I use this?</summary>
         <div class="usage-guide-body">
           <div class="usage-guide-step">
-            <span>Drag a root-input axis from <strong>Available Axes</strong> onto H, S, or L to control that channel.</span>
+            <span>Drag a propagated axis from <strong>Available Axes</strong> onto H, S, or L to control that channel.</span>
           </div>
           <div class="usage-guide-step">
             <span>Drag an assigned chip back to the pool to clear it, or drag between channels to swap assignments.</span>
           </div>
           <div class="usage-guide-step">
-            <span>Adjust the numeric ranges, then click <strong>Recolor Layout</strong> to apply the new mapping.</span>
+            <span>Toggle <strong>Propagate Outputs</strong> to switch between input-driven and output-driven labels/colors, then click <strong>Recolor Layout</strong> to apply the new mapping.</span>
           </div>
         </div>
       </details>
@@ -188,37 +188,8 @@ function linearLayoutColorHelpHtml(): string {
 }
 
 export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
-    const labels = linearLayoutRootLabels(ctx);
-    if (labels.length === 0) {
-        ctx.cellTextWidget.innerHTML = '';
-        return;
-    }
-    ctx.cellTextWidget.innerHTML = `
-      ${ctx.widgetTitle('cell-text', 'Overlay selected root-input label values directly on every visible tensor cell in 2D. Labels only appear when cells are large enough to read.')}
-      <div class="widget-body">
-        <p class="widget-copy">Choose which root-input label values to draw on each cell. Every visible tensor shows the values of the root coordinate that maps to that cell.</p>
-        <div class="checklist-field">
-          ${labels.map((label) => `
-            <label class="checklist-row" for="cell-text-${label}">
-              <span>${label}</span>
-              <input id="cell-text-${label}" type="checkbox" ${ctx.state.linearLayoutCellTextState[label] ? 'checked' : ''} />
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    `;
-    const sync = (): void => {
-        ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
-            label,
-            ctx.cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.checked ?? false,
-        ]));
-        const tab = activeLinearLayoutTab(ctx);
-        if (tab) ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
-        applyLinearLayoutCellText(ctx);
-    };
-    labels.forEach((label) => {
-        ctx.cellTextWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', sync);
-    });
+    ctx.cellTextWidget.innerHTML = '';
+    ctx.cellTextWidget.classList.add('hidden');
 }
 
 export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
@@ -340,10 +311,15 @@ export async function applyLinearLayoutSpec(
         const layoutChanged = !activeMeta
             || activeMeta.specsText !== ctx.state.linearLayoutState.specsText
             || activeMeta.operationText !== ctx.state.linearLayoutState.operationText;
-        if (layoutChanged) {
+        const runtime = buildComposeRuntime(ctx.state.linearLayoutState);
+        if (layoutChanged || !mappingMatchesLabels(
+            ctx.state.linearLayoutState.mapping,
+            propagationLabels(runtime, ctx.state.linearLayoutState.propagateOutputs)[0],
+        )) {
             const autoColor = autoColorLayoutState(
                 ctx.state.linearLayoutState.specsText,
                 ctx.state.linearLayoutState.operationText,
+                ctx.state.linearLayoutState.propagateOutputs,
             );
             ctx.state.linearLayoutState.mapping = autoColor.mapping;
             ctx.state.linearLayoutState.ranges = autoColor.ranges;
@@ -357,7 +333,7 @@ export async function applyLinearLayoutSpec(
         );
         ctx.state.linearLayoutCellTextState = normalizeCellTextState(
             ctx.state.linearLayoutCellTextState,
-            buildComposeRuntime(ctx.state.linearLayoutState).inputLabels,
+            propagationLabels(runtime, ctx.state.linearLayoutState.propagateOutputs)[0],
         );
         storeLinearLayoutState(ctx.state.linearLayoutState);
         await upsertLinearLayoutTab(ctx, document, options.replaceTabs);
@@ -426,19 +402,29 @@ function activeLinearLayoutTab(ctx: LinearLayoutUiContext) {
     return tab && isLinearLayoutTab(tab) ? tab : null;
 }
 
-function linearLayoutRootLabels(ctx: LinearLayoutUiContext): string[] {
+function linearLayoutPropagationLabels(ctx: LinearLayoutUiContext): { labels: string[]; injective: boolean } {
     const tab = activeLinearLayoutTab(ctx);
     const meta = tab ? composeLayoutMetaForTab(tab) : null;
-    if (meta) return meta.rootInputLabels.slice();
     try {
-        return buildComposeRuntime(ctx.state.linearLayoutState).inputLabels;
+        const runtime = buildComposeRuntime(ctx.state.linearLayoutState);
+        return { labels: propagationLabels(runtime, ctx.state.linearLayoutState.propagateOutputs)[0], injective: runtime.injective };
     } catch {
-        return [];
+        return {
+            labels: ctx.state.linearLayoutState.propagateOutputs
+                ? meta?.finalOutputLabels.slice() ?? []
+                : meta?.rootInputLabels.slice() ?? [],
+            injective: meta?.injective ?? true,
+        };
     }
 }
 
 function normalizeCellTextState(state: Record<string, boolean>, labels: string[]): Record<string, boolean> {
     return Object.fromEntries(labels.map((label) => [label, state[label] ?? false]));
+}
+
+function mappingMatchesLabels(mapping: Record<LinearLayoutChannel, string>, labels: string[]): boolean {
+    const allowed = new Set(labels);
+    return LINEAR_LAYOUT_CHANNELS.every((channel) => mapping[channel] === 'none' || allowed.has(mapping[channel]));
 }
 
 function autosizeTextarea(textarea: HTMLTextAreaElement): void {
@@ -487,19 +473,38 @@ function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
         ? { id: activeElement.id, start: activeElement.selectionStart, end: activeElement.selectionEnd }
         : null;
     const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
-    const rootLabels = linearLayoutRootLabels(ctx);
+    const { labels, injective } = linearLayoutPropagationLabels(ctx);
     const assignedLabels = new Set(
         LINEAR_LAYOUT_CHANNELS
             .map((channel) => ctx.state.linearLayoutState.mapping[channel])
-            .filter((label): label is string => label !== 'none' && rootLabels.includes(label)),
+            .filter((label): label is string => label !== 'none' && labels.includes(label)),
     );
-    const availableLabels = rootLabels.filter((label) => !assignedLabels.has(label));
+    const availableLabels = labels.filter((label) => !assignedLabels.has(label));
     ctx.linearLayoutColorWidget.innerHTML = `
-      ${ctx.widgetTitle('linear-layout-color', 'Select which root-input axis drives each color channel and set channel ranges.')}
+      ${ctx.widgetTitle('linear-layout-color', 'Configure propagated cell labels, H/S/L color mapping, and whether labels/colors follow inputs forward or outputs backward.')}
       <div class="widget-body">
         ${linearLayoutColorHelpHtml()}
         <div class="field">
-          ${labelWithInfo('Available Axes', 'Drag one root-input axis onto H, S, or L. Drag a colored axis back here to clear that channel.')}
+          <label class="checklist-row" for="linear-layout-propagate-outputs">
+            <span class="label-row"><span class="meta-label">Propagate Outputs</span>${infoButton(injective
+                ? 'When off, colors and cell text come from the input space and flow forward. When on, they come from the final output space and flow backward.'
+                : 'When off, non-injective layouts keep the current popup, ghost-layer, and multi-input behavior. When on, colors and cell text come from the final output space.')}</span>
+            <input id="linear-layout-propagate-outputs" type="checkbox" ${ctx.state.linearLayoutState.propagateOutputs ? 'checked' : ''} />
+          </label>
+        </div>
+        <div class="field">
+          <div class="label-row"><span class="meta-label">Cell Text</span>${infoButton('Choose which propagated axes are drawn as per-cell labels. The available labels follow the current Propagate Outputs mode.')}</div>
+          <div class="checklist-field">
+            ${labels.map((label) => `
+              <label class="checklist-row" for="cell-text-${label}">
+                <span>${label}</span>
+                <input id="cell-text-${label}" type="checkbox" ${ctx.state.linearLayoutCellTextState[label] ? 'checked' : ''} />
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="field">
+          ${labelWithInfo('Available Axes', 'Drag one propagated axis onto H, S, or L. Drag a colored axis back here to clear that channel.')}
           <div class="mapping-pool mapping-drop-zone" data-pool="true">
             ${availableLabels.map((label) => `<button class="mapping-chip" type="button" draggable="true" data-axis="${label}">${label}</button>`).join('')}
             ${availableLabels.length === 0 ? '<span class="mapping-empty">all axes assigned</span>' : ''}
@@ -509,7 +514,7 @@ function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
           <div class="inline-row mapping-row">
             <span class="range-label">${channelLabels[channel]}</span>
             <div class="mapping-drop-zone" data-channel="${channel}">
-              ${ctx.state.linearLayoutState.mapping[channel] !== 'none' && rootLabels.includes(ctx.state.linearLayoutState.mapping[channel] as string)
+              ${ctx.state.linearLayoutState.mapping[channel] !== 'none' && labels.includes(ctx.state.linearLayoutState.mapping[channel] as string)
         ? `<button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${ctx.state.linearLayoutState.mapping[channel]}">${ctx.state.linearLayoutState.mapping[channel]}</button>`
         : '<span class="mapping-empty">none</span>'}
             </div>
@@ -523,6 +528,37 @@ function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
         </div>
       </div>
     `;
+
+    ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-propagate-outputs')?.addEventListener('change', async () => {
+        ctx.state.linearLayoutState.propagateOutputs = ctx.linearLayoutColorWidget
+            .querySelector<HTMLInputElement>('#linear-layout-propagate-outputs')?.checked ?? false;
+        const autoColor = autoColorLayoutState(
+            ctx.state.linearLayoutState.specsText,
+            ctx.state.linearLayoutState.operationText,
+            ctx.state.linearLayoutState.propagateOutputs,
+        );
+        ctx.state.linearLayoutState.mapping = autoColor.mapping;
+        ctx.state.linearLayoutState.ranges = autoColor.ranges;
+        ctx.state.linearLayoutCellTextState = normalizeCellTextState(
+            ctx.state.linearLayoutCellTextState,
+            linearLayoutPropagationLabels(ctx).labels,
+        );
+        const tab = activeLinearLayoutTab(ctx);
+        if (tab) ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+        await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
+    });
+    const syncCellText = (): void => {
+        ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
+            label,
+            ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.checked ?? false,
+        ]));
+        const tab = activeLinearLayoutTab(ctx);
+        if (tab) ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+        applyLinearLayoutCellText(ctx);
+    };
+    labels.forEach((label) => {
+        ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', syncCellText);
+    });
 
     const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
         event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));

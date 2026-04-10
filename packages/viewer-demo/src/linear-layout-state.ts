@@ -35,10 +35,14 @@ export type LinearLayoutFormState = ComposeLayoutState;
 export type LinearLayoutChannel = 'H' | 'S' | 'L';
 
 export type LinearLayoutSelectionMap = {
+    injective: boolean;
     rootInputLabels: string[];
     rootInputShape: number[];
     rootKeys: string[];
     rootKeyToIndex: Map<string, number>;
+    finalOutputLabels: string[];
+    finalOutputShape: number[];
+    rootToFinalKeys: string[];
     tensors: Map<string, {
         meta: ComposeTensorMeta;
         rootToTensorKeys: string[];
