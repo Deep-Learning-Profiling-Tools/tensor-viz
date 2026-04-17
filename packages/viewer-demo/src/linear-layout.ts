@@ -259,8 +259,57 @@ function layoutPreset(
     };
 }
 
+function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
+    return [
+        layoutPreset(
+            'MMA A Layout (m16n8k16)',
+            'sm_80',
+            'mma-v2',
+            'm16n8k16',
+            'f16',
+            'A',
+            MMA_A_LAYOUT__M16N8K16_TEXT,
+            'MMA_A_Layout__m16n8k16',
+            'Hardware Layout',
+        ),
+        layoutPreset(
+            'MMA B Layout (m16n8k16)',
+            'sm_80',
+            'mma-v2',
+            'm16n8k16',
+            'f16',
+            'B',
+            MMA_B_LAYOUT__M16N8K16_TEXT,
+            'MMA_B_Layout__m16n8k16',
+            'Hardware Layout',
+        ),
+        layoutPreset(
+            'MMA C Layout (m16n8k16)',
+            'sm_80',
+            'mma-v2',
+            'm16n8k16',
+            'f16',
+            'C',
+            MMA_C_LAYOUT__M16N8K16_TEXT,
+            'MMA_C_Layout__m16n8k16',
+            'Hardware Layout',
+        ),
+    ];
+}
+
+function bakedComposeLayoutCatalog(): ExampleState[] {
+    return [
+        bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
+        bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT__M16N8K16_TEXT, 'MMA_A_Layout__m16n8k16', 'Hardware Layout'),
+        bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
+        bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
+        bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
+        bakedExample('Sliced Layout', SLICED_LAYOUT_TEXT, 'Sliced_Layout', 'Logical Offsets'),
+    ];
+}
+
 export function defaultComposeLayoutState(): ComposeLayoutState {
-    return autoColoredComposeLayoutState(cloneComposeLayoutState(BAKED_EXAMPLES[0]!.state));
+    return autoColoredComposeLayoutState(cloneComposeLayoutState(bakedComposeLayoutCatalog()[0]!.state));
 }
 
 export function emptyComposeLayoutState(): ComposeLayoutState {
@@ -278,7 +327,7 @@ export function emptyComposeLayoutState(): ComposeLayoutState {
 }
 
 export function bakedComposeLayoutExamples(): ExampleState[] {
-    return BAKED_EXAMPLES.map(({ title, state }) => ({
+    return bakedComposeLayoutCatalog().map(({ title, state }) => ({
         title,
         state: autoColoredComposeLayoutState(cloneComposeLayoutState(state)),
     }));
@@ -387,7 +436,7 @@ export function isComposeLayoutPresetSelection(value: unknown): value is Compose
 }
 
 export function composeLayoutPresets(): ComposeLayoutPreset[] {
-    return COMPOSE_LAYOUT_PRESETS.map((preset) => ({
+    return composeLayoutPresetCatalog().map((preset) => ({
         ...preset,
         state: { ...preset.state },
     }));
@@ -396,7 +445,7 @@ export function composeLayoutPresets(): ComposeLayoutPreset[] {
 export function matchedComposeLayoutPresetSelection(
     state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>,
 ): ComposeLayoutPresetSelection {
-    const preset = COMPOSE_LAYOUT_PRESETS.find((entry) => entry.state.specsText === state.specsText
+    const preset = composeLayoutPresetCatalog().find((entry) => entry.state.specsText === state.specsText
         && entry.state.operationText === state.operationText
         && entry.state.inputName === state.inputName);
     return preset ? {
@@ -412,18 +461,19 @@ export function composeLayoutPresetOptions(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetOptions {
     const current = cloneComposeLayoutPresetSelection(selection);
+    const presets = composeLayoutPresetCatalog();
     const gpuArchs = [...PRESET_GPU_ARCHS];
     const categories = current.gpuArch ? [...PRESET_CATEGORIES] : [];
-    const matrixSizes = uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+    const matrixSizes = uniquePresetField(filteredPresets(presets, {
         gpuArch: current.gpuArch,
         category: current.category,
     }), 'matrixSize');
-    const dtypes = uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+    const dtypes = uniquePresetField(filteredPresets(presets, {
         gpuArch: current.gpuArch,
         category: current.category,
         matrixSize: current.matrixSize,
     }), 'dtype');
-    const operands = uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+    const operands = uniquePresetField(filteredPresets(presets, {
         gpuArch: current.gpuArch,
         category: current.category,
         matrixSize: current.matrixSize,
@@ -437,18 +487,19 @@ export function normalizeComposeLayoutPresetSelection(
 ): ComposeLayoutPresetSelection {
     const current = cloneComposeLayoutPresetSelection(selection);
     const options = composeLayoutPresetOptions(current);
+    const presets = composeLayoutPresetCatalog();
     const gpuArch = normalizedPresetField(current.gpuArch, options.gpuArchs);
     const category = normalizedPresetField(current.category, gpuArch ? [...PRESET_CATEGORIES] : []);
-    const matrixSize = normalizedPresetField(current.matrixSize, uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+    const matrixSize = normalizedPresetField(current.matrixSize, uniquePresetField(filteredPresets(presets, {
         gpuArch,
         category,
     }), 'matrixSize'));
-    const dtype = normalizedPresetField(current.dtype, uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+    const dtype = normalizedPresetField(current.dtype, uniquePresetField(filteredPresets(presets, {
         gpuArch,
         category,
         matrixSize,
     }), 'dtype'));
-    const operand = normalizedPresetField(current.operand, uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+    const operand = normalizedPresetField(current.operand, uniquePresetField(filteredPresets(presets, {
         gpuArch,
         category,
         matrixSize,
@@ -461,7 +512,7 @@ export function composeLayoutPresetForSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPreset | null {
     const current = cloneComposeLayoutPresetSelection(selection);
-    return COMPOSE_LAYOUT_PRESETS.find((preset) => preset.gpuArch === current.gpuArch
+    return composeLayoutPresetCatalog().find((preset) => preset.gpuArch === current.gpuArch
         && preset.category === current.category
         && preset.matrixSize === current.matrixSize
         && preset.dtype === current.dtype

@@ -48,8 +48,8 @@ import {
     loadLinearLayoutState,
     preservedLinearLayoutTensorViews,
     renderCellTextWidget,
+    renderLinearLayoutEditorWidgets,
     renderLinearLayoutPresetWidget,
-    renderLinearLayoutWidget,
     snapshotTensorViews,
     syncLinearLayoutCellTextState,
     syncLinearLayoutMultiInputState,
@@ -169,6 +169,9 @@ const linearLayoutUi: LinearLayoutUiContext = {
     },
     loadTab: async (tabId) => {
         await loadTab(tabId);
+    },
+    renderLinearLayoutEditorWidgets: () => {
+        renderLinearLayoutEditorWidgets(linearLayoutUi);
     },
 };
 
@@ -1011,7 +1014,7 @@ async function loadTab(tabId: string): Promise<void> {
     syncLinearLayoutCellTextState(linearLayoutUi, tab);
     syncLinearLayoutMultiInputState(linearLayoutUi, tab);
     renderLinearLayoutPresetWidget(linearLayoutUi);
-    renderLinearLayoutWidget(linearLayoutUi);
+    renderLinearLayoutEditorWidgets(linearLayoutUi);
     renderCellTextWidget(linearLayoutUi);
     syncLinearLayoutViewFilters(linearLayoutUi);
     applyLinearLayoutCellText(linearLayoutUi);
@@ -2161,7 +2164,7 @@ viewer.subscribeSelection((selection) => {
     syncLinearLayoutSelection(linearLayoutUi, selection);
 });
 renderLinearLayoutPresetWidget(linearLayoutUi);
-renderLinearLayoutWidget(linearLayoutUi);
+renderLinearLayoutEditorWidgets(linearLayoutUi);
 
 tryLoadSession().then(async (loaded) => {
     if (loaded) return;

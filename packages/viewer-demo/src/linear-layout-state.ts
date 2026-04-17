@@ -83,6 +83,7 @@ export type LinearLayoutUiContext = {
     getSessionTabs: () => LoadedBundleDocument[];
     setSessionTabs: (tabs: LoadedBundleDocument[]) => void;
     loadTab: (id: string) => Promise<void>;
+    renderLinearLayoutEditorWidgets: () => void;
 };
 
 const LINEAR_LAYOUT_CHANNELS: LinearLayoutChannel[] = ['H', 'S', 'L'];
