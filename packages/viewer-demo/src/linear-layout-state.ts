@@ -9,6 +9,7 @@ import {
     emptyComposeLayoutState,
     isComposeLayoutMeta,
     isComposeLayoutState,
+    matchedComposeLayoutPresetSelection,
     type ComposeLayoutMeta,
     type ComposeLayoutState,
     type ComposeTensorMeta,
@@ -70,6 +71,7 @@ export type LinearLayoutUiState = {
 export type LinearLayoutUiContext = {
     viewer: TensorViewer;
     viewport: HTMLElement;
+    linearLayoutPresetWidget: HTMLElement;
     linearLayoutWidget: HTMLElement;
     linearLayoutVisibleTensorsWidget: HTMLElement;
     cellTextWidget: HTMLElement;
@@ -204,6 +206,11 @@ export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBun
             specsText: meta.specsText,
             operationText: meta.operationText,
             inputName: meta.inputName ?? defaultLinearLayoutState().inputName,
+            presetSelection: matchedComposeLayoutPresetSelection({
+                specsText: meta.specsText,
+                operationText: meta.operationText,
+                inputName: meta.inputName ?? defaultLinearLayoutState().inputName,
+            }),
             visibleTensors: Object.fromEntries(meta.tensors.map((tensor) => [tensor.id, tensor.visible])),
             mapping: autoColor?.mapping ?? defaultLinearLayoutState().mapping,
             ranges: autoColor?.ranges ?? defaultLinearLayoutState().ranges,
@@ -298,14 +305,22 @@ function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutF
             ranges[normalized] = [String(range[0]), String(range[1])];
         });
     }
+    const specsText = [
+        `Layout_1: [T,W,R] -> [${outputs.join(',')}]`,
+        ...['T', 'W', 'R'].map((label, axis) => `${label}: ${JSON.stringify(rows[axis])}`),
+    ].join('\n');
+    const operationText = 'Layout_1';
     return {
-        specsText: [
-            `Layout_1: [T,W,R] -> [${outputs.join(',')}]`,
-            ...['T', 'W', 'R'].map((label, axis) => `${label}: ${JSON.stringify(rows[axis])}`),
-        ].join('\n'),
-        operationText: 'Layout_1',
+        specsText,
+        operationText,
         inputName: fallback.inputName,
+        presetSelection: matchedComposeLayoutPresetSelection({
+            specsText,
+            operationText,
+            inputName: fallback.inputName,
+        }),
         visibleTensors: {},
+        propagateOutputs: false,
         mapping,
         ranges,
     };

@@ -4,6 +4,7 @@ export type AppShellRefs = {
     tabStrip: HTMLDivElement;
     controlDock: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
+    linearLayoutPresetWidget: HTMLElement;
     linearLayoutWidget: HTMLElement;
     linearLayoutVisibleTensorsWidget: HTMLElement;
     cellTextWidget: HTMLElement;
@@ -102,6 +103,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       </main>
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
+        <section class="widget" id="linear-layout-preset-widget"></section>
         <section class="widget" id="linear-layout-widget"></section>
         <section class="widget" id="linear-layout-visible-tensors-widget"></section>
         <section class="widget" id="linear-layout-color-widget"></section>
@@ -129,6 +131,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         tabStrip: requireElement(app, '#tab-strip', 'tab strip'),
         controlDock: requireElement(app, '#control-dock', 'control dock'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
+        linearLayoutPresetWidget: requireElement(app, '#linear-layout-preset-widget', 'linear layout preset widget'),
         linearLayoutWidget: requireElement(app, '#linear-layout-widget', 'linear layout widget'),
         linearLayoutVisibleTensorsWidget: requireElement(app, '#linear-layout-visible-tensors-widget', 'linear layout visible tensors widget'),
         cellTextWidget: requireElement(app, '#cell-text-widget', 'cell text widget'),

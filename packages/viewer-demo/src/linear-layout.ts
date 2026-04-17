@@ -14,10 +14,37 @@ export type ComposeLayoutState = {
     specsText: string;
     operationText: string;
     inputName: string;
+    presetSelection: ComposeLayoutPresetSelection;
     visibleTensors: Record<string, boolean>;
     propagateOutputs: boolean;
     mapping: Record<ComposeChannel, ComposeMappingValue>;
     ranges: Record<ComposeChannel, [string, string]>;
+};
+
+export type ComposeLayoutPresetSelection = {
+    gpuArch: string;
+    category: string;
+    matrixSize: string;
+    dtype: string;
+    operand: string;
+};
+
+export type ComposeLayoutPreset = {
+    title: string;
+    gpuArch: string;
+    category: string;
+    matrixSize: string;
+    dtype: string;
+    operand: string;
+    state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>;
+};
+
+export type ComposeLayoutPresetOptions = {
+    gpuArchs: string[];
+    categories: string[];
+    matrixSizes: string[];
+    dtypes: string[];
+    operands: string[];
 };
 
 export type NamedLayoutSpec = {
@@ -131,6 +158,17 @@ const DEFAULT_EMPTY_SPEC_TEXT = [
     'R: [[1,0],[2,0]]',
 ].join('\n');
 
+const EMPTY_PRESET_SELECTION: ComposeLayoutPresetSelection = {
+    gpuArch: '',
+    category: '',
+    matrixSize: '',
+    dtype: '',
+    operand: '',
+};
+
+const PRESET_GPU_ARCHS = ['sm_75', 'sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120'] as const;
+const PRESET_CATEGORIES = ['mma-v2', 'ldmatrix', 'mma', 'swizzle'] as const;
+
 // sync-linear-layout-examples:start
 const BLOCKED_LAYOUT_TEXT = [
     'Blocked_Layout: [T,W,R] -> [Y,X]',
@@ -183,17 +221,41 @@ function bakedExample(
     operationText: string,
     inputName = DEFAULT_INPUT_NAME,
 ): ExampleState {
+    const state = {
+        specsText,
+        operationText,
+        inputName,
+        presetSelection: matchedComposeLayoutPresetSelection({ specsText, operationText, inputName }),
+        visibleTensors: {},
+        propagateOutputs: false,
+        mapping: { H: 'none', S: 'none', L: 'none' },
+        ranges: defaultColorRanges(),
+    };
     return {
         title,
-        state: {
-            specsText,
-            operationText,
-            inputName,
-            visibleTensors: {},
-            propagateOutputs: false,
-            mapping: { H: 'none', S: 'none', L: 'none' },
-            ranges: defaultColorRanges(),
-        },
+        state,
+    };
+}
+
+function layoutPreset(
+    title: string,
+    gpuArch: string,
+    category: string,
+    matrixSize: string,
+    dtype: string,
+    operand: string,
+    specsText: string,
+    operationText: string,
+    inputName: string,
+): ComposeLayoutPreset {
+    return {
+        title,
+        gpuArch,
+        category,
+        matrixSize,
+        dtype,
+        operand,
+        state: { specsText, operationText, inputName },
     };
 }
 
@@ -207,6 +269,7 @@ export function emptyComposeLayoutState(): ComposeLayoutState {
         specsText: DEFAULT_EMPTY_SPEC_TEXT,
         operationText: 'Layout_1',
         inputName: DEFAULT_INPUT_NAME,
+        presetSelection: emptyComposeLayoutPresetSelection(),
         visibleTensors: {},
         propagateOutputs: false,
         mapping: autoColor.mapping,
@@ -226,6 +289,7 @@ export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayou
         specsText: state.specsText,
         operationText: state.operationText,
         inputName: state.inputName,
+        presetSelection: cloneComposeLayoutPresetSelection(state.presetSelection),
         visibleTensors: { ...state.visibleTensors },
         propagateOutputs: state.propagateOutputs ?? false,
         mapping: { ...state.mapping },
@@ -243,6 +307,7 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
     return typeof record.specsText === 'string'
         && typeof record.operationText === 'string'
         && typeof record.inputName === 'string'
+        && (record.presetSelection === undefined || isComposeLayoutPresetSelection(record.presetSelection))
         && !!record.visibleTensors
         && typeof record.visibleTensors === 'object'
         && (record.propagateOutputs === undefined || typeof record.propagateOutputs === 'boolean')
@@ -287,11 +352,138 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
         specsText,
         operationText,
         inputName: DEFAULT_INPUT_NAME,
+        presetSelection: emptyComposeLayoutPresetSelection(),
         visibleTensors: {},
         propagateOutputs: false,
         mapping: Object.keys(legacy.colorAxes).length > 0 ? legacyMapping(labelMap, legacy.colorAxes) : autoColor.mapping,
         ranges: Object.keys(legacy.colorRanges).length > 0 ? legacyRanges(legacy.colorRanges) : autoColor.ranges,
     };
+}
+
+export function emptyComposeLayoutPresetSelection(): ComposeLayoutPresetSelection {
+    return { ...EMPTY_PRESET_SELECTION };
+}
+
+export function cloneComposeLayoutPresetSelection(
+    selection: ComposeLayoutPresetSelection | undefined,
+): ComposeLayoutPresetSelection {
+    return {
+        gpuArch: selection?.gpuArch ?? '',
+        category: selection?.category ?? '',
+        matrixSize: selection?.matrixSize ?? '',
+        dtype: selection?.dtype ?? '',
+        operand: selection?.operand ?? '',
+    };
+}
+
+export function isComposeLayoutPresetSelection(value: unknown): value is ComposeLayoutPresetSelection {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as ComposeLayoutPresetSelection;
+    return typeof record.gpuArch === 'string'
+        && typeof record.category === 'string'
+        && typeof record.matrixSize === 'string'
+        && typeof record.dtype === 'string'
+        && typeof record.operand === 'string';
+}
+
+export function composeLayoutPresets(): ComposeLayoutPreset[] {
+    return COMPOSE_LAYOUT_PRESETS.map((preset) => ({
+        ...preset,
+        state: { ...preset.state },
+    }));
+}
+
+export function matchedComposeLayoutPresetSelection(
+    state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>,
+): ComposeLayoutPresetSelection {
+    const preset = COMPOSE_LAYOUT_PRESETS.find((entry) => entry.state.specsText === state.specsText
+        && entry.state.operationText === state.operationText
+        && entry.state.inputName === state.inputName);
+    return preset ? {
+        gpuArch: preset.gpuArch,
+        category: preset.category,
+        matrixSize: preset.matrixSize,
+        dtype: preset.dtype,
+        operand: preset.operand,
+    } : emptyComposeLayoutPresetSelection();
+}
+
+export function composeLayoutPresetOptions(
+    selection: ComposeLayoutPresetSelection | undefined,
+): ComposeLayoutPresetOptions {
+    const current = cloneComposeLayoutPresetSelection(selection);
+    const gpuArchs = [...PRESET_GPU_ARCHS];
+    const categories = current.gpuArch ? [...PRESET_CATEGORIES] : [];
+    const matrixSizes = uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+        gpuArch: current.gpuArch,
+        category: current.category,
+    }), 'matrixSize');
+    const dtypes = uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+        gpuArch: current.gpuArch,
+        category: current.category,
+        matrixSize: current.matrixSize,
+    }), 'dtype');
+    const operands = uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+        gpuArch: current.gpuArch,
+        category: current.category,
+        matrixSize: current.matrixSize,
+        dtype: current.dtype,
+    }), 'operand');
+    return { gpuArchs, categories, matrixSizes, dtypes, operands };
+}
+
+export function normalizeComposeLayoutPresetSelection(
+    selection: ComposeLayoutPresetSelection | undefined,
+): ComposeLayoutPresetSelection {
+    const current = cloneComposeLayoutPresetSelection(selection);
+    const options = composeLayoutPresetOptions(current);
+    const gpuArch = normalizedPresetField(current.gpuArch, options.gpuArchs);
+    const category = normalizedPresetField(current.category, gpuArch ? [...PRESET_CATEGORIES] : []);
+    const matrixSize = normalizedPresetField(current.matrixSize, uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+        gpuArch,
+        category,
+    }), 'matrixSize'));
+    const dtype = normalizedPresetField(current.dtype, uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+        gpuArch,
+        category,
+        matrixSize,
+    }), 'dtype'));
+    const operand = normalizedPresetField(current.operand, uniquePresetField(filteredPresets(COMPOSE_LAYOUT_PRESETS, {
+        gpuArch,
+        category,
+        matrixSize,
+        dtype,
+    }), 'operand'));
+    return { gpuArch, category, matrixSize, dtype, operand };
+}
+
+export function composeLayoutPresetForSelection(
+    selection: ComposeLayoutPresetSelection | undefined,
+): ComposeLayoutPreset | null {
+    const current = cloneComposeLayoutPresetSelection(selection);
+    return COMPOSE_LAYOUT_PRESETS.find((preset) => preset.gpuArch === current.gpuArch
+        && preset.category === current.category
+        && preset.matrixSize === current.matrixSize
+        && preset.dtype === current.dtype
+        && preset.operand === current.operand) ?? null;
+}
+
+function filteredPresets(
+    presets: ComposeLayoutPreset[],
+    filters: Partial<Record<keyof ComposeLayoutPresetSelection, string>>,
+): ComposeLayoutPreset[] {
+    return presets.filter((preset) => Object.entries(filters).every(([key, value]) => !value || preset[key as keyof ComposeLayoutPresetSelection] === value));
+}
+
+function normalizedPresetField(value: string, options: string[]): string {
+    return options.includes(value) ? value : '';
+}
+
+function uniquePresetField<K extends keyof ComposeLayoutPresetSelection>(
+    presets: ComposeLayoutPreset[],
+    key: K,
+): ComposeLayoutPresetSelection[K][] {
+    return Array.from(new Set(presets.map((preset) => preset[key])));
 }
 
 export function autoColorLayoutState(

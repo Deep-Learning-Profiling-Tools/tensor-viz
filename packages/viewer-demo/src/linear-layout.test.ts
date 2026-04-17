@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
     autoColorLayoutState,
     buildComposeRuntime,
+    composeLayoutPresetForSelection,
+    composeLayoutPresetOptions,
     composeLayoutStateFromLegacySpec,
     createComposeLayoutDocument,
     defaultComposeLayoutState,
+    matchedComposeLayoutPresetSelection,
     propagationLabels,
 } from './linear-layout.js';
 import {
@@ -61,6 +64,61 @@ describe('compose layout helpers', () => {
         expect(state.propagateOutputs).toBe(false);
         expect(state.mapping).toEqual({ H: 'T', S: 'W', L: 'R' });
         expect(state.ranges).toEqual({ H: ['0', '0.8'], S: ['1', '0.2'], L: ['1', '0.2'] });
+        expect(state.presetSelection).toEqual({
+            gpuArch: '',
+            category: '',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+        });
+    });
+
+    it('matches the shipped mma-v2 presets from their editor state', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'MMA_A_Layout__m16n8k16: [T,W,R] -> [Y,X]',
+                'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
+                'W: []',
+                'R: [[0,1],[8,0],[0,8]]',
+            ].join('\n'),
+            operationText: 'MMA_A_Layout__m16n8k16',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_80',
+            category: 'mma-v2',
+            matrixSize: 'm16n8k16',
+            dtype: 'f16',
+            operand: 'A',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA A Layout (m16n8k16)');
+    });
+
+    it('filters preset dropdown options by the current selection path', () => {
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_80',
+            category: '',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+        })).toMatchObject({
+            gpuArchs: ['sm_75', 'sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120'],
+            categories: ['mma-v2', 'ldmatrix', 'mma', 'swizzle'],
+            matrixSizes: [],
+            dtypes: [],
+            operands: [],
+        });
+
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_80',
+            category: 'mma-v2',
+            matrixSize: 'm16n8k16',
+            dtype: 'f16',
+            operand: '',
+        })).toMatchObject({
+            operands: ['A', 'B', 'C'],
+        });
     });
 
     it('renders composition chains left to right and emits compose code in the same order', () => {

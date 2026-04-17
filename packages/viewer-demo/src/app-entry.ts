@@ -48,6 +48,7 @@ import {
     loadLinearLayoutState,
     preservedLinearLayoutTensorViews,
     renderCellTextWidget,
+    renderLinearLayoutPresetWidget,
     renderLinearLayoutWidget,
     snapshotTensorViews,
     syncLinearLayoutCellTextState,
@@ -79,6 +80,7 @@ const {
     tabStrip,
     controlDock,
     sidebarSplitter,
+    linearLayoutPresetWidget,
     linearLayoutWidget,
     linearLayoutVisibleTensorsWidget,
     cellTextWidget,
@@ -152,6 +154,7 @@ const linearLayoutUiState: LinearLayoutUiState = {
 const linearLayoutUi: LinearLayoutUiContext = {
     viewer,
     viewport,
+    linearLayoutPresetWidget,
     linearLayoutWidget,
     linearLayoutVisibleTensorsWidget,
     cellTextWidget,
@@ -189,6 +192,7 @@ type ControlSpec = {
 
 type SidebarWidgetId =
     | 'linear-layout'
+    | 'linear-layout-preset'
     | 'linear-layout-visible-tensors'
     | 'linear-layout-color'
     | 'cell-text'
@@ -199,6 +203,7 @@ type SidebarWidgetId =
     | 'colorbar';
 
 const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
+    'linear-layout-preset': linearLayoutPresetWidget,
     'linear-layout': linearLayoutWidget,
     'linear-layout-visible-tensors': linearLayoutVisibleTensorsWidget,
     'linear-layout-color': linearLayoutColorWidget,
@@ -211,6 +216,7 @@ const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
 };
 
 const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
+    'linear-layout-preset': 'Preset',
     'linear-layout': 'Linear Layout Specifications',
     'linear-layout-visible-tensors': 'Visible Tensors',
     'linear-layout-color': 'Cell Color/Text',
@@ -223,6 +229,7 @@ const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
 };
 
 let widgetOrder: SidebarWidgetId[] = [
+    'linear-layout-preset',
     'linear-layout',
     'linear-layout-visible-tensors',
     'linear-layout-color',
@@ -239,6 +246,7 @@ let draggedWidgetSlot: number | null = null;
 let draggedWidgetPointerId: number | null = null;
 const collapsedWidgets = new Set<SidebarWidgetId>(widgetOrder);
 collapsedWidgets.delete('linear-layout');
+collapsedWidgets.delete('linear-layout-preset');
 
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
@@ -333,7 +341,8 @@ function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
     const model = viewer.getInspectorModel();
     const linearLayoutActive = Boolean(activeTab() && isLinearLayoutTab(activeTab()!));
     return widgetOrder.filter((widgetId) => (
-        (widgetId === 'linear-layout' && linearLayoutActive)
+        (widgetId === 'linear-layout-preset' && linearLayoutActive)
+        || (widgetId === 'linear-layout' && linearLayoutActive)
         || (widgetId === 'linear-layout-visible-tensors' && linearLayoutActive)
         || (widgetId === 'linear-layout-color' && linearLayoutActive)
         || (widgetId === 'tensor-view' && showTensorViewWidget)
@@ -448,6 +457,13 @@ function clearSidebarDragState(): void {
 
 function widgetIcon(widgetId: SidebarWidgetId): string {
     switch (widgetId) {
+        case 'linear-layout-preset':
+            return `
+              <svg viewBox="0 0 24 24">
+                <path d="M5 7h14M5 12h14M5 17h9" />
+                <path d="M16.5 15.5l2 2 3.5-4" />
+              </svg>
+            `;
         case 'linear-layout':
             return `
               <svg viewBox="0 0 24 24">
@@ -994,6 +1010,7 @@ async function loadTab(tabId: string): Promise<void> {
     syncLinearLayoutState(linearLayoutUi, tab);
     syncLinearLayoutCellTextState(linearLayoutUi, tab);
     syncLinearLayoutMultiInputState(linearLayoutUi, tab);
+    renderLinearLayoutPresetWidget(linearLayoutUi);
     renderLinearLayoutWidget(linearLayoutUi);
     renderCellTextWidget(linearLayoutUi);
     syncLinearLayoutViewFilters(linearLayoutUi);
@@ -2143,6 +2160,7 @@ viewer.subscribeSelection((selection) => {
     renderSelectionWidget(viewer.getSnapshot());
     syncLinearLayoutSelection(linearLayoutUi, selection);
 });
+renderLinearLayoutPresetWidget(linearLayoutUi);
 renderLinearLayoutWidget(linearLayoutUi);
 
 tryLoadSession().then(async (loaded) => {
