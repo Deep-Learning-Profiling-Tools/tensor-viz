@@ -76,7 +76,7 @@ function linearLayoutPresetHelpHtml(options: {
             <span>Choose a supported combination, then click <strong>Load Preset</strong> to overwrite the current Layouts, Layout Operation, and Input Tensor Name fields.</span>
           </div>
           <div class="usage-guide-step">
-            <span>This starts with <strong>mma-v2</strong> presets only. The dropdowns are structured so more PTX layout families can be added without changing the editor flow.</span>
+            <span>This currently includes <strong>mma-v2</strong>, <strong>mma</strong>, <strong>wgmma</strong>, and <strong>tcgen05</strong> presets. The dropdowns are structured so more PTX layout families can be added without changing the editor flow.</span>
           </div>
           <div class="usage-guide-subtitle">Valid Values</div>
           <div class="usage-guide-example">

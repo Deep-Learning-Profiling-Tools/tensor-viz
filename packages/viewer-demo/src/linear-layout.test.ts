@@ -103,8 +103,8 @@ describe('compose layout helpers', () => {
             dtype: '',
             operand: '',
         })).toMatchObject({
-            gpuArchs: ['sm_75', 'sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120'],
-            categories: ['mma-v2', 'ldmatrix', 'mma', 'swizzle'],
+            gpuArchs: ['sm_70', 'sm_75', 'sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120'],
+            categories: ['mma-v2', 'ldmatrix', 'mma', 'swizzle', 'wgmma', 'tcgen05'],
             matrixSizes: [],
             dtypes: [],
             operands: [],
@@ -119,6 +119,101 @@ describe('compose layout helpers', () => {
         })).toMatchObject({
             operands: ['A', 'B', 'C'],
         });
+
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_70',
+            category: 'mma',
+            matrixSize: 'm8n8k4',
+            dtype: 'f16',
+            operand: '',
+        })).toMatchObject({
+            operands: ['A-row-major', 'A-col-major', 'B-row-major', 'B-col-major', 'C', 'D'],
+        });
+
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_90',
+            category: 'wgmma',
+            matrixSize: 'm64nNk32',
+            dtype: '',
+            operand: '',
+        })).toMatchObject({
+            dtypes: ['u8', 's8', 'e4m3', 'e5m2'],
+            operands: [],
+        });
+
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_100',
+            category: 'tcgen05',
+            matrixSize: '16x32bx2',
+            dtype: 'none',
+            operand: '',
+        })).toMatchObject({
+            operands: ['none'],
+        });
+    });
+
+    it('matches shipped mma presets with row-major and col-major operand variants', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'MMA_m8n8k4_A_row_major_f16: [T,R] -> [M,K]',
+                'T: [[1,0],[2,0],[0,0],[0,0],[4,0]]',
+                'R: [[0,1],[0,2]]',
+            ].join('\n'),
+            operationText: 'MMA_m8n8k4_A_row_major_f16',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_70',
+            category: 'mma',
+            matrixSize: 'm8n8k4',
+            dtype: 'f16',
+            operand: 'A-row-major',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA_m8n8k4_A_row_major_f16');
+    });
+
+    it('matches shipped wgmma presets from their editor state', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'WGMMA_m64nNk32_A_e4m3: [T,W,R] -> [M,K]',
+                'T: [[0,4],[0,8],[1,0],[2,0],[4,0]]',
+                'W: [[16,0],[32,0]]',
+                'R: [[0,1],[0,2],[8,0],[0,16]]',
+            ].join('\n'),
+            operationText: 'WGMMA_m64nNk32_A_e4m3',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_90',
+            category: 'wgmma',
+            matrixSize: 'm64nNk32',
+            dtype: 'e4m3',
+            operand: 'A',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('WGMMA_m64nNk32_A_e4m3');
+    });
+
+    it('matches shipped tcgen05 presets from their editor state', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'TCGEN05_ldst_16x32bx2: [T,R] -> [H,L,B]',
+                'T: [[0,1,0],[0,2,0],[0,4,0],[0,8,0],[1,0,0]]',
+                'R: [[0,0,32],[0,0,64],[0,0,128],[0,0,256],[0,0,512],[0,0,1024],[0,0,2048]]',
+            ].join('\n'),
+            operationText: 'TCGEN05_ldst_16x32bx2',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_100',
+            category: 'tcgen05',
+            matrixSize: '16x32bx2',
+            dtype: 'none',
+            operand: 'none',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('TCGEN05_ldst_16x32bx2');
     });
 
     it('renders composition chains left to right and emits compose code in the same order', () => {
