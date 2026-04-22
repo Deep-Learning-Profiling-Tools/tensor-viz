@@ -66,90 +66,174 @@ describe('compose layout helpers', () => {
         expect(state.ranges).toEqual({ H: ['0', '0.8'], S: ['1', '0.2'], L: ['1', '0.2'] });
         expect(state.presetSelection).toEqual({
             gpuArch: '',
-            category: '',
+            instruction: '',
             matrixSize: '',
             dtype: '',
             operand: '',
+            trans: '',
+            major: '',
         });
     });
 
-    it('matches the shipped mma-v2 presets from their editor state', () => {
+    it('matches the shipped ldmatrix preset from its editor state', () => {
         const selection = matchedComposeLayoutPresetSelection({
             specsText: [
-                'MMA_A_Layout__m16n8k16: [T,W,R] -> [Y,X]',
-                'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
-                'W: []',
-                'R: [[0,1],[8,0],[0,8]]',
+                'ldmatrix_m8n8_x1_b16: [R, C] -> [T, R32]',
+                '# R32 = packed 32-bit register',
+                '# Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.',
+                'R: [[4,0],[8,0],[16,0]]',
+                'C: [[0,0],[1,0],[2,0]]',
             ].join('\n'),
-            operationText: 'MMA_A_Layout__m16n8k16',
-            inputName: 'Hardware Layout',
+            operationText: 'ldmatrix_m8n8_x1_b16',
+            inputName: 'Shared Memory',
         });
 
         expect(selection).toEqual({
-            gpuArch: 'sm_80',
-            category: 'mma-v2',
-            matrixSize: 'm16n8k16',
-            dtype: 'f16',
-            operand: 'A',
+            gpuArch: 'sm_75',
+            instruction: 'ldmatrix',
+            matrixSize: 'm8n8.x1',
+            dtype: 'b16',
+            operand: '',
+            trans: '',
+            major: '',
         });
-        expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA A Layout (m16n8k16)');
+        const preset = composeLayoutPresetForSelection(selection);
+        expect(preset?.title).toBe('ldmatrix_m8n8_x1_b16');
+        expect(preset?.state.specsText).toContain('# R = row');
+        expect(preset?.state.specsText).toContain('# C = column');
+        expect(preset?.state.specsText).toContain('# T = thread (AKA lane)');
+        expect(preset?.state.specsText).toContain('# R32 = packed 32-bit register');
+        expect(preset?.state.specsText).toContain('# Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.');
+        expect(preset?.state.inputName).toBe('Shared Memory');
     });
 
     it('filters preset dropdown options by the current selection path', () => {
         expect(composeLayoutPresetOptions({
             gpuArch: 'sm_80',
-            category: '',
+            instruction: '',
             matrixSize: '',
             dtype: '',
             operand: '',
+            trans: '',
+            major: '',
         })).toMatchObject({
-            gpuArchs: ['sm_70', 'sm_75', 'sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120'],
-            categories: ['mma-v2', 'ldmatrix', 'mma', 'swizzle', 'wgmma', 'tcgen05'],
-            matrixSizes: [],
-            dtypes: [],
+            instructions: ['mma', 'ldmatrix'],
+        });
+        expect(composeLayoutPresetOptions({
+            gpuArch: '',
+            instruction: '',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+            trans: '',
+            major: '',
+        })).toMatchObject({
+            gpuArchs: ['sm_70', 'sm_75', 'sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'],
+            instructions: ['mma', 'swizzle', 'ldmatrix', 'stmatrix', 'wgmma'],
+        });
+        expect(composeLayoutPresetOptions({
+            gpuArch: '',
+            instruction: 'ldmatrix',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+            trans: '',
+            major: '',
+        })).toMatchObject({
+            matrixSizes: ['m8n8.x1', 'm8n8.x2', 'm8n8.x4', 'm16n16.x1', 'm16n16.x2', 'm8n16.x1', 'm8n16.x2', 'm8n16.x4'],
+            dtypes: ['b16', 'b8', 'b4'],
             operands: [],
+            transes: [],
         });
 
         expect(composeLayoutPresetOptions({
-            gpuArch: 'sm_80',
-            category: 'mma-v2',
-            matrixSize: 'm16n8k16',
-            dtype: 'f16',
+            gpuArch: 'sm_75',
+            instruction: 'ldmatrix',
+            matrixSize: 'm8n8.x1',
+            dtype: 'b16',
             operand: '',
+            trans: '',
+            major: '',
         })).toMatchObject({
-            operands: ['A', 'B', 'C'],
+            operands: [],
+            transes: [],
         });
 
         expect(composeLayoutPresetOptions({
             gpuArch: 'sm_70',
-            category: 'mma',
+            instruction: 'mma',
             matrixSize: 'm8n8k4',
             dtype: 'f16',
             operand: '',
+            trans: '',
+            major: '',
         })).toMatchObject({
             operands: ['A-row-major', 'A-col-major', 'B-row-major', 'B-col-major', 'C', 'D'],
         });
 
         expect(composeLayoutPresetOptions({
-            gpuArch: 'sm_90',
-            category: 'wgmma',
-            matrixSize: 'm64nNk32',
+            gpuArch: 'sm_90a',
+            instruction: 'wgmma',
+            matrixSize: 'm64k32',
             dtype: '',
             operand: '',
+            trans: '',
+            major: '',
         })).toMatchObject({
-            dtypes: ['u8', 's8', 'e4m3', 'e5m2'],
-            operands: [],
+            dtypes: ['b8'],
+            operands: ['A'],
         });
 
         expect(composeLayoutPresetOptions({
-            gpuArch: 'sm_100',
-            category: 'tcgen05',
-            matrixSize: '16x32bx2',
-            dtype: 'none',
-            operand: '',
+            gpuArch: 'sm_90a',
+            instruction: 'wgmma',
+            matrixSize: 'm64n32',
+            dtype: '',
+            operand: 'D',
+            trans: '',
+            major: '',
         })).toMatchObject({
-            operands: ['none'],
+            dtypes: ['b16', 'b32'],
+            operands: ['D'],
         });
+
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_90a',
+            instruction: 'swizzle',
+            matrixSize: '128B',
+            dtype: '',
+            operand: '',
+            trans: '',
+            major: '',
+        })).toMatchObject({
+            dtypes: ['b8', 'b16', 'b32', 'b64', 'b128'],
+            operands: [],
+            majors: ['MN-major', 'K-major'],
+        });
+
+    });
+
+    it('matches presets across every supported architecture in the family list', () => {
+        const selection = {
+            gpuArch: 'sm_120',
+            instruction: 'mma',
+            matrixSize: 'm8n8k4',
+            dtype: 'f16',
+            operand: 'A-row-major',
+            trans: '',
+            major: '',
+        };
+
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA_m8n8k4_A_row_major_f16');
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_110',
+            instruction: '',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+            trans: '',
+            major: '',
+        }).instructions).toEqual(['mma', 'ldmatrix', 'stmatrix']);
     });
 
     it('matches shipped mma presets with row-major and col-major operand variants', () => {
@@ -165,55 +249,178 @@ describe('compose layout helpers', () => {
 
         expect(selection).toEqual({
             gpuArch: 'sm_70',
-            category: 'mma',
+            instruction: 'mma',
             matrixSize: 'm8n8k4',
             dtype: 'f16',
             operand: 'A-row-major',
+            trans: '',
+            major: '',
         });
         expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA_m8n8k4_A_row_major_f16');
+    });
+
+    it('matches merged mma presets by storage width', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'MMA_m16n8k16_A_b8: [T,R] -> [M,K]',
+                '# b8 represents 8-bit elements (u8/s8/e4m3/e5m2).',
+                'T: [[0,4],[0,8],[1,0],[2,0],[4,0]]',
+                'R: [[0,1],[0,2],[8,0]]',
+            ].join('\n'),
+            operationText: 'MMA_m16n8k16_A_b8',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_80',
+            instruction: 'mma',
+            matrixSize: 'm16n8k16',
+            dtype: 'b8',
+            operand: 'A',
+            trans: '',
+            major: '',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.state.specsText)
+            .toContain('# b8 represents 8-bit elements (u8/s8/e4m3/e5m2).');
     });
 
     it('matches shipped wgmma presets from their editor state', () => {
         const selection = matchedComposeLayoutPresetSelection({
             specsText: [
-                'WGMMA_m64nNk32_A_e4m3: [T,W,R] -> [M,K]',
+                'WGMMA_m64k32_A_b8: [T,W,R] -> [M,K]',
                 'T: [[0,4],[0,8],[1,0],[2,0],[4,0]]',
                 'W: [[16,0],[32,0]]',
                 'R: [[0,1],[0,2],[8,0],[0,16]]',
             ].join('\n'),
-            operationText: 'WGMMA_m64nNk32_A_e4m3',
+            operationText: 'WGMMA_m64k32_A_b8',
             inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_90a',
+            instruction: 'wgmma',
+            matrixSize: 'm64k32',
+            dtype: 'b8',
+            operand: 'A',
+            trans: '',
+            major: '',
+        });
+        const preset = composeLayoutPresetForSelection(selection);
+        expect(preset?.title).toBe('WGMMA_m64k32_A_b8');
+        expect(preset?.state.specsText).toContain('# b8 represents 8-bit elements (u8/s8/e4m3/e5m2).');
+    });
+
+    it('matches packed-16 wgmma accumulator layouts separately from 32-bit accumulators', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'WGMMA_m64n16_D_b16: [T,W,R] -> [M,N]',
+                '# b16 represents 16-bit accumulators (f16).',
+                'T: [[0,2],[0,4],[1,0],[2,0],[4,0]]',
+                'W: [[16,0],[32,0]]',
+                'R: [[0,1],[8,0],[0,8]]',
+            ].join('\n'),
+            operationText: 'WGMMA_m64n16_D_b16',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_90a',
+            instruction: 'wgmma',
+            matrixSize: 'm64n16',
+            dtype: 'b16',
+            operand: 'D',
+            trans: '',
+            major: '',
+        });
+    });
+
+    it('matches the shipped swizzle preset from its editor state', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'swizzle_128B_MN_major_b32: [O] -> [M, K]',
+                'O: [[1,0],[2,0],[4,0],[8,0],[16,0],[4,1],[8,2],[16,4]]',
+            ].join('\n'),
+            operationText: 'swizzle_128B_MN_major_b32',
+            inputName: 'Logical Offsets',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_90a',
+            instruction: 'swizzle',
+            matrixSize: '128B',
+            dtype: 'b32',
+            operand: '',
+            trans: '',
+            major: 'MN-major',
+        });
+        const preset = composeLayoutPresetForSelection(selection);
+        expect(preset?.title).toBe('swizzle_128B_MN_major_b32');
+        expect(preset?.state.specsText).toContain('# bX means each element is X bits wide.');
+        expect(preset?.state.specsText).toContain('O: [[1,0],[2,0],[4,0],[8,0],[16,0],[4,1],[8,2],[16,4]]');
+    });
+
+    it('matches shipped K-major swizzle presets from their editor state', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'swizzle_128B_K_major_b64: [O] -> [M, K]',
+                'O: [[0,1],[0,2],[0,4],[0,8],[1,2],[2,4],[4,8]]',
+            ].join('\n'),
+            operationText: 'swizzle_128B_K_major_b64',
+            inputName: 'Logical Offsets',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_90a',
+            instruction: 'swizzle',
+            matrixSize: '128B',
+            dtype: 'b64',
+            operand: '',
+            trans: '',
+            major: 'K-major',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('swizzle_128B_K_major_b64');
+    });
+
+    it('matches the shipped stmatrix preset from its editor state', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'stmatrix_m8n8_x4_b16: [R, C] -> [T, R32]',
+                '# R32 = packed 32-bit register',
+                '# Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.',
+                'R: [[4,0],[8,0],[16,0],[0,1],[0,2]]',
+                'C: [[0,0],[1,0],[2,0]]',
+            ].join('\n'),
+            operationText: 'stmatrix_m8n8_x4_b16',
+            inputName: 'Shared Memory',
         });
 
         expect(selection).toEqual({
             gpuArch: 'sm_90',
-            category: 'wgmma',
-            matrixSize: 'm64nNk32',
-            dtype: 'e4m3',
-            operand: 'A',
+            instruction: 'stmatrix',
+            matrixSize: 'm8n8.x4',
+            dtype: 'b16',
+            operand: '',
+            trans: '',
+            major: '',
         });
-        expect(composeLayoutPresetForSelection(selection)?.title).toBe('WGMMA_m64nNk32_A_e4m3');
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('stmatrix_m8n8_x4_b16');
     });
 
-    it('matches shipped tcgen05 presets from their editor state', () => {
-        const selection = matchedComposeLayoutPresetSelection({
-            specsText: [
-                'TCGEN05_ldst_16x32bx2: [T,R] -> [H,L,B]',
-                'T: [[0,1,0],[0,2,0],[0,4,0],[0,8,0],[1,0,0]]',
-                'R: [[0,0,32],[0,0,64],[0,0,128],[0,0,256],[0,0,512],[0,0,1024],[0,0,2048]]',
-            ].join('\n'),
-            operationText: 'TCGEN05_ldst_16x32bx2',
-            inputName: 'Hardware Layout',
-        });
+    it('accepts python-style comments in layout specs', () => {
+        const runtime = buildComposeRuntime(composeState([
+            '# comment before the signature',
+            'Layout_1: [T,W,R] -> [A,B] # signature comment',
+            '# comment before T',
+            'T: [[0,1],[0,2]] # basis comment',
+            'W: []',
+            'R: [[1,0],[2,0]]',
+        ].join('\n'), 'Layout_1'));
 
-        expect(selection).toEqual({
-            gpuArch: 'sm_100',
-            category: 'tcgen05',
-            matrixSize: '16x32bx2',
-            dtype: 'none',
-            operand: 'none',
+        expect(runtime.tensors.at(-1)).toMatchObject({
+            title: 'Layout_1',
+            axisLabels: ['A', 'B'],
+            shape: [4, 4],
         });
-        expect(composeLayoutPresetForSelection(selection)?.title).toBe('TCGEN05_ldst_16x32bx2');
     });
 
     it('renders composition chains left to right and emits compose code in the same order', () => {

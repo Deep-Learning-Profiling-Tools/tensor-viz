@@ -23,28 +23,34 @@ export type ComposeLayoutState = {
 
 export type ComposeLayoutPresetSelection = {
     gpuArch: string;
-    category: string;
+    instruction: string;
     matrixSize: string;
     dtype: string;
     operand: string;
+    trans: string;
+    major: string;
 };
 
 export type ComposeLayoutPreset = {
     title: string;
-    gpuArch: string;
-    category: string;
+    gpuArchs: string[];
+    instruction: string;
     matrixSize: string;
     dtype: string;
     operand: string;
+    trans: string;
+    major: string;
     state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>;
 };
 
 export type ComposeLayoutPresetOptions = {
     gpuArchs: string[];
-    categories: string[];
+    instructions: string[];
     matrixSizes: string[];
     dtypes: string[];
     operands: string[];
+    transes: string[];
+    majors: string[];
 };
 
 export type NamedLayoutSpec = {
@@ -160,14 +166,38 @@ const DEFAULT_EMPTY_SPEC_TEXT = [
 
 const EMPTY_PRESET_SELECTION: ComposeLayoutPresetSelection = {
     gpuArch: '',
-    category: '',
+    instruction: '',
     matrixSize: '',
     dtype: '',
     operand: '',
+    trans: '',
+    major: '',
 };
 
-const PRESET_GPU_ARCHS = ['sm_70', 'sm_75', 'sm_80', 'sm_90', 'sm_100', 'sm_110', 'sm_120'] as const;
-const PRESET_CATEGORIES = ['mma-v2', 'ldmatrix', 'mma', 'swizzle', 'wgmma', 'tcgen05'] as const;
+const PRESET_GPU_ARCHS = [
+    'sm_70',
+    'sm_75',
+    'sm_80',
+    'sm_90',
+    'sm_90a',
+    'sm_100',
+    'sm_100a',
+    'sm_100f',
+    'sm_110',
+    'sm_110a',
+    'sm_110f',
+    'sm_120',
+    'sm_120a',
+    'sm_120f',
+] as const;
+const GPU_ARCHS_SM70_PLUS = [...PRESET_GPU_ARCHS];
+const GPU_ARCHS_SM75_PLUS = ['sm_75', 'sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
+const GPU_ARCHS_SM80_PLUS = ['sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
+const GPU_ARCHS_SM90_PLUS = ['sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
+const GPU_ARCHS_SM100_PLUS = ['sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
+const GPU_ARCHS_SM120_ONLY = ['sm_120', 'sm_120a', 'sm_120f'];
+const GPU_ARCHS_SWIZZLE = ['sm_90a', 'sm_100a', 'sm_100f', 'sm_110a', 'sm_110f', 'sm_120a', 'sm_120f'];
+const GPU_ARCHS_WGMMA = ['sm_90a'];
 
 // sync-linear-layout-examples:start
 const BLOCKED_LAYOUT_TEXT = [
@@ -215,6 +245,1234 @@ const BAKED_EXAMPLES: ExampleState[] = [
 ];
 // sync-linear-layout-examples:end
 
+type ComposeLayoutPresetFields = {
+    gpuArch: string;
+    instruction: string;
+    matrixSize: string;
+    dtype: string;
+    operand: string;
+    trans?: string;
+    major?: string;
+    comments?: string[];
+    inputName?: string;
+    title?: string;
+};
+
+type ComposeLayoutPresetTextDefinition = ComposeLayoutPresetFields & {
+    specsText: string;
+};
+
+type ComposeLayoutPresetNamedDefinition = ComposeLayoutPresetFields & {
+    name: string;
+    signature: string;
+    comments?: string[];
+    rows: Array<[label: string, bases: string]>;
+};
+
+type ComposeLayoutPresetDefinition = ComposeLayoutPresetTextDefinition | ComposeLayoutPresetNamedDefinition;
+
+type MatrixTransferLayoutDefinition = {
+    name: string;
+    gpuArch: string;
+    instruction: 'ldmatrix' | 'stmatrix';
+    matrixSize: string;
+    dtype: string;
+    operand: string;
+    inputName: string;
+    rows: Array<[label: string, bases: string]>;
+};
+
+function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): string {
+    const contiguousBases = Array.from({ length: leadingVectors }, (_, index) => major === 'MN-major'
+        ? [2 ** index, 0]
+        : [0, 2 ** index]);
+    const crossBases = Array.from({ length: 3 }, (_, index) => major === 'MN-major'
+        ? [2 ** (leadingVectors - 3 + index), 2 ** index]
+        : [2 ** index, 2 ** (leadingVectors - 3 + index)]);
+    return JSON.stringify([...contiguousBases, ...crossBases]);
+}
+
+function presetOperationText(specsText: string): string {
+    const signature = specsText.split('\n', 1)[0]?.trim() ?? '';
+    const colonIndex = signature.indexOf(':');
+    return (colonIndex === -1 ? signature : signature.slice(0, colonIndex)).trim();
+}
+
+function presetGpuArchs(definition: ComposeLayoutPresetDefinition): string[] {
+    if (definition.instruction === 'ldmatrix') return definition.dtype === 'b16' ? GPU_ARCHS_SM75_PLUS : GPU_ARCHS_SM100_PLUS;
+    if (definition.instruction === 'stmatrix') return definition.dtype === 'b16' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM100_PLUS;
+    if (definition.instruction === 'swizzle') return GPU_ARCHS_SWIZZLE;
+    if (definition.instruction === 'wgmma') return GPU_ARCHS_WGMMA;
+    if (definition.instruction !== 'mma') return [definition.gpuArch];
+    if (definition.matrixSize === 'm8n8k4') return definition.dtype === 'f64' ? GPU_ARCHS_SM80_PLUS : GPU_ARCHS_SM70_PLUS;
+    if (definition.matrixSize === 'm8n8k16' || definition.matrixSize === 'm8n8k32' || definition.matrixSize === 'm8n8k128') return GPU_ARCHS_SM75_PLUS;
+    if (definition.matrixSize === 'm16n8k4') return definition.dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    if (definition.matrixSize === 'm16n8k8') {
+        if (definition.dtype === 'b16') return GPU_ARCHS_SM75_PLUS;
+        return definition.dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    }
+    if (definition.matrixSize === 'm16n8k16') {
+        if (definition.dtype === 'f64') return GPU_ARCHS_SM90_PLUS;
+        return GPU_ARCHS_SM80_PLUS;
+    }
+    if (definition.matrixSize === 'm16n8k32') {
+        if (definition.dtype === 'f16') return GPU_ARCHS_SM120_ONLY;
+        return GPU_ARCHS_SM80_PLUS;
+    }
+    if (definition.matrixSize === 'm16n8k64') return GPU_ARCHS_SM80_PLUS;
+    if (definition.matrixSize === 'm16n8k128' || definition.matrixSize === 'm16n8k256') return GPU_ARCHS_SM80_PLUS;
+    return [definition.gpuArch];
+}
+
+function axisComment(label: string, signature: { inputs: string[]; outputs: string[] }): string {
+    if (label === 'T') return 'T = thread (AKA lane)';
+    if (label === 'R') {
+        return signature.inputs.includes('C') || signature.outputs.includes('R32')
+            ? 'R = row'
+            : 'R = register';
+    }
+    if (label === 'R32') return 'R32 = packed 32-bit register';
+    if (label === 'C') return 'C = column';
+    if (label === 'W') return 'W = warp';
+    if (label === 'Y') return 'Y = y-position';
+    if (label === 'X') return 'X = x-position';
+    if (label === 'M') return 'M = row';
+    if (label === 'N') return 'N = column';
+    if (label === 'K') return 'K = reduction dimension';
+    if (label === 'O') return 'O = logical offset';
+    if (label === 'H') return 'H = higher-order tile axis';
+    if (label === 'L') return 'L = line';
+    if (label === 'B') return 'B = byte offset';
+    return `${label} = ${label} axis`;
+}
+
+function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): string {
+    const lines = specsText.replace(/\r\n/g, '\n').split('\n');
+    const signature = parseSignature(stripLayoutComment(lines[0] ?? '').trim());
+    const labelComments = [...signature.inputs, ...signature.outputs].map((label) => axisComment(label, signature));
+    return [
+        lines[0] ?? '',
+        ...Array.from(new Set([...labelComments, ...comments])).map((comment) => `# ${comment}`),
+        ...lines.slice(1),
+    ].join('\n');
+}
+
+function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): ComposeLayoutPreset {
+    const inputName = definition.inputName ?? 'Hardware Layout';
+    const gpuArchs = presetGpuArchs(definition);
+    if ('specsText' in definition) {
+        const specsText = annotatedLayoutSpecsText(definition.specsText, definition.comments);
+        const operationText = presetOperationText(specsText);
+        return {
+            title: definition.title ?? operationText,
+            gpuArchs,
+            instruction: definition.instruction,
+            matrixSize: definition.matrixSize,
+            dtype: definition.dtype,
+            operand: definition.operand,
+            trans: definition.trans ?? '',
+            major: definition.major ?? '',
+            state: { specsText, operationText, inputName },
+        };
+    }
+    const specsText = annotatedLayoutSpecsText(
+        layoutSpecText(`${definition.name}: ${definition.signature}`, definition.rows.map(([label, bases]) => `${label}: ${bases}`)),
+        definition.comments,
+    );
+    return {
+        title: definition.title ?? definition.name,
+        gpuArchs,
+        instruction: definition.instruction,
+        matrixSize: definition.matrixSize,
+        dtype: definition.dtype,
+        operand: definition.operand,
+        trans: definition.trans ?? '',
+        major: definition.major ?? '',
+        state: {
+            specsText,
+            operationText: definition.name,
+            inputName,
+        },
+    };
+}
+
+const MATRIX_TRANSFER_LAYOUTS = [
+    {
+        name: 'ldmatrix_m8n8_x1_b16',
+        gpuArch: 'sm_75',
+        instruction: 'ldmatrix',
+        matrixSize: 'm8n8.x1',
+        dtype: 'b16',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m8n8_x2_b16',
+        gpuArch: 'sm_75',
+        instruction: 'ldmatrix',
+        matrixSize: 'm8n8.x2',
+        dtype: 'b16',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m8n8_x4_b16',
+        gpuArch: 'sm_75',
+        instruction: 'ldmatrix',
+        matrixSize: 'm8n8.x4',
+        dtype: 'b16',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m16n16_x1_b8',
+        gpuArch: 'sm_100',
+        instruction: 'ldmatrix',
+        matrixSize: 'm16n16.x1',
+        dtype: 'b8',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m16n16_x2_b8',
+        gpuArch: 'sm_100',
+        instruction: 'ldmatrix',
+        matrixSize: 'm16n16.x2',
+        dtype: 'b8',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m8n16_x1_b4',
+        gpuArch: 'sm_100',
+        instruction: 'ldmatrix',
+        matrixSize: 'm8n16.x1',
+        dtype: 'b4',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m8n16_x2_b4',
+        gpuArch: 'sm_100',
+        instruction: 'ldmatrix',
+        matrixSize: 'm8n16.x2',
+        dtype: 'b4',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+    },
+    {
+        name: 'ldmatrix_m8n16_x4_b4',
+        gpuArch: 'sm_100',
+        instruction: 'ldmatrix',
+        matrixSize: 'm8n16.x4',
+        dtype: 'b4',
+        operand: '',
+        inputName: 'Shared Memory',
+        rows: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+    },
+] satisfies MatrixTransferLayoutDefinition[];
+
+const MATRIX_TRANSFER_PRESETS: ComposeLayoutPresetDefinition[] = MATRIX_TRANSFER_LAYOUTS.flatMap((layout) => {
+    const shared = {
+        gpuArch: layout.gpuArch,
+        matrixSize: layout.matrixSize,
+        dtype: layout.dtype,
+        signature: '[R, C] -> [T, R32]',
+        comments: ['Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.'],
+        rows: layout.rows,
+        inputName: layout.inputName,
+    };
+    return [
+        {
+            ...shared,
+            name: layout.name,
+            instruction: 'ldmatrix',
+            operand: '',
+        },
+        {
+            ...shared,
+            name: layout.name.replace(/^ldmatrix/, 'stmatrix'),
+            gpuArch: layout.gpuArch === 'sm_75' ? 'sm_90' : layout.gpuArch,
+            instruction: 'stmatrix',
+            operand: '',
+        },
+    ];
+});
+
+const SWIZZLE_PRESETS: ComposeLayoutPresetDefinition[] = [
+    ['b8', 7],
+    ['b16', 6],
+    ['b32', 5],
+    ['b64', 4],
+    ['b128', 3],
+].flatMap(([dtype, leadingVectors]) => ([
+    {
+        name: `swizzle_128B_MN_major_${dtype}`,
+        gpuArch: 'sm_90a',
+        instruction: 'swizzle',
+        matrixSize: '128B',
+        dtype,
+        operand: '',
+        major: 'MN-major',
+        comments: ['bX means each element is X bits wide.'],
+        signature: '[O] -> [M, K]',
+        rows: [['O', swizzleBases(leadingVectors, 'MN-major')]],
+        inputName: 'Logical Offsets',
+    },
+    {
+        name: `swizzle_128B_K_major_${dtype}`,
+        gpuArch: 'sm_90a',
+        instruction: 'swizzle',
+        matrixSize: '128B',
+        dtype,
+        operand: '',
+        major: 'K-major',
+        comments: ['bX means each element is X bits wide.'],
+        signature: '[O] -> [M, K]',
+        rows: [['O', swizzleBases(leadingVectors, 'K-major')]],
+        inputName: 'Logical Offsets',
+    },
+]));
+
+const WGMMA_D_PRESETS: ComposeLayoutPresetDefinition[] = [
+    {
+        name: 'WGMMA_m64n8_D_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n8',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit accumulators (f32).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4]]']],
+    },
+    {
+        name: 'WGMMA_m64n16_D_b16',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n16',
+        dtype: 'b16',
+        operand: 'D',
+        comments: ['b16 represents 16-bit accumulators (f16).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
+    },
+    {
+        name: 'WGMMA_m64n16_D_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n16',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit accumulators (f32).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8]]']],
+    },
+    {
+        name: 'WGMMA_m64n32_D_b16',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n32',
+        dtype: 'b16',
+        operand: 'D',
+        comments: ['b16 represents 16-bit accumulators (f16).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[8,0],[0,8],[0,16]]']],
+    },
+    {
+        name: 'WGMMA_m64n32_D_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n32',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit accumulators (f32/s32).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16]]']],
+    },
+    {
+        name: 'WGMMA_m64n64_D_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n64',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit accumulators (f32/s32).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16],[0,32]]']],
+    },
+    {
+        name: 'WGMMA_m64n128_D_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n128',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit accumulators (f32/s32).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16],[0,32],[0,64]]']],
+    },
+    {
+        name: 'WGMMA_m64n256_D_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64n256',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit accumulators (s32).'],
+        signature: '[T,W,R] -> [M,N]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16],[0,32],[0,64],[0,128]]']],
+    },
+];
+
+const PRESET_DEFINITIONS = [
+    {
+        title: 'MMA_m8n8k4_A_row_major_f16',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f16',
+        operand: 'A-row-major',
+        specsText: MMA_M8N8K4_A_ROW_MAJOR_F16_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    ...SWIZZLE_PRESETS,
+    ...MATRIX_TRANSFER_PRESETS,
+    {
+        title: 'MMA_m8n8k4_A_col_major_f16',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f16',
+        operand: 'A-col-major',
+        specsText: MMA_M8N8K4_A_COL_MAJOR_F16_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_B_row_major_f16',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f16',
+        operand: 'B-row-major',
+        specsText: MMA_M8N8K4_B_ROW_MAJOR_F16_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_B_col_major_f16',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f16',
+        operand: 'B-col-major',
+        specsText: MMA_M8N8K4_B_COL_MAJOR_F16_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_C_f16',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f16',
+        operand: 'C',
+        specsText: MMA_M8N8K4_C_F16_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_D_f16',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f16',
+        operand: 'D',
+        specsText: MMA_M8N8K4_D_F16_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_C_f32',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f32',
+        operand: 'C',
+        specsText: MMA_M8N8K4_C_F32_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_D_f32',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f32',
+        operand: 'D',
+        specsText: MMA_M8N8K4_D_F32_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_A_f64',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f64',
+        operand: 'A',
+        specsText: MMA_M8N8K4_A_F64_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_B_f64',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f64',
+        operand: 'B',
+        specsText: MMA_M8N8K4_B_F64_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_C_f64',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f64',
+        operand: 'C',
+        specsText: MMA_M8N8K4_C_F64_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k4_D_f64',
+        gpuArch: 'sm_70',
+        instruction: 'mma',
+        matrixSize: 'm8n8k4',
+        dtype: 'f64',
+        operand: 'D',
+        specsText: MMA_M8N8K4_D_F64_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k16_A_b8',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k16',
+        dtype: 'b8',
+        operand: 'A',
+        comments: ['b8 represents 8-bit elements (u8/s8).'],
+        specsText: MMA_M8N8K16_A_B8_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k16_B_b8',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k16',
+        dtype: 'b8',
+        operand: 'B',
+        comments: ['b8 represents 8-bit elements (u8/s8).'],
+        specsText: MMA_M8N8K16_B_B8_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k16_C_s32',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k16',
+        dtype: 's32',
+        operand: 'C',
+        specsText: MMA_M8N8K16_C_S32_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        title: 'MMA_m8n8k16_D_s32',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k16',
+        dtype: 's32',
+        operand: 'D',
+        specsText: MMA_M8N8K16_D_S32_TEXT,
+        inputName: 'Hardware Layout',
+    },
+    {
+        name: 'MMA_m8n8k32_A_b4',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k32',
+        dtype: 'b4',
+        operand: 'A',
+        comments: ['b4 represents 4-bit elements (u4/s4).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4]]']],
+    },
+    {
+        name: 'MMA_m8n8k32_B_b4',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k32',
+        dtype: 'b4',
+        operand: 'B',
+        comments: ['b4 represents 4-bit elements (u4/s4).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0]]']],
+    },
+    {
+        name: 'MMA_m8n8k32_C_s32',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k32',
+        dtype: 's32',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
+    },
+    {
+        name: 'MMA_m8n8k32_D_s32',
+        gpuArch: 'sm_75',
+        instruction: 'mma',
+        matrixSize: 'm8n8k32',
+        dtype: 's32',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
+    },
+    {
+        name: 'MMA_m8n8k128_A_b1',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm8n8k128',
+        dtype: 'b1',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16]]']],
+    },
+    {
+        name: 'MMA_m8n8k128_B_b1',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm8n8k128',
+        dtype: 'b1',
+        operand: 'B',
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[32,0],[64,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[8,0],[16,0]]']],
+    },
+    {
+        name: 'MMA_m8n8k128_C_s32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm8n8k128',
+        dtype: 's32',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
+    },
+    {
+        name: 'MMA_m8n8k128_D_s32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm8n8k128',
+        dtype: 's32',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_A_tf32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'tf32',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_A_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'f64',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_B_tf32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'tf32',
+        operand: 'B',
+        signature: '[T] -> [K,N]',
+        rows: [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_B_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'f64',
+        operand: 'B',
+        signature: '[T] -> [K,N]',
+        rows: [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_C_f32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'f32',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_D_f32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'f32',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_C_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'f64',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k4_D_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k4',
+        dtype: 'f64',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_A_b16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'b16',
+        operand: 'A',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_A_tf32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'tf32',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,4]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_A_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'f64',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,4]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_B_b16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'b16',
+        operand: 'B',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[2,0],[4,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_B_tf32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'tf32',
+        operand: 'B',
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]'], ['R', '[[4,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_B_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'f64',
+        operand: 'B',
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]'], ['R', '[[4,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_C_b16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'b16',
+        operand: 'C',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_D_b16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'b16',
+        operand: 'D',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_C_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'b32',
+        operand: 'C',
+        comments: ['b32 represents 32-bit elements (f32/tf32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_D_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit elements (f32/tf32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_C_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'f64',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k8_D_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k8',
+        dtype: 'f64',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_A_b16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'b16',
+        operand: 'A',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_A_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'f64',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,4],[0,8]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_A_b8',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'b8',
+        operand: 'A',
+        comments: ['b8 represents 8-bit elements (u8/s8/e4m3/e5m2).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_B_b16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'b16',
+        operand: 'B',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[2,0],[4,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_B_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'f64',
+        operand: 'B',
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]'], ['R', '[[4,0],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_B_b8',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'b8',
+        operand: 'B',
+        comments: ['b8 represents 8-bit elements (u8/s8/e4m3/e5m2).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_C_f16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'f16',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_D_f16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'f16',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_C_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'b32',
+        operand: 'C',
+        comments: ['b32 represents 32-bit elements (f32/s32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_D_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit elements (f32/s32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_C_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'f64',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k16_D_f64',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k16',
+        dtype: 'f64',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_A_b4',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'b4',
+        operand: 'A',
+        comments: ['b4 represents 4-bit elements (u4/s4/e2m1).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_A_b8',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'b8',
+        operand: 'A',
+        comments: ['b8 represents 8-bit elements (u8/s8/e4m3/e5m2/e3m2/e2m3).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_B_b4',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'b4',
+        operand: 'B',
+        comments: ['b4 represents 4-bit elements (u4/s4/e2m1).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_B_b8',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'b8',
+        operand: 'B',
+        comments: ['b8 represents 8-bit elements (u8/s8/e4m3/e5m2/e3m2/e2m3).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_C_f16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'f16',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_D_f16',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'f16',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_C_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'b32',
+        operand: 'C',
+        comments: ['b32 represents 32-bit elements (f32/s32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k32_D_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k32',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit elements (f32/s32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k64_A_b4',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k64',
+        dtype: 'b4',
+        operand: 'A',
+        comments: ['b4 represents 4-bit elements (u4/s4/e2m1).'],
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0],[0,32]]']],
+    },
+    {
+        name: 'MMA_m16n8k64_B_b4',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k64',
+        dtype: 'b4',
+        operand: 'B',
+        comments: ['b4 represents 4-bit elements (u4/s4/e2m1).'],
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[32,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k64_C_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k64',
+        dtype: 'b32',
+        operand: 'C',
+        comments: ['b32 represents 32-bit elements (f32/s32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k64_D_b32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k64',
+        dtype: 'b32',
+        operand: 'D',
+        comments: ['b32 represents 32-bit elements (f32/s32).'],
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k128_A_b1',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k128',
+        dtype: 'b1',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k128_B_b1',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k128',
+        dtype: 'b1',
+        operand: 'B',
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[32,0],[64,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[8,0],[16,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k128_C_s32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k128',
+        dtype: 's32',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k128_D_s32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k128',
+        dtype: 's32',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k256_B_b1',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k256',
+        dtype: 'b1',
+        operand: 'B',
+        signature: '[T,R] -> [K,N]',
+        rows: [['T', '[[32,0],[64,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[8,0],[16,0],[128,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k256_C_s32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k256',
+        dtype: 's32',
+        operand: 'C',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k256_D_s32',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k256',
+        dtype: 's32',
+        operand: 'D',
+        signature: '[T,R] -> [M,N]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
+    },
+    {
+        name: 'MMA_m16n8k256_A_b1',
+        gpuArch: 'sm_80',
+        instruction: 'mma',
+        matrixSize: 'm16n8k256',
+        dtype: 'b1',
+        operand: 'A',
+        signature: '[T,R] -> [M,K]',
+        rows: [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0],[0,128]]']],
+    },
+    {
+        name: 'WGMMA_m64k8_A_b32',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64k8',
+        dtype: 'b32',
+        operand: 'A',
+        comments: ['b32 represents 32-bit elements (tf32).'],
+        signature: '[T,W,R] -> [M,K]',
+        rows: [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4]]']],
+    },
+    {
+        name: 'WGMMA_m64k16_A_b16',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64k16',
+        dtype: 'b16',
+        operand: 'A',
+        comments: ['b16 represents 16-bit elements (f16/bf16).'],
+        signature: '[T,W,R] -> [M,K]',
+        rows: [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
+    },
+    {
+        name: 'WGMMA_m64k32_A_b8',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64k32',
+        dtype: 'b8',
+        operand: 'A',
+        comments: ['b8 represents 8-bit elements (u8/s8/e4m3/e5m2).'],
+        signature: '[T,W,R] -> [M,K]',
+        rows: [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
+    },
+    {
+        name: 'WGMMA_m64k256_A_b1',
+        gpuArch: 'sm_90',
+        instruction: 'wgmma',
+        matrixSize: 'm64k256',
+        dtype: 'b1',
+        operand: 'A',
+        signature: '[T,W,R] -> [M,K]',
+        rows: [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0],[0,128]]']],
+    },
+    ...WGMMA_D_PRESETS,
+] satisfies ComposeLayoutPresetDefinition[];
+
+const COMPOSE_LAYOUT_PRESET_CATALOG = PRESET_DEFINITIONS.map((definition) => composeLayoutPreset(definition));
+
+function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
+    return COMPOSE_LAYOUT_PRESET_CATALOG;
+}
+
 function bakedExample(
     title: string,
     specsText: string,
@@ -237,1488 +1495,17 @@ function bakedExample(
     };
 }
 
-function layoutPreset(
-    title: string,
-    gpuArch: string,
-    category: string,
-    matrixSize: string,
-    dtype: string,
-    operand: string,
-    specsText: string,
-    operationText: string,
-    inputName: string,
-): ComposeLayoutPreset {
-    return {
-        title,
-        gpuArch,
-        category,
-        matrixSize,
-        dtype,
-        operand,
-        state: { specsText, operationText, inputName },
-    };
-}
-
-function namedLayoutPreset(
-    name: string,
-    gpuArch: string,
-    category: string,
-    matrixSize: string,
-    dtype: string,
-    operand: string,
-    signature: string,
-    rows: Array<[label: string, bases: string]>,
-    inputName = 'Hardware Layout',
-    title = name,
-): ComposeLayoutPreset {
-    return layoutPreset(
-        title,
-        gpuArch,
-        category,
-        matrixSize,
-        dtype,
-        operand,
-        layoutSpecText(`${name}: ${signature}`, rows.map(([label, bases]) => `${label}: ${bases}`)),
-        name,
-        inputName,
-    );
-}
-
-function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
-    return [
-        layoutPreset(
-            'MMA A Layout (m16n8k16)',
-            'sm_80',
-            'mma-v2',
-            'm16n8k16',
-            'f16',
-            'A',
-            MMA_A_LAYOUT__M16N8K16_TEXT,
-            'MMA_A_Layout__m16n8k16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA B Layout (m16n8k16)',
-            'sm_80',
-            'mma-v2',
-            'm16n8k16',
-            'f16',
-            'B',
-            MMA_B_LAYOUT__M16N8K16_TEXT,
-            'MMA_B_Layout__m16n8k16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA C Layout (m16n8k16)',
-            'sm_80',
-            'mma-v2',
-            'm16n8k16',
-            'f16',
-            'C',
-            MMA_C_LAYOUT__M16N8K16_TEXT,
-            'MMA_C_Layout__m16n8k16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_A_row_major_f16',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f16',
-            'A-row-major',
-            MMA_M8N8K4_A_ROW_MAJOR_F16_TEXT,
-            'MMA_m8n8k4_A_row_major_f16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_A_col_major_f16',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f16',
-            'A-col-major',
-            MMA_M8N8K4_A_COL_MAJOR_F16_TEXT,
-            'MMA_m8n8k4_A_col_major_f16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_B_row_major_f16',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f16',
-            'B-row-major',
-            MMA_M8N8K4_B_ROW_MAJOR_F16_TEXT,
-            'MMA_m8n8k4_B_row_major_f16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_B_col_major_f16',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f16',
-            'B-col-major',
-            MMA_M8N8K4_B_COL_MAJOR_F16_TEXT,
-            'MMA_m8n8k4_B_col_major_f16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_C_f16',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f16',
-            'C',
-            MMA_M8N8K4_C_F16_TEXT,
-            'MMA_m8n8k4_C_f16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_D_f16',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f16',
-            'D',
-            MMA_M8N8K4_D_F16_TEXT,
-            'MMA_m8n8k4_D_f16',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_C_f32',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f32',
-            'C',
-            MMA_M8N8K4_C_F32_TEXT,
-            'MMA_m8n8k4_C_f32',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_D_f32',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f32',
-            'D',
-            MMA_M8N8K4_D_F32_TEXT,
-            'MMA_m8n8k4_D_f32',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_A_f64',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f64',
-            'A',
-            MMA_M8N8K4_A_F64_TEXT,
-            'MMA_m8n8k4_A_f64',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_B_f64',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f64',
-            'B',
-            MMA_M8N8K4_B_F64_TEXT,
-            'MMA_m8n8k4_B_f64',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_C_f64',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f64',
-            'C',
-            MMA_M8N8K4_C_F64_TEXT,
-            'MMA_m8n8k4_C_f64',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k4_D_f64',
-            'sm_70',
-            'mma',
-            'm8n8k4',
-            'f64',
-            'D',
-            MMA_M8N8K4_D_F64_TEXT,
-            'MMA_m8n8k4_D_f64',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k16_A_u8',
-            'sm_75',
-            'mma',
-            'm8n8k16',
-            'u8',
-            'A',
-            MMA_M8N8K16_A_U8_TEXT,
-            'MMA_m8n8k16_A_u8',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k16_A_s8',
-            'sm_75',
-            'mma',
-            'm8n8k16',
-            's8',
-            'A',
-            MMA_M8N8K16_A_S8_TEXT,
-            'MMA_m8n8k16_A_s8',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k16_B_u8',
-            'sm_75',
-            'mma',
-            'm8n8k16',
-            'u8',
-            'B',
-            MMA_M8N8K16_B_U8_TEXT,
-            'MMA_m8n8k16_B_u8',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k16_B_s8',
-            'sm_75',
-            'mma',
-            'm8n8k16',
-            's8',
-            'B',
-            MMA_M8N8K16_B_S8_TEXT,
-            'MMA_m8n8k16_B_s8',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k16_C_s32',
-            'sm_75',
-            'mma',
-            'm8n8k16',
-            's32',
-            'C',
-            MMA_M8N8K16_C_S32_TEXT,
-            'MMA_m8n8k16_C_s32',
-            'Hardware Layout',
-        ),
-        layoutPreset(
-            'MMA_m8n8k16_D_s32',
-            'sm_75',
-            'mma',
-            'm8n8k16',
-            's32',
-            'D',
-            MMA_M8N8K16_D_S32_TEXT,
-            'MMA_m8n8k16_D_s32',
-            'Hardware Layout',
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k32_A_u4',
-            'sm_75',
-            'mma',
-            'm8n8k32',
-            'u4',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k32_A_s4',
-            'sm_75',
-            'mma',
-            'm8n8k32',
-            's4',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k32_B_u4',
-            'sm_75',
-            'mma',
-            'm8n8k32',
-            'u4',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k32_B_s4',
-            'sm_75',
-            'mma',
-            'm8n8k32',
-            's4',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k32_C_s32',
-            'sm_75',
-            'mma',
-            'm8n8k32',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k32_D_s32',
-            'sm_75',
-            'mma',
-            'm8n8k32',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k128_A_b1',
-            'sm_80',
-            'mma',
-            'm8n8k128',
-            'b1',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k128_B_b1',
-            'sm_80',
-            'mma',
-            'm8n8k128',
-            'b1',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[32,0],[64,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[8,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k128_C_s32',
-            'sm_80',
-            'mma',
-            'm8n8k128',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m8n8k128_D_s32',
-            'sm_80',
-            'mma',
-            'm8n8k128',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_A_tf32',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'tf32',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_A_f64',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'f64',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_B_tf32',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'tf32',
-            'B',
-            '[T] -> [K,N]',
-            [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_B_f64',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'f64',
-            'B',
-            '[T] -> [K,N]',
-            [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_C_f32',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'f32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_D_f32',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'f32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_C_f64',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'f64',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k4_D_f64',
-            'sm_80',
-            'mma',
-            'm16n8k4',
-            'f64',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_A_f16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f16',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_A_bf16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'bf16',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_A_tf32',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'tf32',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_A_f64',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f64',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_B_f16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f16',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[2,0],[4,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_B_bf16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'bf16',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[2,0],[4,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_B_tf32',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'tf32',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]'], ['R', '[[4,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_B_f64',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f64',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]'], ['R', '[[4,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_C_f16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f16',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_D_f16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f16',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_C_bf16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'bf16',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_D_bf16',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'bf16',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_C_f32',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_D_f32',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_C_tf32',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'tf32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_D_tf32',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'tf32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_C_f64',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f64',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k8_D_f64',
-            'sm_80',
-            'mma',
-            'm16n8k8',
-            'f64',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_f16',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f16',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_bf16',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'bf16',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_f64',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f64',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,4],[0,8]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_u8',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'u8',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_s8',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            's8',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_e4m3',
-            'sm_90',
-            'mma',
-            'm16n8k16',
-            'e4m3',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_A_e5m2',
-            'sm_90',
-            'mma',
-            'm16n8k16',
-            'e5m2',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_f16',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f16',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[2,0],[4,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_bf16',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'bf16',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[2,0],[4,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_f64',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f64',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[1,0],[2,0],[0,1],[0,2],[0,4]]'], ['R', '[[4,0],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_u8',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'u8',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_s8',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            's8',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_e4m3',
-            'sm_90',
-            'mma',
-            'm16n8k16',
-            'e4m3',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_B_e5m2',
-            'sm_90',
-            'mma',
-            'm16n8k16',
-            'e5m2',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_C_f16',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f16',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_D_f16',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f16',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_C_f32',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_D_f32',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_C_f64',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f64',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_D_f64',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            'f64',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_C_s32',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k16_D_s32',
-            'sm_80',
-            'mma',
-            'm16n8k16',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_u4',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'u4',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_s4',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            's4',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_u8',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'u8',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_s8',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            's8',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_e4m3',
-            'sm_90',
-            'mma',
-            'm16n8k32',
-            'e4m3',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_e5m2',
-            'sm_90',
-            'mma',
-            'm16n8k32',
-            'e5m2',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_e3m2',
-            'sm_100',
-            'mma',
-            'm16n8k32',
-            'e3m2',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_e2m3',
-            'sm_100',
-            'mma',
-            'm16n8k32',
-            'e2m3',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_A_e2m1',
-            'sm_100',
-            'mma',
-            'm16n8k32',
-            'e2m1',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_u4',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'u4',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_s4',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            's4',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_u8',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'u8',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_s8',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            's8',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_e4m3',
-            'sm_90',
-            'mma',
-            'm16n8k32',
-            'e4m3',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_e5m2',
-            'sm_90',
-            'mma',
-            'm16n8k32',
-            'e5m2',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_e3m2',
-            'sm_100',
-            'mma',
-            'm16n8k32',
-            'e3m2',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_e2m3',
-            'sm_100',
-            'mma',
-            'm16n8k32',
-            'e2m3',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_B_e2m1',
-            'sm_100',
-            'mma',
-            'm16n8k32',
-            'e2m1',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[4,0],[8,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_C_f16',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'f16',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_D_f16',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'f16',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_C_f32',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'f32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_D_f32',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            'f32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_C_s32',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k32_D_s32',
-            'sm_80',
-            'mma',
-            'm16n8k32',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_A_u4',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            'u4',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0],[0,32]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_A_s4',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            's4',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0],[0,32]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_A_e2m1',
-            'sm_100',
-            'mma',
-            'm16n8k64',
-            'e2m1',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,8],[0,16],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[8,0],[0,32]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_B_u4',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            'u4',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[32,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_B_s4',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            's4',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[32,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_B_e2m1',
-            'sm_100',
-            'mma',
-            'm16n8k64',
-            'e2m1',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[8,0],[16,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[32,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_C_f32',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            'f32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_D_f32',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            'f32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_C_s32',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k64_D_s32',
-            'sm_80',
-            'mma',
-            'm16n8k64',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k128_A_b1',
-            'sm_80',
-            'mma',
-            'm16n8k128',
-            'b1',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k128_B_b1',
-            'sm_80',
-            'mma',
-            'm16n8k128',
-            'b1',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[32,0],[64,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[8,0],[16,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k128_C_s32',
-            'sm_80',
-            'mma',
-            'm16n8k128',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k128_D_s32',
-            'sm_80',
-            'mma',
-            'm16n8k128',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k256_B_b1',
-            'sm_80',
-            'mma',
-            'm16n8k256',
-            'b1',
-            'B',
-            '[T,R] -> [K,N]',
-            [['T', '[[32,0],[64,0],[0,1],[0,2],[0,4]]'], ['R', '[[1,0],[2,0],[4,0],[8,0],[16,0],[128,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k256_C_s32',
-            'sm_80',
-            'mma',
-            'm16n8k256',
-            's32',
-            'C',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k256_D_s32',
-            'sm_80',
-            'mma',
-            'm16n8k256',
-            's32',
-            'D',
-            '[T,R] -> [M,N]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[8,0]]']],
-        ),
-        namedLayoutPreset(
-            'MMA_m16n8k256_A_b1',
-            'sm_80',
-            'mma',
-            'm16n8k256',
-            'b1',
-            'A',
-            '[T,R] -> [M,K]',
-            [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0],[0,128]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk8_A_tf32',
-            'sm_90',
-            'wgmma',
-            'm64nNk8',
-            'tf32',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk16_A_f16',
-            'sm_90',
-            'wgmma',
-            'm64nNk16',
-            'f16',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk16_A_bf16',
-            'sm_90',
-            'wgmma',
-            'm64nNk16',
-            'bf16',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,2],[0,4],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[8,0],[0,8]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk32_A_u8',
-            'sm_90',
-            'wgmma',
-            'm64nNk32',
-            'u8',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk32_A_s8',
-            'sm_90',
-            'wgmma',
-            'm64nNk32',
-            's8',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk32_A_e4m3',
-            'sm_90',
-            'wgmma',
-            'm64nNk32',
-            'e4m3',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk32_A_e5m2',
-            'sm_90',
-            'wgmma',
-            'm64nNk32',
-            'e5m2',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,4],[0,8],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[8,0],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64nNk256_A_b1',
-            'sm_90',
-            'wgmma',
-            'm64nNk256',
-            'b1',
-            'A',
-            '[T,W,R] -> [M,K]',
-            [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0],[0,128]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64n8_D',
-            'sm_90',
-            'wgmma',
-            'm64n8',
-            'none',
-            'D',
-            '[T,W,R] -> [M,N]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64n16_D',
-            'sm_90',
-            'wgmma',
-            'm64n16',
-            'none',
-            'D',
-            '[T,W,R] -> [M,N]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64n32_D',
-            'sm_90',
-            'wgmma',
-            'm64n32',
-            'none',
-            'D',
-            '[T,W,R] -> [M,N]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64n64_D',
-            'sm_90',
-            'wgmma',
-            'm64n64',
-            'none',
-            'D',
-            '[T,W,R] -> [M,N]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16],[0,32]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64n128_D',
-            'sm_90',
-            'wgmma',
-            'm64n128',
-            'none',
-            'D',
-            '[T,W,R] -> [M,N]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16],[0,32],[0,64]]']],
-        ),
-        namedLayoutPreset(
-            'WGMMA_m64n256_D',
-            'sm_90',
-            'wgmma',
-            'm64n256',
-            'none',
-            'D',
-            '[T,W,R] -> [M,N]',
-            [['T', '[[0,1],[0,2],[1,0],[2,0],[4,0]]'], ['W', '[[16,0],[32,0]]'], ['R', '[[8,0],[0,4],[0,8],[0,16],[0,32],[0,64],[0,128]]']],
-        ),
-        namedLayoutPreset(
-            'TCGEN05_ldst_32x32b',
-            'sm_100',
-            'tcgen05',
-            '32x32b',
-            'none',
-            'none',
-            '[T,R] -> [L,B]',
-            [['T', '[[1,0],[2,0],[4,0],[8,0],[16,0]]'], ['R', '[[0,32],[0,64],[0,128],[0,256],[0,512],[0,1024],[0,2048]]']],
-        ),
-        namedLayoutPreset(
-            'TCGEN05_ldst_16x64b',
-            'sm_100',
-            'tcgen05',
-            '16x64b',
-            'none',
-            'none',
-            '[T,R] -> [L,B]',
-            [['T', '[[8,0],[0,32],[1,0],[2,0],[4,0]]'], ['R', '[[0,64],[0,128],[0,256],[0,512],[0,1024],[0,2048],[0,4096]]']],
-        ),
-        namedLayoutPreset(
-            'TCGEN05_ldst_16x128b',
-            'sm_100',
-            'tcgen05',
-            '16x128b',
-            'none',
-            'none',
-            '[T,R] -> [L,B]',
-            [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[8,0],[0,128],[0,256],[0,512],[0,1024],[0,2048],[0,4096]]']],
-        ),
-        namedLayoutPreset(
-            'TCGEN05_ldst_16x256b',
-            'sm_100',
-            'tcgen05',
-            '16x256b',
-            'none',
-            'none',
-            '[T,R] -> [L,B]',
-            [['T', '[[0,64],[0,128],[1,0],[2,0],[4,0]]'], ['R', '[[0,32],[8,0],[0,256],[0,512],[0,1024],[0,2048],[0,4096]]']],
-        ),
-        namedLayoutPreset(
-            'TCGEN05_ldst_16x32bx2',
-            'sm_100',
-            'tcgen05',
-            '16x32bx2',
-            'none',
-            'none',
-            '[T,R] -> [H,L,B]',
-            [['T', '[[0,1,0],[0,2,0],[0,4,0],[0,8,0],[1,0,0]]'], ['R', '[[0,0,32],[0,0,64],[0,0,128],[0,0,256],[0,0,512],[0,0,1024],[0,0,2048]]']],
-        ),
-    ];
-}
+const BAKED_EXAMPLES: ExampleState[] = [
+    bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
+    bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT__M16N8K16_TEXT, 'MMA_A_Layout__m16n8k16', 'Hardware Layout'),
+    bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
+    bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
+    bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
+    bakedExample('Sliced Layout', SLICED_LAYOUT_TEXT, 'Sliced_Layout', 'Logical Offsets'),
+];
 
 function bakedComposeLayoutCatalog(): ExampleState[] {
-    return [
-        bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
-        bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT__M16N8K16_TEXT, 'MMA_A_Layout__m16n8k16', 'Hardware Layout'),
-        bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
-        bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
-        bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
-        bakedExample('Sliced Layout', SLICED_LAYOUT_TEXT, 'Sliced_Layout', 'Logical Offsets'),
-    ];
+    return BAKED_EXAMPLES;
 }
 
 export function defaultComposeLayoutState(): ComposeLayoutState {
@@ -1829,28 +1616,34 @@ export function emptyComposeLayoutPresetSelection(): ComposeLayoutPresetSelectio
 export function cloneComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
+    const legacySelection = selection as (ComposeLayoutPresetSelection & { category?: string }) | undefined;
     return {
         gpuArch: selection?.gpuArch ?? '',
-        category: selection?.category ?? '',
+        instruction: selection?.instruction ?? legacySelection?.category ?? '',
         matrixSize: selection?.matrixSize ?? '',
         dtype: selection?.dtype ?? '',
         operand: selection?.operand ?? '',
+        trans: selection?.trans ?? '',
+        major: selection?.major ?? '',
     };
 }
 
 export function isComposeLayoutPresetSelection(value: unknown): value is ComposeLayoutPresetSelection {
     if (!value || typeof value !== 'object') return false;
-    const record = value as ComposeLayoutPresetSelection;
+    const record = value as ComposeLayoutPresetSelection & { category?: string };
     return typeof record.gpuArch === 'string'
-        && typeof record.category === 'string'
+        && (typeof record.instruction === 'string' || typeof record.category === 'string')
         && typeof record.matrixSize === 'string'
         && typeof record.dtype === 'string'
-        && typeof record.operand === 'string';
+        && typeof record.operand === 'string'
+        && (record.trans === undefined || typeof record.trans === 'string')
+        && (record.major === undefined || typeof record.major === 'string');
 }
 
 export function composeLayoutPresets(): ComposeLayoutPreset[] {
     return composeLayoutPresetCatalog().map((preset) => ({
         ...preset,
+        gpuArchs: [...preset.gpuArchs],
         state: { ...preset.state },
     }));
 }
@@ -1858,15 +1651,18 @@ export function composeLayoutPresets(): ComposeLayoutPreset[] {
 export function matchedComposeLayoutPresetSelection(
     state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>,
 ): ComposeLayoutPresetSelection {
-    const preset = composeLayoutPresetCatalog().find((entry) => entry.state.specsText === state.specsText
+    const canonicalSpecsText = canonicalLayoutSpecsText(state.specsText);
+    const preset = composeLayoutPresetCatalog().find((entry) => canonicalLayoutSpecsText(entry.state.specsText) === canonicalSpecsText
         && entry.state.operationText === state.operationText
         && entry.state.inputName === state.inputName);
     return preset ? {
-        gpuArch: preset.gpuArch,
-        category: preset.category,
+        gpuArch: preset.gpuArchs[0] ?? '',
+        instruction: preset.instruction,
         matrixSize: preset.matrixSize,
         dtype: preset.dtype,
         operand: preset.operand,
+        trans: preset.trans,
+        major: preset.major,
     } : emptyComposeLayoutPresetSelection();
 }
 
@@ -1875,24 +1671,63 @@ export function composeLayoutPresetOptions(
 ): ComposeLayoutPresetOptions {
     const current = cloneComposeLayoutPresetSelection(selection);
     const presets = composeLayoutPresetCatalog();
-    const gpuArchs = [...PRESET_GPU_ARCHS];
-    const categories = current.gpuArch ? [...PRESET_CATEGORIES] : [];
-    const matrixSizes = !current.category ? [] : uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        category: current.category,
-    }), 'matrixSize');
-    const dtypes = !current.category || !current.matrixSize ? [] : uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        category: current.category,
-        matrixSize: current.matrixSize,
-    }), 'dtype');
-    const operands = !current.category || !current.matrixSize || !current.dtype ? [] : uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        category: current.category,
+    const gpuArchs = uniquePresetGpuArchs(filteredPresets(presets, {
+        instruction: current.instruction,
         matrixSize: current.matrixSize,
         dtype: current.dtype,
-    }), 'operand');
-    return { gpuArchs, categories, matrixSizes, dtypes, operands };
+        operand: current.operand,
+        trans: current.trans,
+        major: current.major,
+    }));
+    const instructions = uniquePresetField(filteredPresets(presets, {
+        gpuArch: current.gpuArch,
+        matrixSize: current.matrixSize,
+        dtype: current.dtype,
+        operand: current.operand,
+        trans: current.trans,
+        major: current.major,
+    }), 'instruction');
+    const matrixSizes = uniquePresetField(filteredPresets(presets, {
+        gpuArch: current.gpuArch,
+        instruction: current.instruction,
+        dtype: current.dtype,
+        operand: current.operand,
+        trans: current.trans,
+        major: current.major,
+    }), 'matrixSize');
+    const dtypes = uniquePresetField(filteredPresets(presets, {
+        gpuArch: current.gpuArch,
+        instruction: current.instruction,
+        matrixSize: current.matrixSize,
+        operand: current.operand,
+        trans: current.trans,
+        major: current.major,
+    }), 'dtype');
+    const operands = uniquePresetField(filteredPresets(presets, {
+        gpuArch: current.gpuArch,
+        instruction: current.instruction,
+        matrixSize: current.matrixSize,
+        dtype: current.dtype,
+        trans: current.trans,
+        major: current.major,
+    }), 'operand').filter(Boolean);
+    const transes = uniquePresetField(filteredPresets(presets, {
+        gpuArch: current.gpuArch,
+        instruction: current.instruction,
+        matrixSize: current.matrixSize,
+        dtype: current.dtype,
+        operand: current.operand,
+        major: current.major,
+    }), 'trans').filter(Boolean);
+    const majors = uniquePresetField(filteredPresets(presets, {
+        gpuArch: current.gpuArch,
+        instruction: current.instruction,
+        matrixSize: current.matrixSize,
+        dtype: current.dtype,
+        operand: current.operand,
+        trans: current.trans,
+    }), 'major').filter(Boolean);
+    return { gpuArchs, instructions, matrixSizes, dtypes, operands, transes, majors };
 }
 
 export function normalizeComposeLayoutPresetSelection(
@@ -1900,43 +1735,72 @@ export function normalizeComposeLayoutPresetSelection(
 ): ComposeLayoutPresetSelection {
     const current = cloneComposeLayoutPresetSelection(selection);
     const options = composeLayoutPresetOptions(current);
-    const presets = composeLayoutPresetCatalog();
     const gpuArch = normalizedPresetField(current.gpuArch, options.gpuArchs);
-    const category = normalizedPresetField(current.category, gpuArch ? [...PRESET_CATEGORIES] : []);
-    const matrixSize = normalizedPresetField(current.matrixSize, !category ? [] : uniquePresetField(filteredPresets(presets, {
+    const instruction = normalizedPresetField(current.instruction, composeLayoutPresetOptions({
+        ...current,
         gpuArch,
-        category,
-    }), 'matrixSize'));
-    const dtype = normalizedPresetField(current.dtype, !category || !matrixSize ? [] : uniquePresetField(filteredPresets(presets, {
+    }).instructions);
+    const matrixSize = normalizedPresetField(current.matrixSize, composeLayoutPresetOptions({
+        ...current,
         gpuArch,
-        category,
+        instruction,
+    }).matrixSizes);
+    const dtype = normalizedPresetField(current.dtype, composeLayoutPresetOptions({
+        ...current,
+        gpuArch,
+        instruction,
         matrixSize,
-    }), 'dtype'));
-    const operand = normalizedPresetField(current.operand, !category || !matrixSize || !dtype ? [] : uniquePresetField(filteredPresets(presets, {
+    }).dtypes);
+    const operand = normalizedPresetField(current.operand, composeLayoutPresetOptions({
+        ...current,
         gpuArch,
-        category,
+        instruction,
         matrixSize,
         dtype,
-    }), 'operand'));
-    return { gpuArch, category, matrixSize, dtype, operand };
+    }).operands);
+    const trans = normalizedPresetField(current.trans, composeLayoutPresetOptions({
+        ...current,
+        gpuArch,
+        instruction,
+        matrixSize,
+        dtype,
+        operand,
+    }).transes);
+    const major = normalizedPresetField(current.major, composeLayoutPresetOptions({
+        ...current,
+        gpuArch,
+        instruction,
+        matrixSize,
+        dtype,
+        operand,
+        trans,
+    }).majors);
+    return { gpuArch, instruction, matrixSize, dtype, operand, trans, major };
 }
 
 export function composeLayoutPresetForSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPreset | null {
     const current = cloneComposeLayoutPresetSelection(selection);
-    return composeLayoutPresetCatalog().find((preset) => preset.gpuArch === current.gpuArch
-        && preset.category === current.category
+    return composeLayoutPresetCatalog().find((preset) => preset.gpuArchs.includes(current.gpuArch)
+        && preset.instruction === current.instruction
         && preset.matrixSize === current.matrixSize
         && preset.dtype === current.dtype
-        && preset.operand === current.operand) ?? null;
+        && preset.operand === current.operand
+        && preset.trans === current.trans
+        && preset.major === current.major) ?? null;
 }
 
 function filteredPresets(
     presets: ComposeLayoutPreset[],
     filters: Partial<Record<keyof ComposeLayoutPresetSelection, string>>,
 ): ComposeLayoutPreset[] {
-    return presets.filter((preset) => Object.entries(filters).every(([key, value]) => !value || preset[key as keyof ComposeLayoutPresetSelection] === value));
+    return presets.filter((preset) => Object.entries(filters).every(([key, value]) => {
+        if (!value) return true;
+        return key === 'gpuArch'
+            ? preset.gpuArchs.includes(value)
+            : preset[key as keyof ComposeLayoutPresetSelection] === value;
+    }));
 }
 
 function normalizedPresetField(value: string, options: string[]): string {
@@ -1948,6 +1812,18 @@ function uniquePresetField<K extends keyof ComposeLayoutPresetSelection>(
     key: K,
 ): ComposeLayoutPresetSelection[K][] {
     return Array.from(new Set(presets.map((preset) => preset[key])));
+}
+
+function uniquePresetGpuArchs(presets: ComposeLayoutPreset[]): string[] {
+    return PRESET_GPU_ARCHS.filter((gpuArch) => presets.some((preset) => preset.gpuArchs.includes(gpuArch)));
+}
+
+function canonicalLayoutSpecsText(specsText: string): string {
+    try {
+        return formatSpecsText(parseLayoutSpecs(specsText));
+    } catch {
+        return specsText.replace(/\r\n/g, '\n').trim();
+    }
 }
 
 export function autoColorLayoutState(
@@ -2270,14 +2146,15 @@ function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     const specs: NamedLayoutSpec[] = [];
     let index = 0;
     while (index < lines.length) {
-        while (index < lines.length && !lines[index]!.trim()) index += 1;
+        while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
         if (index >= lines.length) break;
-        const signatureLine = lines[index]!.trim();
+        const signatureLine = stripLayoutComment(lines[index]!).trim();
         const signature = parseSignature(signatureLine);
         index += 1;
         const basisByLabel = new Map<string, number[][]>();
         for (let axis = 0; axis < signature.inputs.length; axis += 1) {
-            const line = lines[index]?.trim();
+            while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
+            const line = stripLayoutComment(lines[index] ?? '').trim();
             if (!line) {
                 throw new Error(`Layout ${signature.name} is missing basis row for ${signature.inputs[axis]}.`);
             }
@@ -2307,11 +2184,15 @@ function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
             bases,
         };
         specs.push(spec);
-        while (index < lines.length && !lines[index]!.trim()) index += 1;
+        while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
     }
     const duplicate = duplicateValue(specs.map((spec) => spec.name));
     if (duplicate) throw new Error(`Layout names must be unique; received duplicate ${duplicate}.`);
     return specs;
+}
+
+function stripLayoutComment(line: string): string {
+    return line.replace(/#.*$/, '');
 }
 
 function parseSignature(line: string): { name: string; inputs: string[]; outputs: string[] } {

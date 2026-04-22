@@ -9,7 +9,7 @@ import { applyLinearLayoutSpec } from './linear-layout-widget-actions.js';
 
 let clearPresetOutsideClickHandler: (() => void) | null = null;
 
-type PresetFieldKey = 'gpuArch' | 'category' | 'matrixSize' | 'dtype' | 'operand';
+type PresetFieldKey = 'gpuArch' | 'instruction' | 'matrixSize' | 'dtype' | 'operand' | 'trans' | 'major';
 
 const PRESET_FIELDS: Array<{
     key: PresetFieldKey;
@@ -28,12 +28,12 @@ const PRESET_FIELDS: Array<{
         valuesLabel: 'GPU Arch',
     },
     {
-        key: 'category',
-        id: 'linear-layout-preset-category',
-        label: 'Category',
-        placeholder: 'Type category',
-        valuesId: 'linear-layout-preset-values-category',
-        valuesLabel: 'Category',
+        key: 'instruction',
+        id: 'linear-layout-preset-instruction',
+        label: 'Instruction',
+        placeholder: 'Type instruction',
+        valuesId: 'linear-layout-preset-values-instruction',
+        valuesLabel: 'Instruction',
     },
     {
         key: 'matrixSize',
@@ -59,14 +59,32 @@ const PRESET_FIELDS: Array<{
         valuesId: 'linear-layout-preset-values-operand',
         valuesLabel: 'Operand',
     },
+    {
+        key: 'trans',
+        id: 'linear-layout-preset-trans',
+        label: 'Transpose',
+        placeholder: 'Type transpose',
+        valuesId: 'linear-layout-preset-values-trans',
+        valuesLabel: 'Transpose',
+    },
+    {
+        key: 'major',
+        id: 'linear-layout-preset-major',
+        label: 'Major',
+        placeholder: 'Type major',
+        valuesId: 'linear-layout-preset-values-major',
+        valuesLabel: 'Major',
+    },
 ];
 
 function linearLayoutPresetHelpHtml(options: {
     gpuArchs: string[];
-    categories: string[];
+    instructions: string[];
     matrixSizes: string[];
     dtypes: string[];
     operands: string[];
+    transes: string[];
+    majors: string[];
 }): string {
     return `
       <details class="usage-guide">
@@ -76,7 +94,7 @@ function linearLayoutPresetHelpHtml(options: {
             <span>Choose a supported combination, then click <strong>Load Preset</strong> to overwrite the current Layouts, Layout Operation, and Input Tensor Name fields.</span>
           </div>
           <div class="usage-guide-step">
-            <span>This currently includes <strong>mma-v2</strong>, <strong>mma</strong>, <strong>wgmma</strong>, and <strong>tcgen05</strong> presets. The dropdowns are structured so more PTX layout families can be added without changing the editor flow.</span>
+            <span>This currently includes <strong>mma</strong>, <strong>ldmatrix</strong>, <strong>stmatrix</strong>, <strong>swizzle</strong>, and <strong>wgmma</strong> presets. The dropdowns are structured around PTX instruction families instead of project-local category names.</span>
           </div>
           <div class="usage-guide-subtitle">Valid Values</div>
           <div class="usage-guide-example">
@@ -171,9 +189,17 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
 }
 
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
+    if (renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection)) {
+        renderLinearLayoutPresetWidget(ctx);
+        if (activeInputId) {
+            const activeInput = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${CSS.escape(activeInputId)}`);
+            activeInput?.focus();
+        }
+        return;
+    }
     const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
     const preset = composeLayoutPresetForSelection(ctx.state.linearLayoutState.presetSelection);
-    PRESET_FIELDS.forEach((field) => {
+    visiblePresetFields(ctx.state.linearLayoutState.presetSelection).forEach((field) => {
         const input = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${CSS.escape(field.id)}`);
         const list = ctx.linearLayoutPresetWidget.querySelector<HTMLElement>(`[data-preset-field="${field.id}"] .preset-option-list`);
         if (!input || !list) return;
@@ -213,10 +239,12 @@ function setPresetValuesText(
     root: HTMLElement,
     options: {
         gpuArchs: string[];
-        categories: string[];
+        instructions: string[];
         matrixSizes: string[];
         dtypes: string[];
         operands: string[];
+        transes: string[];
+        majors: string[];
     },
 ): void {
     PRESET_FIELDS.forEach((field) => {
@@ -230,27 +258,52 @@ function setPresetValuesText(
 function presetFieldOptions(
     options: {
         gpuArchs: string[];
-        categories: string[];
+        instructions: string[];
         matrixSizes: string[];
         dtypes: string[];
         operands: string[];
+        transes: string[];
+        majors: string[];
     },
     field: PresetFieldKey,
 ): string[] {
     if (field === 'gpuArch') return options.gpuArchs;
-    if (field === 'category') return options.categories;
+    if (field === 'instruction') return options.instructions;
     if (field === 'matrixSize') return options.matrixSizes;
     if (field === 'dtype') return options.dtypes;
-    return options.operands;
+    if (field === 'operand') return options.operands;
+    if (field === 'trans') return options.transes;
+    return options.majors;
 }
 
 function presetFieldForInputId(inputId: string): PresetFieldKey | null {
     return PRESET_FIELDS.find((field) => field.id === inputId)?.key ?? null;
 }
 
+function visiblePresetFields(selection: { instruction: string }): typeof PRESET_FIELDS {
+    const instruction = selection.instruction;
+    return PRESET_FIELDS.filter((field) => {
+        if (field.key === 'operand') return instruction === 'mma' || instruction === 'wgmma';
+        if (field.key === 'trans') return instruction === 'ldmatrix' || instruction === 'stmatrix';
+        if (field.key === 'major') return instruction === 'swizzle';
+        return true;
+    });
+}
+
+function visiblePresetFieldIds(selection: { instruction: string }): string {
+    return visiblePresetFields(selection).map((field) => field.id).join(',');
+}
+
+function renderedPresetFieldIds(root: HTMLElement): string {
+    return Array.from(root.querySelectorAll<HTMLElement>('[data-preset-field]'))
+        .map((field) => field.dataset.presetField ?? '')
+        .join(',');
+}
+
 export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void {
     clearPresetOutsideClickHandler?.();
-    const presetSelection = ctx.state.linearLayoutState.presetSelection;
+    const presetSelection = normalizeComposeLayoutPresetSelection(ctx.state.linearLayoutState.presetSelection);
+    ctx.state.linearLayoutState.presetSelection = presetSelection;
     const presetOptions = composeLayoutPresetOptions(presetSelection);
     const preset = composeLayoutPresetForSelection(presetSelection);
     ctx.linearLayoutPresetWidget.innerHTML = `
@@ -258,14 +311,15 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
       <div class="widget-body">
         ${linearLayoutPresetHelpHtml(presetOptions)}
         <div class="preset-stack">
-          ${PRESET_FIELDS.map((field) => presetSearchField(
+          ${visiblePresetFields(presetSelection).map((field) => presetSearchField(
             field,
             presetSelection[field.key],
             presetFieldOptions(presetOptions, field.key),
         )).join('')}
         </div>
         <div class="button-row linear-layout-action-row">
-          <button class="secondary-button" id="linear-layout-load-preset" type="button" ${preset ? '' : 'disabled'} title="Overwrite the editor with the selected preset and render it.">Load Preset</button>
+          <button class="primary-button" id="linear-layout-load-preset" type="button" ${preset ? '' : 'disabled'} title="Overwrite the editor with the selected preset and render it.">Load Preset</button>
+          <button class="secondary-button" id="linear-layout-clear-preset" type="button" title="Clear the preset search fields without changing the loaded layout spec.">Clear Preset</button>
         </div>
         <div class="widget-copy preset-summary" id="linear-layout-preset-summary">${preset
             ? `Selected preset: <span class="inline-code">${escapeInfo(preset.title)}</span>`
@@ -273,6 +327,7 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
       </div>
     `;
     const loadPreset = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>('#linear-layout-load-preset');
+    const clearPreset = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>('#linear-layout-clear-preset');
     PRESET_FIELDS.forEach((field) => {
         bindPresetInput(ctx, ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${field.id}`), field.key);
     });
@@ -301,5 +356,9 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
         ctx.state.linearLayoutState.inputName = nextPreset.state.inputName;
         await applyLinearLayoutSpec(ctx);
         ctx.renderLinearLayoutEditorWidgets();
+    });
+    clearPreset?.addEventListener('click', () => {
+        ctx.state.linearLayoutState.presetSelection = normalizeComposeLayoutPresetSelection(undefined);
+        syncPresetControls(ctx, null);
     });
 }
