@@ -241,14 +241,14 @@ const SLICED_LAYOUT_TEXT = [
     'X: [[0,0],[0,0],[1,0]]',
 ].join('\n');
 
-const BAKED_EXAMPLES: ExampleState[] = [
-    bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
-    bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT__M16N8K16_TEXT, 'MMA_A_Layout__m16n8k16', 'Hardware Layout'),
-    bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
-    bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
-    bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
-    bakedExample('Sliced Layout', SLICED_LAYOUT_TEXT, 'Sliced_Layout', 'Logical Offsets'),
-];
+const BAKED_EXAMPLE_DEFINITIONS = [
+    { title: 'Blocked Layout', specsText: BLOCKED_LAYOUT_TEXT, operationText: 'Blocked_Layout', inputName: 'Hardware Layout' },
+    { title: 'MMA A Layout (m16n8k16)', specsText: MMA_A_LAYOUT__M16N8K16_TEXT, operationText: 'MMA_A_Layout__m16n8k16', inputName: 'Hardware Layout' },
+    { title: 'MMA B Layout (m16n8k16)', specsText: MMA_B_LAYOUT__M16N8K16_TEXT, operationText: 'MMA_B_Layout__m16n8k16', inputName: 'Hardware Layout' },
+    { title: 'MMA C Layout (m16n8k16)', specsText: MMA_C_LAYOUT__M16N8K16_TEXT, operationText: 'MMA_C_Layout__m16n8k16', inputName: 'Hardware Layout' },
+    { title: 'Shared Memory 128B Swizzle', specsText: SHARED_MEMORY_128B_SWIZZLE_TEXT, operationText: 'Shared_Memory_128B_Swizzle', inputName: 'Logical Offsets' },
+    { title: 'Sliced Layout', specsText: SLICED_LAYOUT_TEXT, operationText: 'Sliced_Layout', inputName: 'Logical Offsets' },
+] as const;
 // sync-linear-layout-examples:end
 
 function layoutSpecText(signature: string, rows: string[]): string {
@@ -396,12 +396,9 @@ function bakedExample(
 }
 
 const BAKED_EXAMPLES: ExampleState[] = [
-    bakedExample('Blocked Layout', BLOCKED_LAYOUT_TEXT, 'Blocked_Layout', 'Hardware Layout'),
-    bakedExample('MMA A Layout (m16n8k16)', MMA_A_LAYOUT__M16N8K16_TEXT, 'MMA_A_Layout__m16n8k16', 'Hardware Layout'),
-    bakedExample('MMA B Layout (m16n8k16)', MMA_B_LAYOUT__M16N8K16_TEXT, 'MMA_B_Layout__m16n8k16', 'Hardware Layout'),
-    bakedExample('MMA C Layout (m16n8k16)', MMA_C_LAYOUT__M16N8K16_TEXT, 'MMA_C_Layout__m16n8k16', 'Hardware Layout'),
-    bakedExample('Shared Memory 128B Swizzle', SHARED_MEMORY_128B_SWIZZLE_TEXT, 'Shared_Memory_128B_Swizzle', 'Logical Offsets'),
-    bakedExample('Sliced Layout', SLICED_LAYOUT_TEXT, 'Sliced_Layout', 'Logical Offsets'),
+    ...BAKED_EXAMPLE_DEFINITIONS.map(({ title, specsText, operationText, inputName }) => (
+        bakedExample(title, specsText, operationText, inputName)
+    )),
 ];
 
 function bakedComposeLayoutCatalog(): ExampleState[] {

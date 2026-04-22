@@ -138,12 +138,14 @@ def format_block(layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str
         for title, input_dims, _input_name in layouts
     ]
     example_lines = [
-        "const BAKED_EXAMPLES: ExampleState[] = [",
+        "const BAKED_EXAMPLE_DEFINITIONS = [",
         *[
-            f"    bakedExample({title!r}, {const_name(title)}, {compose_identifier(title)!r}, {input_name!r}),"
+            "    { "
+            f"title: {title!r}, specsText: {const_name(title)}, operationText: {compose_identifier(title)!r}, inputName: {input_name!r}"
+            " },"
             for title, _input_dims, input_name in layouts
         ],
-        "];",
+        "] as const;",
     ]
     return "\n".join([SYNC_START, *const_blocks, "", *example_lines, SYNC_END])
 
