@@ -105,6 +105,12 @@ const viewer = new TensorViewer(viewport);
 const hoverPopup = document.createElement('div');
 hoverPopup.className = 'linear-layout-hover-popup hidden';
 viewport.appendChild(hoverPopup);
+const infoTooltip = document.createElement('div');
+infoTooltip.className = 'info-tooltip hidden';
+app.appendChild(infoTooltip);
+const controlTooltip = document.createElement('div');
+controlTooltip.className = 'control-tooltip hidden';
+app.appendChild(controlTooltip);
 const sidebar = tensorViewWidget.parentElement as HTMLElement;
 const sidebarScrollPad = document.createElement('div');
 sidebarScrollPad.className = 'sidebar-scroll-pad';
@@ -126,8 +132,9 @@ let appliedStartupWidgetDefaults = false;
 let lastLinearLayoutActiveTensorId: string | null = null;
 let hoverPopupPointer = { x: 16, y: 16 };
 let activeTensorViewSliderPointerId: number | null = null;
+let activeInfoTarget: HTMLElement | null = null;
+let activeControlButton: HTMLButtonElement | null = null;
 
-const MIN_VIEWPORT_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 720;
 
 type InspectorRefs = {
@@ -254,6 +261,140 @@ function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
     else console.log('[tensor-viz-ui]', event, details);
 }
+
+function hideInfoTooltip(): void {
+    activeInfoTarget = null;
+    infoTooltip.classList.add('hidden');
+}
+
+function placeInfoTooltip(target: HTMLElement): void {
+    const text = target.dataset.info?.trim();
+    if (!text) {
+        hideInfoTooltip();
+        return;
+    }
+    activeInfoTarget = target;
+    infoTooltip.textContent = text;
+    infoTooltip.classList.remove('hidden');
+    const margin = 12;
+    const gap = 10;
+    const targetRect = target.getBoundingClientRect();
+    const tooltipRect = infoTooltip.getBoundingClientRect();
+    const maxLeft = Math.max(margin, window.innerWidth - tooltipRect.width - margin);
+    const left = Math.min(maxLeft, Math.max(margin, targetRect.right - tooltipRect.width));
+    const belowTop = targetRect.bottom + gap;
+    const aboveTop = targetRect.top - gap - tooltipRect.height;
+    const top = aboveTop >= margin || window.innerHeight - belowTop < tooltipRect.height
+        ? Math.max(margin, aboveTop)
+        : Math.min(window.innerHeight - tooltipRect.height - margin, belowTop);
+    infoTooltip.style.left = `${left}px`;
+    infoTooltip.style.top = `${top}px`;
+}
+
+function hideControlTooltip(): void {
+    activeControlButton = null;
+    controlTooltip.classList.add('hidden');
+}
+
+function placeControlTooltip(button: HTMLButtonElement): void {
+    const label = button.dataset.tooltipLabel?.trim();
+    const description = button.dataset.tooltipDescription?.trim();
+    const shortcut = button.dataset.tooltipShortcut?.trim();
+    if (!label || !description || !shortcut) {
+        hideControlTooltip();
+        return;
+    }
+    activeControlButton = button;
+    controlTooltip.innerHTML = `<strong>${escapeInfo(label)}</strong><span>${escapeInfo(description)}</span><span class="control-tooltip-shortcut">Shortcut: ${escapeInfo(shortcut)}</span>`;
+    controlTooltip.classList.remove('hidden');
+    const margin = 12;
+    const gap = 10;
+    const buttonRect = button.getBoundingClientRect();
+    const tooltipRect = controlTooltip.getBoundingClientRect();
+    const centeredLeft = buttonRect.left + (buttonRect.width - tooltipRect.width) / 2;
+    const maxLeft = Math.max(margin, window.innerWidth - tooltipRect.width - margin);
+    const left = Math.min(maxLeft, Math.max(margin, centeredLeft));
+    const aboveTop = buttonRect.top - gap - tooltipRect.height;
+    const belowTop = buttonRect.bottom + gap;
+    const top = aboveTop >= margin || window.innerHeight - belowTop < tooltipRect.height
+        ? Math.max(margin, aboveTop)
+        : Math.min(window.innerHeight - tooltipRect.height - margin, belowTop);
+    controlTooltip.style.left = `${left}px`;
+    controlTooltip.style.top = `${top}px`;
+}
+
+app.addEventListener('mouseover', (event) => {
+    const target = (event.target as Element | null)?.closest<HTMLElement>('[data-info]');
+    if (!target || target.classList.contains('control-button')) return;
+    placeInfoTooltip(target);
+});
+app.addEventListener('mouseout', (event) => {
+    if (!activeInfoTarget) return;
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && activeInfoTarget.contains(nextTarget)) return;
+    hideInfoTooltip();
+});
+app.addEventListener('focusin', (event) => {
+    const target = (event.target as Element | null)?.closest<HTMLElement>('[data-info]');
+    if (!target || target.classList.contains('control-button')) return;
+    placeInfoTooltip(target);
+});
+app.addEventListener('focusout', (event) => {
+    if (!activeInfoTarget) return;
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && activeInfoTarget.contains(nextTarget)) return;
+    hideInfoTooltip();
+});
+window.addEventListener('resize', () => {
+    if (!activeInfoTarget?.isConnected) {
+        hideInfoTooltip();
+        return;
+    }
+    placeInfoTooltip(activeInfoTarget);
+});
+sidebar.addEventListener('scroll', () => {
+    if (!activeInfoTarget?.isConnected) {
+        hideInfoTooltip();
+        return;
+    }
+    placeInfoTooltip(activeInfoTarget);
+}, { passive: true });
+controlDock.addEventListener('mouseover', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>('.control-button');
+    if (!button) return;
+    placeControlTooltip(button);
+});
+controlDock.addEventListener('mouseout', (event) => {
+    if (!activeControlButton) return;
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && activeControlButton.contains(nextTarget)) return;
+    hideControlTooltip();
+});
+controlDock.addEventListener('focusin', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>('.control-button');
+    if (!button) return;
+    placeControlTooltip(button);
+});
+controlDock.addEventListener('focusout', (event) => {
+    if (!activeControlButton) return;
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && activeControlButton.contains(nextTarget)) return;
+    hideControlTooltip();
+});
+window.addEventListener('resize', () => {
+    if (!activeControlButton?.isConnected) {
+        hideControlTooltip();
+        return;
+    }
+    placeControlTooltip(activeControlButton);
+});
+controlDock.addEventListener('scroll', () => {
+    if (!activeControlButton?.isConnected) {
+        hideControlTooltip();
+        return;
+    }
+    placeControlTooltip(activeControlButton);
+}, { passive: true });
 
 function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
     if (!enabled) return 'Unavailable';
@@ -484,16 +625,18 @@ function widgetIcon(widgetId: SidebarWidgetId): string {
             `;
         case 'linear-layout-color':
             return `
-              <svg viewBox="0 0 24 24">
-                <text x="5.2" y="6.3" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 5.8px 'IBM Plex Sans', sans-serif;">H</text>
-                <text x="12" y="6.3" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 5.8px 'IBM Plex Sans', sans-serif;">S</text>
-                <text x="18.8" y="6.3" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 5.8px 'IBM Plex Sans', sans-serif;">L</text>
-                <path d="M5.2 8.7v6.1M3.7 12.8l1.5 2 1.5-2" style="stroke-width: 1.2;" />
-                <path d="M12 8.7v6.1M10.5 12.8l1.5 2 1.5-2" style="stroke-width: 1.2;" />
-                <path d="M18.8 8.7v6.1M17.3 12.8l1.5 2 1.5-2" style="stroke-width: 1.2;" />
-                <text x="5.2" y="19.1" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 5.8px 'IBM Plex Sans', sans-serif;">W</text>
-                <text x="12" y="19.1" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 5.8px 'IBM Plex Sans', sans-serif;">T</text>
-                <text x="18.8" y="19.1" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 5.8px 'IBM Plex Sans', sans-serif;">R</text>
+              <svg viewBox="0 0 200 200">
+                <defs>
+                  <linearGradient id="cell-color-widget-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color: #ff0000;" />
+                    <stop offset="20%" style="stop-color: #ffff00;" />
+                    <stop offset="50%" style="stop-color: #00ff00;" />
+                    <stop offset="75%" style="stop-color: #00ffff;" />
+                    <stop offset="100%" style="stop-color: #0000ff;" />
+                  </linearGradient>
+                </defs>
+                <rect x="10" y="10" width="180" height="180" style="fill: url(#cell-color-widget-gradient); stroke: #000000; stroke-width: 8;" />
+                <text x="100" y="145" text-anchor="middle" style="fill: #000000; stroke: none; font-family: sans-serif; font-size: 140px; font-weight: 700;">T</text>
               </svg>
             `;
         case 'cell-text':
@@ -582,13 +725,18 @@ function closeCommandPalette(): void {
 }
 
 function setSidebarWidth(width: number): void {
-    const maxWidth = Math.max(0, app.clientWidth - MIN_VIEWPORT_WIDTH);
+    const maxWidth = Math.max(0, app.clientWidth - sidebarSplitter.offsetWidth);
     const clamped = Math.max(0, Math.min(maxWidth, width));
     app.style.setProperty('--sidebar-width', `${clamped}px`);
     viewer.resize();
 }
 
 setSidebarWidth(MAX_SIDEBAR_WIDTH);
+
+window.addEventListener('resize', () => {
+    const currentWidth = Number.parseFloat(app.style.getPropertyValue('--sidebar-width')) || 0;
+    setSidebarWidth(currentWidth);
+});
 
 function activeTab(): LoadedBundleDocument | undefined {
     return sessionTabs.find((tab) => tab.id === activeTabId);
@@ -1056,7 +1204,6 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     ];
     controlDock.replaceChildren(...controls.map((control, index) => {
         const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}`;
-        const tooltip = `<span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span><span class="control-tooltip-shortcut">Shortcut: ${control.shortcut}</span></span>`;
         if (index === 3 || index === 6 || index === 8 || index === 9) {
             const fragment = document.createDocumentFragment();
             const divider = document.createElement('div');
@@ -1065,7 +1212,10 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = buttonClass;
-            button.innerHTML = `${control.content}${tooltip}`;
+            button.dataset.tooltipLabel = control.label;
+            button.dataset.tooltipDescription = control.description;
+            button.dataset.tooltipShortcut = control.shortcut;
+            button.innerHTML = control.content;
             button.disabled = Boolean(control.disabled);
             button.setAttribute('aria-label', control.label);
             button.addEventListener('click', async () => {
@@ -1078,7 +1228,10 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = buttonClass;
-        button.innerHTML = `${control.content}${tooltip}`;
+        button.dataset.tooltipLabel = control.label;
+        button.dataset.tooltipDescription = control.description;
+        button.dataset.tooltipShortcut = control.shortcut;
+        button.innerHTML = control.content;
         button.disabled = Boolean(control.disabled);
         button.setAttribute('aria-label', control.label);
         button.addEventListener('click', async () => {

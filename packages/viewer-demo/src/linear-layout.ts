@@ -236,9 +236,9 @@ const SHARED_MEMORY_128B_SWIZZLE_TEXT = [
     'X: [[0,1],[0,2],[0,4]]',
 ].join('\n');
 const SLICED_LAYOUT_TEXT = [
-    'Sliced_Layout: [Y,X] -> [Y,X]',
-    'Y: [[0,1],[0,2]]',
-    'X: [[0,0],[0,0],[1,0]]',
+    'Sliced_Layout: [S,R] -> [Y,X]',
+    'S: [[1,0],[2,0]]',
+    'R: [[0,0],[0,0],[0,0]]',
 ].join('\n');
 
 const BAKED_EXAMPLE_DEFINITIONS = [

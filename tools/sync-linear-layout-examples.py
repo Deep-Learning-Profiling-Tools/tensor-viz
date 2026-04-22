@@ -74,8 +74,8 @@ def infer_output_dims(input_dims: list[tuple[str, list[list[int]]]]) -> list[tup
     return list(reversed(output_dims)) if [name for name, _size in output_dims] == ["x", "y"] else output_dims
 
 
-def parse_demo_layouts(source_path: Path) -> list[tuple[str, list[tuple[str, list[list[int]]]], str]]:
-    """Extract demo titles, bases, and input names from demo_linear_layout.py."""
+def parse_demo_layouts(source_path: Path) -> list[tuple[str, list[tuple[str, list[list[int]]]], str, str | None]]:
+    """Extract demo titles, bases, input names, and optional spec text overrides."""
 
     module = ast.parse(source_path.read_text())
     demos = next(
@@ -85,15 +85,18 @@ def parse_demo_layouts(source_path: Path) -> list[tuple[str, list[tuple[str, lis
     )
     if not isinstance(demos.value, ast.Dict):
         raise ValueError("DEMOS must be a dict literal.")
-    layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str]] = []
+    layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str, str | None]] = []
     for entry in demos.value.values:
-        if not isinstance(entry, ast.Tuple) or len(entry.elts) != 3:
-            raise ValueError("Each DEMOS entry must be a 3-tuple.")
+        if not isinstance(entry, ast.Tuple) or len(entry.elts) not in {3, 4}:
+            raise ValueError("Each DEMOS entry must be a 3-tuple or 4-tuple.")
         title = ast.literal_eval(entry.elts[0])
         layout_call = entry.elts[1]
         input_name = ast.literal_eval(entry.elts[2])
+        specs_text = ast.literal_eval(entry.elts[3]) if len(entry.elts) == 4 else None
         if not isinstance(title, str) or not isinstance(input_name, str):
             raise ValueError("Demo title and input name must be strings.")
+        if specs_text is not None and not isinstance(specs_text, str):
+            raise ValueError("Optional specs text override must be a string.")
         if (
             not isinstance(layout_call, ast.Call)
             or not isinstance(layout_call.func, ast.Attribute)
@@ -102,13 +105,15 @@ def parse_demo_layouts(source_path: Path) -> list[tuple[str, list[tuple[str, lis
         ):
             raise ValueError(f"{title} must call LinearLayout.from_bases(...).")
         input_dims = ast.literal_eval(layout_call.args[0])
-        layouts.append((title, input_dims, input_name))
+        layouts.append((title, input_dims, input_name, specs_text))
     return layouts
 
 
-def spec_lines(title: str, input_dims: list[tuple[str, list[list[int]]]]) -> list[str]:
+def spec_lines(title: str, input_dims: list[tuple[str, list[list[int]]]], specs_text: str | None = None) -> list[str]:
     """Return the compose-layout specs text lines for one demo entry."""
 
+    if specs_text is not None:
+        return specs_text.splitlines()
     input_labels = viewer_axis_labels([dim_name for dim_name, _bases in input_dims])
     output_labels = viewer_axis_labels([dim_name for dim_name, _size in infer_output_dims(input_dims)])
     return [
@@ -126,16 +131,16 @@ def const_name(title: str) -> str:
     return f"{compose_identifier(title).upper()}_TEXT"
 
 
-def format_block(layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str]]) -> str:
+def format_block(layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str, str | None]]) -> str:
     """Return the generated ts block for the baked examples."""
 
     const_blocks = [
         "\n".join([
             f"const {const_name(title)} = [",
-            *[f"    {line!r}," for line in spec_lines(title, input_dims)],
+            *[f"    {line!r}," for line in spec_lines(title, input_dims, specs_text)],
             "].join('\\n');",
         ])
-        for title, input_dims, _input_name in layouts
+        for title, input_dims, _input_name, specs_text in layouts
     ]
     example_lines = [
         "const BAKED_EXAMPLE_DEFINITIONS = [",
@@ -143,7 +148,7 @@ def format_block(layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str
             "    { "
             f"title: {title!r}, specsText: {const_name(title)}, operationText: {compose_identifier(title)!r}, inputName: {input_name!r}"
             " },"
-            for title, _input_dims, input_name in layouts
+            for title, _input_dims, input_name, _specs_text in layouts
         ],
         "] as const;",
     ]
