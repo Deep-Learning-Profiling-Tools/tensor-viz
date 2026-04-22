@@ -38,6 +38,7 @@ import {
 } from './layout.js';
 import {
     buildTensorViewExpression,
+    clearTensorViewSlices,
     defaultTensorViewEditor,
     layoutAxisLabels,
     layoutCoordIsVisible,
@@ -2123,6 +2124,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         };
     }
 
+    private clearSliceStateFromOtherTensors(activeTensorId: string): void {
+        this.tensors.forEach((tensor) => {
+            if (tensor.id === activeTensorId || tensor.view.sliceTokens.length === 0) return;
+            this.assignTensorView(tensor, serializeTensorViewEditor(clearTensorViewSlices(tensor.view.editor)));
+        });
+    }
+
     private applySnapshot(snapshot: ViewerSnapshot): void {
         this.clearSelection(false);
         this.state.heatmap = snapshot.heatmap;
@@ -2161,6 +2169,15 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             if (entry.offset) tensor.offset = entry.offset;
             this.assignTensorView(tensor, serializeTensorViewEditor(entry.view.editor), entry.view.hiddenIndices);
         });
+        let slicedTensorId: string | null = null;
+        for (let index = snapshot.tensors.length - 1; index >= 0; index -= 1) {
+            const tensorId = snapshot.tensors[index]!.id;
+            const tensor = this.tensors.get(tensorId);
+            if ((tensor?.view.sliceTokens.length ?? 0) === 0) continue;
+            slicedTensorId = tensorId;
+            break;
+        }
+        if (slicedTensorId) this.clearSliceStateFromOtherTensors(slicedTensorId);
 
         if (!this.state.activeTensorId || !this.tensors.has(this.state.activeTensorId)) {
             this.state.activeTensorId = snapshot.tensors[0]?.id ?? this.tensors.keys().next().value ?? null;
@@ -2739,6 +2756,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     public setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         const snapshot = this.assignTensorView(tensor, spec, hiddenIndices);
+        if (tensor.view.sliceTokens.length > 0) this.clearSliceStateFromOtherTensors(tensorId);
         logEvent('tensor:view', { tensorId, view: tensor.view.canonical, hiddenIndices: tensor.view.hiddenIndices });
         this.relayoutTensorOffsets();
         this.rebuildAllMeshes();

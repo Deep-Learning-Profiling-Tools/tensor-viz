@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildTensorViewExpression,
+    clearTensorViewSlices,
     layoutAxisLabels,
     layoutCoordIsVisible,
     layoutCoordMatchesSlice,
@@ -15,6 +16,30 @@ import {
 } from './view.js';
 
 describe('parseTensorView', () => {
+    it('clears slice state without changing the staged view', () => {
+        expect(clearTensorViewSlices({
+            version: 2,
+            viewTensorInput: '[A=2, B=3, C=4]',
+            finalViewInput: '[X=6, Y=4]',
+            baseDims: [],
+            permutedDimIds: ['dim-2', 'dim-0', 'dim-1'],
+            flattenSeparators: [false, true],
+            singletons: [{ id: 'singleton-0', position: 1 }],
+            slicedTokenKeys: ['group:dim-1'],
+            sliceValues: { 'group:dim-1': 2 },
+        })).toEqual({
+            version: 2,
+            viewTensorInput: '[A=2, B=3, C=4]',
+            finalViewInput: '[X=6, Y=4]',
+            baseDims: [],
+            permutedDimIds: ['dim-2', 'dim-0', 'dim-1'],
+            flattenSeparators: [false, true],
+            singletons: [{ id: 'singleton-0', position: 1 }],
+            slicedTokenKeys: [],
+            sliceValues: {},
+        });
+    });
+
     it('treats empty string as reset to the default editor state', () => {
         const result = parseTensorView([2, 3, 4], '');
         expect(result.ok).toBe(true);

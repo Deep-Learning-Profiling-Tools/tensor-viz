@@ -486,6 +486,16 @@ export function defaultTensorViewEditor(shape: number[], axisLabelsInput?: reado
     return defaultEditor(normalizedShape, axisLabels.axisLabels);
 }
 
+/** Remove slice-specific editor state while preserving the current view and permutation. */
+export function clearTensorViewSlices(editor: TensorViewEditor): TensorViewEditor {
+    if (editor.slicedTokenKeys.length === 0 && Object.keys(editor.sliceValues).length === 0) return editor;
+    return {
+        ...editor,
+        slicedTokenKeys: [],
+        sliceValues: {},
+    };
+}
+
 export function serializeTensorViewEditor(editor: TensorViewEditor): string {
     return `${TENSOR_VIEW_EDITOR_PREFIX}${encodeURIComponent(JSON.stringify(editor))}`;
 }
