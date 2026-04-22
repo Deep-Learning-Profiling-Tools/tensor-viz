@@ -1,5 +1,7 @@
 import { escapeInfo } from '../app-format.js';
 import {
+    cloneComposeLayoutPresetSelection,
+    composeLayoutPresets,
     composeLayoutPresetForSelection,
     composeLayoutPresetOptions,
     normalizeComposeLayoutPresetSelection,
@@ -110,17 +112,17 @@ function linearLayoutPresetHelpHtml(options: {
 function presetSearchField(
     field: typeof PRESET_FIELDS[number],
     value: string,
-    options: string[],
+    validOptions: string[],
+    invalidOptions: string[],
 ): string {
-    const matches = filteredPresetOptions(options, value);
+    const validMatches = filteredPresetOptions(validOptions, value);
+    const invalidMatches = filteredPresetOptions(invalidOptions, value);
     return `
       <div class="preset-field" data-preset-field="${field.id}">
         <label class="meta-label" for="${field.id}">${field.label}</label>
         <input id="${field.id}" type="text" value="${escapeInfo(value)}" placeholder="${escapeInfo(field.placeholder)}" autocomplete="off" />
         <div class="preset-option-list">
-          ${matches.length > 0
-        ? matches.map((option) => `<button class="preset-option" type="button" data-preset-input="${field.id}" data-preset-value="${escapeInfo(option)}">${escapeInfo(option)}</button>`).join('')
-        : '<span class="mapping-empty">no matches</span>'}
+          ${presetOptionsHtml(field.id, validMatches, invalidMatches)}
         </div>
       </div>
     `;
@@ -159,6 +161,12 @@ function bindPresetInput(
         };
         syncPresetControls(ctx, input.id);
     });
+    input?.addEventListener('blur', () => {
+        ctx.state.linearLayoutState.presetSelection = normalizeComposeLayoutPresetSelection(
+            ctx.state.linearLayoutState.presetSelection,
+        );
+        syncPresetControls(ctx, null);
+    });
     input?.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter') return;
         const firstOption = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>(
@@ -179,32 +187,38 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
             const inputId = button.dataset.presetInput ?? '';
             const field = presetFieldForInputId(inputId);
             if (!field) return;
-            ctx.state.linearLayoutState.presetSelection = normalizeComposeLayoutPresetSelection({
-                ...ctx.state.linearLayoutState.presetSelection,
-                [field]: button.dataset.presetValue ?? '',
-            });
+            ctx.state.linearLayoutState.presetSelection = presetSelectionForOption(
+                ctx.state.linearLayoutState.presetSelection,
+                field,
+                button.dataset.presetValue ?? '',
+                button.dataset.presetValidity === 'invalid',
+            );
             syncPresetControls(ctx, null);
         });
     });
 }
 
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
-    if (renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection)) {
+    if (activeInputId === null && renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection)) {
         renderLinearLayoutPresetWidget(ctx);
-        if (activeInputId) {
-            const activeInput = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${CSS.escape(activeInputId)}`);
-            activeInput?.focus();
-        }
         return;
     }
     const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
     const preset = composeLayoutPresetForSelection(ctx.state.linearLayoutState.presetSelection);
-    visiblePresetFields(ctx.state.linearLayoutState.presetSelection).forEach((field) => {
+    const renderedFields = PRESET_FIELDS.filter((field) => (
+        ctx.linearLayoutPresetWidget.querySelector<HTMLElement>(`[data-preset-field="${field.id}"]`) !== null
+    ));
+    renderedFields.forEach((field) => {
         const input = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${CSS.escape(field.id)}`);
         const list = ctx.linearLayoutPresetWidget.querySelector<HTMLElement>(`[data-preset-field="${field.id}"] .preset-option-list`);
         if (!input || !list) return;
-        input.value = ctx.state.linearLayoutState.presetSelection[field.key];
-        list.innerHTML = presetOptionsHtml(field.id, filteredPresetOptions(presetFieldOptions(presetOptions, field.key), input.value));
+        if (field.id !== activeInputId) input.value = ctx.state.linearLayoutState.presetSelection[field.key];
+        const validOptions = presetFieldOptions(presetOptions, field.key);
+        list.innerHTML = presetOptionsHtml(
+            field.id,
+            filteredPresetOptions(validOptions, input.value),
+            filteredPresetOptions(invalidPresetFieldOptions(field.key, validOptions), input.value),
+        );
     });
     bindPresetOptions(ctx);
     setPresetDropdownVisibility(ctx.linearLayoutPresetWidget, activeInputId);
@@ -217,16 +231,78 @@ function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | 
     }
     const loadPreset = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>('#linear-layout-load-preset');
     if (loadPreset) loadPreset.disabled = preset === null;
-    if (activeInputId) {
-        const activeInput = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${CSS.escape(activeInputId)}`);
-        activeInput?.focus();
-    }
 }
 
-function presetOptionsHtml(inputId: string, options: string[]): string {
-    return options.length > 0
-        ? options.map((option) => `<button class="preset-option" type="button" data-preset-input="${inputId}" data-preset-value="${escapeInfo(option)}">${escapeInfo(option)}</button>`).join('')
-        : '<span class="mapping-empty">no matches</span>';
+function presetOptionsHtml(inputId: string, validOptions: string[], invalidOptions: string[]): string {
+    if (validOptions.length === 0 && invalidOptions.length === 0) return '<span class="mapping-empty">no matches</span>';
+    return [
+        ...validOptions.map((option) => (
+            `<button class="preset-option" type="button" data-preset-input="${inputId}" data-preset-value="${escapeInfo(option)}" data-preset-validity="valid">${escapeInfo(option)}</button>`
+        )),
+        ...(invalidOptions.length > 0 ? ['<div class="preset-option-divider">invalid with current selection</div>'] : []),
+        ...invalidOptions.map((option) => (
+            `<button class="preset-option preset-option-invalid" type="button" data-preset-input="${inputId}" data-preset-value="${escapeInfo(option)}" data-preset-validity="invalid">${escapeInfo(option)}</button>`
+        )),
+    ].join('');
+}
+
+function invalidPresetFieldOptions(field: PresetFieldKey, validOptions: string[]): string[] {
+    const allOptions = presetFieldOptions(composeLayoutPresetOptions(undefined), field);
+    return allOptions.filter((option) => !validOptions.includes(option));
+}
+
+function presetSelectionForOption(
+    selection: {
+        gpuArch: string;
+        instruction: string;
+        matrixSize: string;
+        dtype: string;
+        operand: string;
+        trans: string;
+        major: string;
+    },
+    field: PresetFieldKey,
+    value: string,
+    invalid: boolean,
+) {
+    if (!invalid) {
+        return normalizeComposeLayoutPresetSelection({
+            ...selection,
+            [field]: value,
+        });
+    }
+    const next = {
+        gpuArch: '',
+        instruction: '',
+        matrixSize: '',
+        dtype: '',
+        operand: '',
+        trans: '',
+        major: '',
+    };
+    next[field] = value;
+    PRESET_FIELDS.forEach(({ key }) => {
+        if (key === field) return;
+        const candidate = selection[key];
+        if (!candidate) return;
+        if (presetMatches({
+            ...next,
+            [key]: candidate,
+        })) next[key] = candidate;
+    });
+    const visibleKeys = new Set(visiblePresetFields(next).map(({ key }) => key));
+    PRESET_FIELDS.forEach(({ key }) => {
+        if (!visibleKeys.has(key)) next[key] = '';
+    });
+    return normalizeComposeLayoutPresetSelection(next);
+}
+
+function presetMatches(filters: Partial<Record<PresetFieldKey, string>>): boolean {
+    return composeLayoutPresets().some((preset) => PRESET_FIELDS.every(({ key }) => {
+        const value = filters[key];
+        if (!value) return true;
+        return key === 'gpuArch' ? preset.gpuArchs.includes(value) : preset[key] === value;
+    }));
 }
 
 function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | null): void {
@@ -302,7 +378,7 @@ function renderedPresetFieldIds(root: HTMLElement): string {
 
 export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void {
     clearPresetOutsideClickHandler?.();
-    const presetSelection = normalizeComposeLayoutPresetSelection(ctx.state.linearLayoutState.presetSelection);
+    const presetSelection = cloneComposeLayoutPresetSelection(ctx.state.linearLayoutState.presetSelection);
     ctx.state.linearLayoutState.presetSelection = presetSelection;
     const presetOptions = composeLayoutPresetOptions(presetSelection);
     const preset = composeLayoutPresetForSelection(presetSelection);
@@ -315,6 +391,7 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
             field,
             presetSelection[field.key],
             presetFieldOptions(presetOptions, field.key),
+            invalidPresetFieldOptions(field.key, presetFieldOptions(presetOptions, field.key)),
         )).join('')}
         </div>
         <div class="button-row linear-layout-action-row">

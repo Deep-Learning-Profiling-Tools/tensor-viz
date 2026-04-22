@@ -1051,6 +1051,21 @@ textarea {
     background: #f8fafc;
 }
 
+.preset-option-invalid {
+    color: #b91c1c;
+}
+
+.preset-option-divider {
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.12);
+    background: #fff5f5;
+    color: #b91c1c;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+ }
+
 .preset-option-list .mapping-empty {
     padding: 0.45rem 0.6rem;
     background: #fff;
