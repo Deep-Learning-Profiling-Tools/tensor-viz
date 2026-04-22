@@ -152,7 +152,8 @@ select {
     background: #f8fafc;
 }
 
-.tab-label {
+.tab-label,
+.tab-title-input {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -164,11 +165,16 @@ select {
     color: inherit;
     line-height: 1.15;
     text-align: center;
+}
+
+.tab-label {
     cursor: pointer;
 }
 
-.tab-label:hover {
-    background: transparent;
+.tab-title-input {
+    min-width: 8rem;
+    background: #fff;
+    font: inherit;
 }
 
 .tab-close {

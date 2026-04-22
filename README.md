@@ -1,6 +1,6 @@
 # tensor-viz
 
-`tensor-viz` is a local tensor viewer for NumPy arrays. The Python API starts a small HTTP server, serves a browser UI, and lets you inspect tensor layouts, slices, grouped dimensions, and custom color overlays.
+`tensor-viz` is a local tensor viewer for NumPy arrays. You can inspect N-dimensional tensors, slice/permute them, and color them however you want.
 
 ## Install
 
@@ -81,9 +81,7 @@ import numpy as np
 import tensor_viz
 
 x = np.random.randn(32, 64, 64)
-session = tensor_viz.viz(x)
-print(session.url)
-session.wait()
+tensor_viz.viz(x)  # launches an HTTP server with a web UI to view the tensor
 ```
 
 `labels=` is optional. When omitted, axes default to `A B C ... Z A0 B0 ...`.
