@@ -135,8 +135,8 @@ export function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayo
     return cloneComposeLayoutState(state);
 }
 
-export function defaultLinearLayoutCellTextState(): LinearLayoutCellTextState {
-    return {};
+export function defaultLinearLayoutCellTextState(labels: string[] = []): LinearLayoutCellTextState {
+    return Object.fromEntries(labels.map((label) => [label, true]));
 }
 
 export function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState): LinearLayoutCellTextState {
@@ -237,7 +237,11 @@ export function syncLinearLayoutCellTextState(ctx: LinearLayoutUiContext, tab: L
         ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(candidate));
         return;
     }
-    ctx.state.linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+    const meta = composeLayoutMetaForTab(tab);
+    const labels = ctx.state.linearLayoutState.propagateOutputs
+        ? meta?.finalOutputLabels ?? []
+        : meta?.rootInputLabels ?? [];
+    ctx.state.linearLayoutCellTextState = defaultLinearLayoutCellTextState(labels);
     ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
 }
 

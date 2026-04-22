@@ -14,7 +14,6 @@ export type AppShellRefs = {
     inspectorWidget: HTMLElement;
     selectionWidget: HTMLElement;
     advancedSettingsWidget: HTMLElement;
-    colorbarWidget: HTMLElement;
     commandPalette: HTMLDivElement;
     commandPaletteBackdrop: HTMLDivElement;
     commandPaletteInput: HTMLInputElement;
@@ -91,7 +90,6 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
             <button data-action="tensor-view" type="button">Toggle Permute/Slice <span>Ctrl+V</span></button>
             <button data-action="inspector" type="button">Toggle Hover Info <span></span></button>
             <button data-action="selection" type="button">Toggle Selection <span></span></button>
-            <button data-action="colorbar" type="button">Toggle Colorbar <span></span></button>
             <button data-action="advanced-settings" type="button">Toggle Advanced Settings <span></span></button>
           </div>
         </div>
@@ -113,7 +111,6 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         <section class="widget" id="inspector-widget"></section>
         <section class="widget" id="selection-widget"></section>
         <section class="widget" id="advanced-settings-widget"></section>
-        <section class="widget" id="colorbar-widget"></section>
       </aside>
       <div class="command-palette hidden" id="command-palette">
         <div class="command-palette-backdrop" id="command-palette-backdrop"></div>
@@ -141,7 +138,6 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),
         selectionWidget: requireElement(app, '#selection-widget', 'selection widget'),
         advancedSettingsWidget: requireElement(app, '#advanced-settings-widget', 'advanced settings widget'),
-        colorbarWidget: requireElement(app, '#colorbar-widget', 'colorbar widget'),
         commandPalette: requireElement(app, '#command-palette', 'command palette'),
         commandPaletteBackdrop: requireElement(app, '#command-palette-backdrop', 'command palette backdrop'),
         commandPaletteInput: requireElement(app, '#command-palette-input', 'command palette input'),

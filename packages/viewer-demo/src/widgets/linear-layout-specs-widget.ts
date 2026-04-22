@@ -7,6 +7,7 @@ import {
 import {
     cloneLinearLayoutMultiInputState,
     cloneLinearLayoutState,
+    composeLayoutMetaForTab,
     defaultLinearLayoutCellTextState,
     defaultLinearLayoutMultiInputState,
     snapshotTensorViews,
@@ -252,8 +253,9 @@ export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Pro
     ctx.setSessionTabs(examples.map(({ state, title }, index) => {
         const document = createComposeLayoutDocument(state, undefined, title);
         const id = `tab-${index + 1}`;
+        const meta = composeLayoutMetaForTab(document);
         ctx.state.linearLayoutStates.set(id, cloneLinearLayoutState(state));
-        ctx.state.linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState());
+        ctx.state.linearLayoutCellTextStates.set(id, defaultLinearLayoutCellTextState(meta?.rootInputLabels ?? []));
         ctx.state.linearLayoutMultiInputStates.set(id, defaultLinearLayoutMultiInputState());
         ctx.state.linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
         return { ...document, id, title };

@@ -32,7 +32,7 @@ export function linearLayoutPropagationLabels(ctx: LinearLayoutUiContext): { lab
 }
 
 export function normalizeCellTextState(state: Record<string, boolean>, labels: string[]): Record<string, boolean> {
-    return Object.fromEntries(labels.map((label) => [label, state[label] ?? false]));
+    return Object.fromEntries(labels.map((label) => [label, state[label] ?? true]));
 }
 
 export function mappingMatchesLabels(mapping: Record<LinearLayoutChannel, string>, labels: string[]): boolean {

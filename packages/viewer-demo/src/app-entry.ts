@@ -90,7 +90,6 @@ const {
     inspectorWidget,
     selectionWidget,
     advancedSettingsWidget,
-    colorbarWidget,
     commandPalette,
     commandPaletteBackdrop,
     commandPaletteInput,
@@ -110,7 +109,6 @@ let suspendTensorViewRender = false;
 let tensorViewHelpOpen = false;
 let showTensorViewWidget = true;
 let showAdvancedSettingsWidget = false;
-let showColorbarWidget = false;
 let inspectorReady = false;
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
@@ -202,8 +200,7 @@ type SidebarWidgetId =
     | 'tensor-view'
     | 'inspector'
     | 'selection'
-    | 'advanced-settings'
-    | 'colorbar';
+    | 'advanced-settings';
 
 const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
     'linear-layout-preset': linearLayoutPresetWidget,
@@ -215,7 +212,6 @@ const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
     inspector: inspectorWidget,
     selection: selectionWidget,
     'advanced-settings': advancedSettingsWidget,
-    colorbar: colorbarWidget,
 };
 
 const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
@@ -228,7 +224,6 @@ const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
     inspector: 'Hover Info',
     selection: 'Selection',
     'advanced-settings': 'Advanced Settings',
-    colorbar: 'Heatmap',
 };
 
 let widgetOrder: SidebarWidgetId[] = [
@@ -240,7 +235,6 @@ let widgetOrder: SidebarWidgetId[] = [
     'inspector',
     'selection',
     'advanced-settings',
-    'colorbar',
 ];
 sidebarHeader.classList.add('label-row');
 sidebarHeader.innerHTML = `<span>Widgets</span>${infoButton('Extra settings to inspect/change the visible tensor(s). Click the arrows/widget header text on each widget to expand/collapse them. Change widget position by left-clicking + dragging on the grabber by the right of each widget.')}`;
@@ -287,7 +281,6 @@ function commandActions(): CommandAction[] {
         { action: 'tensor-view', label: 'Toggle Permute/Slice', shortcut: 'Ctrl+V', keywords: 'widgets permute slice tensor permutation slicing tensor view panel' },
         { action: 'inspector', label: 'Toggle Hover Info', shortcut: '', keywords: 'widgets hover info inspector panel' },
         { action: 'selection', label: 'Toggle Selection', shortcut: '', keywords: 'widgets selection panel stats highlighted cells' },
-        { action: 'colorbar', label: 'Toggle Colorbar', shortcut: '', keywords: 'widgets colorbar panel heatmap range' },
         { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
         { action: 'view', label: 'Focus Permute/Slice Input', shortcut: '', keywords: 'focus permute slice tensor permutation slicing tensor view input field' },
     ];
@@ -341,7 +334,6 @@ function filteredCommandActions(): CommandAction[] {
 }
 
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
-    const model = viewer.getInspectorModel();
     const linearLayoutActive = Boolean(activeTab() && isLinearLayoutTab(activeTab()!));
     return widgetOrder.filter((widgetId) => (
         (widgetId === 'linear-layout-preset' && linearLayoutActive)
@@ -354,7 +346,6 @@ function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
             && snapshot.showSelectionPanel
             && (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select')
         || (widgetId === 'advanced-settings' && showAdvancedSettingsWidget)
-        || (widgetId === 'colorbar' && snapshot.heatmap && model.colorRanges.length !== 0)
     ));
 }
 
@@ -527,8 +518,6 @@ function widgetIcon(widgetId: SidebarWidgetId): string {
                 <circle cx="10" cy="18" r="1.7" fill="currentColor" stroke="none" />
               </svg>
             `;
-        case 'colorbar':
-            return iconHeatmap();
     }
 }
 
@@ -728,7 +717,8 @@ async function addNewTab(): Promise<void> {
     if (!currentTab) {
         linearLayoutUiState.linearLayoutState = emptyLinearLayoutState();
         const document = createComposeLayoutDocument(linearLayoutUiState.linearLayoutState, viewer.getSnapshot(), title);
-        linearLayoutUiState.linearLayoutCellTextState = defaultLinearLayoutCellTextState();
+        const meta = composeLayoutMetaForTab(document);
+        linearLayoutUiState.linearLayoutCellTextState = defaultLinearLayoutCellTextState(meta?.rootInputLabels ?? []);
         linearLayoutUiState.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
         linearLayoutUiState.linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutUiState.linearLayoutState));
         linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState));
@@ -779,17 +769,6 @@ function iconRotate(): string {
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 4.8A7.2 7.2 0 1 1 4.8 12" />
         <path d="M4.8 9.6l1.92 3.6H2.88z" fill="currentColor" stroke="none" />
-      </svg>
-    `;
-}
-
-function iconHeatmap(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="4" y="4" width="8" height="8" fill="#111111" stroke="#111111" stroke-width="0.8" />
-        <rect x="12" y="4" width="8" height="8" fill="#555555" stroke="#111111" stroke-width="0.8" />
-        <rect x="4" y="12" width="8" height="8" fill="#cccccc" stroke="#111111" stroke-width="0.8" />
-        <rect x="12" y="12" width="8" height="8" fill="#ffffff" stroke="#111111" stroke-width="0.8" />
       </svg>
     `;
 }
@@ -905,15 +884,6 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             onClick: () => viewer.setDisplayMode('3d'),
         },
         {
-            id: 'heatmap',
-            label: 'Heatmap',
-            description: 'Toggle heatmap coloring to map numeric values onto a grayscale intensity view.',
-            shortcut: 'Ctrl+H',
-            active: snapshot.heatmap,
-            content: iconHeatmap(),
-            onClick: () => viewer.toggleHeatmap(),
-        },
-        {
             id: 'dim-lines',
             label: 'Dim Lines',
             description: 'Toggle dimension guide lines to show axis extents and family orientation in the current layout.',
@@ -962,7 +932,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     controlDock.replaceChildren(...controls.map((control, index) => {
         const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}`;
         const tooltip = `<span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span><span class="control-tooltip-shortcut">Shortcut: ${control.shortcut}</span></span>`;
-        if (index === 3 || index === 5 || index === 7 || index === 9) {
+        if (index === 3 || index === 5 || index === 7 || index === 8) {
             const fragment = document.createDocumentFragment();
             const divider = document.createElement('div');
             divider.className = 'control-dock-divider';
@@ -1707,32 +1677,6 @@ function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     `;
 }
 
-function renderColorbarWidget(snapshot: ViewerSnapshot): void {
-    const model = viewer.getInspectorModel();
-    if (!snapshot.heatmap || model.colorRanges.length === 0) {
-        colorbarWidget.innerHTML = '';
-        return;
-    }
-    const scaleMode = snapshot.logScale ? '<div class="colorbar-mode">Log Scale</div>' : '<div class="colorbar-mode">Linear Scale</div>';
-    const sections = model.colorRanges.map((range) => `
-      <div class="colorbar-section">
-        <div class="colorbar-title">${range.name || range.id}</div>
-        <div class="colorbar"></div>
-        <div class="colorbar-labels">
-          <span>${formatRangeValue(range.min)}</span>
-          <span>${formatRangeValue(range.max)}</span>
-        </div>
-      </div>
-    `).join('');
-    colorbarWidget.innerHTML = `
-      ${widgetTitle('colorbar', 'Shows the heatmap range for each loaded tensor using its current minimum and maximum values. The gradient can be linear or signed-log depending on Advanced Settings.')}
-      <div class="widget-body">
-        ${scaleMode}
-        ${sections}
-      </div>
-    `;
-}
-
 function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
     const displayGaps = snapshot.displayGaps ?? false;
@@ -1835,7 +1779,6 @@ function render(snapshot: ViewerSnapshot): void {
     renderLinearLayoutHoverPopup();
     renderSelectionWidget(snapshot);
     renderAdvancedSettingsWidget(snapshot);
-    renderColorbarWidget(snapshot);
 }
 
 /** loads one tab's raw tensor payloads from the local python session server. */
@@ -2036,10 +1979,6 @@ async function runAction(action: string): Promise<void> {
             return;
         case 'selection':
             viewer.toggleSelectionPanel();
-            return;
-        case 'colorbar':
-            showColorbarWidget = !showColorbarWidget;
-            render(viewer.getSnapshot());
             return;
         case 'advanced-settings':
             showAdvancedSettingsWidget = !showAdvancedSettingsWidget;
