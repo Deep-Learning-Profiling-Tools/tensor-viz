@@ -1,5 +1,7 @@
 import {
     createTypedArray,
+    defaultTensorViewEditor,
+    parseTensorView,
     serializeTensorViewEditor,
     TensorViewer,
     product,
@@ -112,6 +114,7 @@ let showAdvancedSettingsWidget = false;
 let inspectorReady = false;
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
+let editingTab: { id: string; title: string } | null = null;
 let switchingTab = false;
 let resizingSidebar = false;
 let commandPaletteOpen = false;
@@ -605,6 +608,47 @@ function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string):
     };
 }
 
+function normalizedTensorViewSnapshot(
+    tensor: BundleManifest['tensors'][number],
+    ...views: Array<ViewerSnapshot['tensors'][number]['view'] | undefined>
+): ViewerSnapshot['tensors'][number]['view'] {
+    for (const view of [...views, { editor: defaultTensorViewEditor(tensor.shape, tensor.axisLabels), hiddenIndices: [] }]) {
+        if (!view) continue;
+        const parsed = parseTensorView(
+            tensor.shape,
+            serializeTensorViewEditor(view.editor),
+            view.hiddenIndices,
+            tensor.axisLabels,
+        );
+        if (parsed.ok) {
+            return {
+                editor: parsed.spec.editor,
+                hiddenIndices: parsed.spec.hiddenIndices.slice(),
+            };
+        }
+    }
+    throw new Error('Tensor view editor state is invalid.');
+}
+
+function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnapshot): ViewerSnapshot {
+    return {
+        ...snapshot,
+        tensors: snapshot.tensors.map((entry) => {
+            const tensor = tab.manifest.tensors.find((candidate) => candidate.id === entry.id);
+            if (!tensor) return entry;
+            const previous = tab.manifest.viewer.tensors.find((candidate) => candidate.id === entry.id);
+            return {
+                ...entry,
+                view: normalizedTensorViewSnapshot(tensor, entry.view, previous?.view, tensor.view),
+            };
+        }),
+    };
+}
+
+function clearTabTitleEdit(): void {
+    editingTab = null;
+}
+
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
@@ -631,12 +675,13 @@ function captureActiveTabSnapshot(): void {
         const composeLayoutMeta = composeLayoutMetaForTab(tab);
         if (composeLayoutMeta) snapshot.composeLayoutMeta = composeLayoutMeta;
     }
-    tab.manifest.viewer = snapshot;
+    tab.manifest.viewer = normalizeViewerSnapshot(tab, snapshot);
 }
 
 async function closeTab(tabId: string): Promise<void> {
     const index = sessionTabs.findIndex((tab) => tab.id === tabId);
     if (index < 0) return;
+    if (editingTab?.id === tabId) clearTabTitleEdit();
     const wasActive = activeTabId === tabId;
     if (wasActive) captureActiveTabSnapshot();
     linearLayoutUiState.linearLayoutStates.delete(tabId);
@@ -660,23 +705,80 @@ async function closeTab(tabId: string): Promise<void> {
 }
 
 function renderTabStrip(): void {
-    tabStrip.classList.toggle('hidden', sessionTabs.length === 0);
-    if (sessionTabs.length === 0) {
+    tabStrip.classList.toggle('hidden', sessionTabs.length < 2);
+    if (sessionTabs.length < 2) {
+        clearTabTitleEdit();
         tabStrip.replaceChildren();
         return;
     }
     const tabs = sessionTabs.map((tab) => {
         const tabElement = document.createElement('div');
+        const canSwitch = editingTab?.id !== tab.id && tab.id !== activeTabId;
         tabElement.className = `tab-button${tab.id === activeTabId ? ' active' : ''}`;
-
-        const label = document.createElement('button');
-        label.type = 'button';
-        label.className = 'tab-label';
-        label.textContent = tab.title;
-        label.addEventListener('click', async () => {
-            if (tab.id === activeTabId) return;
+        tabElement.tabIndex = 0;
+        tabElement.setAttribute('role', 'button');
+        tabElement.setAttribute('aria-label', tab.title);
+        tabElement.addEventListener('click', async () => {
+            if (!canSwitch) return;
             await loadTab(tab.id);
         });
+        tabElement.addEventListener('keydown', async (event) => {
+            if (!['Enter', ' '].includes(event.key) || !canSwitch) return;
+            event.preventDefault();
+            await loadTab(tab.id);
+        });
+        tabElement.addEventListener('auxclick', async (event) => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            await closeTab(tab.id);
+        });
+
+        const editing = editingTab?.id === tab.id;
+        const label = editing ? document.createElement('input') : document.createElement('div');
+        if (label instanceof HTMLInputElement) {
+            label.type = 'text';
+            label.className = 'tab-title-input';
+            label.value = editingTab?.title ?? tab.title;
+            label.setAttribute('aria-label', `Edit ${tab.title}`);
+            let cancelled = false;
+            queueMicrotask(() => {
+                if (editingTab?.id !== tab.id) return;
+                label.focus();
+                label.select();
+            });
+            label.addEventListener('click', (event) => {
+                event.stopPropagation();
+            });
+            label.addEventListener('input', () => {
+                if (editingTab?.id === tab.id) editingTab.title = label.value;
+            });
+            label.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') label.blur();
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                cancelled = true;
+                clearTabTitleEdit();
+                renderTabStrip();
+            });
+            label.addEventListener('blur', () => {
+                if (cancelled) return;
+                const title = label.value.trim() || tab.title;
+                tab.title = title;
+                clearTabTitleEdit();
+                renderTabStrip();
+                logUi('tab:rename', { tabId: tab.id, title });
+            });
+        } else {
+            label.className = 'tab-label';
+            label.textContent = tab.title;
+            label.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (tab.id !== activeTabId) return;
+                editingTab = { id: tab.id, title: tab.title };
+                renderTabStrip();
+            });
+        }
 
         const closeButton = document.createElement('button');
         closeButton.type = 'button';
@@ -686,12 +788,6 @@ function renderTabStrip(): void {
         closeButton.addEventListener('click', async (event) => {
             event.preventDefault();
             event.stopPropagation();
-            await closeTab(tab.id);
-        });
-
-        tabElement.addEventListener('auxclick', async (event) => {
-            if (event.button !== 1) return;
-            event.preventDefault();
             await closeTab(tab.id);
         });
         tabElement.append(label, closeButton);
@@ -970,15 +1066,19 @@ async function loadTab(tabId: string): Promise<void> {
     if (!switchingTab && activeTabId && activeTabId !== tabId) captureActiveTabSnapshot();
     switchingTab = true;
     activeTabId = tabId;
-    viewer.loadBundleData(tab.manifest, tab.tensors);
-    if (tab.manifest.viewer.dimensionMappingScheme) {
-        viewer.setDimensionMappingScheme(tab.manifest.viewer.dimensionMappingScheme);
+    try {
+        tab.manifest.viewer = normalizeViewerSnapshot(tab, tab.manifest.viewer);
+        viewer.loadBundleData(tab.manifest, tab.tensors);
+        if (tab.manifest.viewer.dimensionMappingScheme) {
+            viewer.setDimensionMappingScheme(tab.manifest.viewer.dimensionMappingScheme);
+        }
+        if (!appliedStartupWidgetDefaults) {
+            viewer.toggleSelectionPanel(false);
+            appliedStartupWidgetDefaults = true;
+        }
+    } finally {
+        switchingTab = false;
     }
-    if (!appliedStartupWidgetDefaults) {
-        viewer.toggleSelectionPanel(false);
-        appliedStartupWidgetDefaults = true;
-    }
-    switchingTab = false;
     renderTabStrip();
     syncLinearLayoutState(linearLayoutUi, tab);
     syncLinearLayoutCellTextState(linearLayoutUi, tab);
