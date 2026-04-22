@@ -279,7 +279,7 @@ type MatrixTransferLayoutDefinition = {
     dtype: string;
     operand: string;
     inputName: string;
-    rows: Array<[label: string, bases: string]>;
+    rowsByTrans: Partial<Record<'no' | 'yes', Array<[label: string, bases: string]>>>;
 };
 
 function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): string {
@@ -405,7 +405,10 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b16',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+        rowsByTrans: {
+            no: [['R', '[[4,0],[8,0],[16,0]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+            yes: [['R', '[[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0]]']],
+        },
     },
     {
         name: 'ldmatrix_m8n8_x2_b16',
@@ -415,7 +418,10 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b16',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+        rowsByTrans: {
+            no: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+            yes: [['R', '[[0,0],[1,0],[2,0],[0,1]]'], ['C', '[[4,0],[8,0],[16,0]]']],
+        },
     },
     {
         name: 'ldmatrix_m8n8_x4_b16',
@@ -425,7 +431,10 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b16',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+        rowsByTrans: {
+            no: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[1,0],[2,0]]']],
+            yes: [['R', '[[0,0],[1,0],[2,0],[0,1],[0,2]]'], ['C', '[[4,0],[8,0],[16,0]]']],
+        },
     },
     {
         name: 'ldmatrix_m16n16_x1_b8',
@@ -435,7 +444,9 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b8',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[0,0],[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0],[0,1]]']],
+        rowsByTrans: {
+            yes: [['R', '[[0,0],[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0],[0,1]]']],
+        },
     },
     {
         name: 'ldmatrix_m16n16_x2_b8',
@@ -445,7 +456,9 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b8',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[0,0],[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0],[0,1],[0,2]]']],
+        rowsByTrans: {
+            yes: [['R', '[[0,0],[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0],[0,1],[0,2]]']],
+        },
     },
     {
         name: 'ldmatrix_m8n16_x1_b4',
@@ -455,7 +468,9 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b4',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        rowsByTrans: {
+            no: [['R', '[[4,0],[8,0],[16,0]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        },
     },
     {
         name: 'ldmatrix_m8n16_x2_b4',
@@ -465,7 +480,9 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b4',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        rowsByTrans: {
+            no: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        },
     },
     {
         name: 'ldmatrix_m8n16_x4_b4',
@@ -475,7 +492,9 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b4',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        rowsByTrans: {
+            no: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        },
     },
 ] satisfies MatrixTransferLayoutDefinition[];
 
@@ -485,38 +504,40 @@ const MATRIX_TRANSFER_PRESETS: ComposeLayoutPresetDefinition[] = MATRIX_TRANSFER
         matrixSize: layout.matrixSize,
         dtype: layout.dtype,
         signature: '[R, C] -> [T, R32]',
-        comments: ['Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.'],
-        rows: layout.rows,
         inputName: layout.inputName,
     };
-    const transes = layout.dtype === 'b16'
-        ? ['no', 'yes']
-        : layout.dtype === 'b8'
-            ? ['yes']
-            : ['no'];
+    const transes = ['no', 'yes'].filter((trans): trans is 'no' | 'yes' => Boolean(layout.rowsByTrans[trans]));
     return [
         ...transes.map((trans) => ({
             ...shared,
-            name: trans === 'yes' ? `${layout.name}_trans` : layout.name,
+            rows: layout.rowsByTrans[trans]!,
+            name: trans === 'yes' ? layout.name.replace(/_([^_]+)$/, '_trans_$1') : layout.name,
             instruction: 'ldmatrix' as const,
             operand: '',
             trans,
             comments: trans === 'yes'
-                ? [...shared.comments, 'trans = yes means the matrix is loaded in column-major format.']
-                : shared.comments,
+                ? [
+                    'Consecutive columns need not be contiguous in memory; each row address points to the start of a matrix column.',
+                    'trans = yes means the matrix is loaded in column-major format.',
+                ]
+                : ['Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.'],
         })),
         ...transes.map((trans) => ({
             ...shared,
+            rows: layout.rowsByTrans[trans]!,
             name: trans === 'yes'
-                ? `${layout.name.replace(/^ldmatrix/, 'stmatrix')}_trans`
+                ? layout.name.replace(/^ldmatrix/, 'stmatrix').replace(/_([^_]+)$/, '_trans_$1')
                 : layout.name.replace(/^ldmatrix/, 'stmatrix'),
             gpuArch: layout.gpuArch === 'sm_75' ? 'sm_90' : layout.gpuArch,
             instruction: 'stmatrix' as const,
             operand: '',
             trans,
             comments: trans === 'yes'
-                ? [...shared.comments, 'trans = yes means the matrix is stored in column-major format.']
-                : shared.comments,
+                ? [
+                    'Consecutive columns need not be contiguous in memory; each row address points to the start of a matrix column.',
+                    'trans = yes means the matrix is stored in column-major format.',
+                ]
+                : ['Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.'],
         })),
     ];
 });

@@ -119,9 +119,36 @@ describe('compose layout helpers', () => {
             major: '',
         });
 
-        expect(preset?.title).toBe('ldmatrix_m16n16_x1_b8_trans');
+        expect(preset?.title).toBe('ldmatrix_m16n16_x1_trans_b8');
         expect(preset?.state.specsText).toContain('R: [[0,0],[0,0],[1,0],[2,0]]');
         expect(preset?.state.specsText).toContain('C: [[4,0],[8,0],[16,0],[0,1]]');
+    });
+
+    it('emits distinct transposed m8n8 ldmatrix specs', () => {
+        expect(composeLayoutPresetOptions({
+            gpuArch: 'sm_75',
+            instruction: 'ldmatrix',
+            matrixSize: 'm8n8.x1',
+            dtype: 'b16',
+            operand: '',
+            trans: '',
+            major: '',
+        }).transes).toEqual(['no', 'yes']);
+
+        const preset = composeLayoutPresetForSelection({
+            gpuArch: 'sm_75',
+            instruction: 'ldmatrix',
+            matrixSize: 'm8n8.x1',
+            dtype: 'b16',
+            operand: '',
+            trans: 'yes',
+            major: '',
+        });
+
+        expect(preset?.title).toBe('ldmatrix_m8n8_x1_trans_b16');
+        expect(preset?.state.specsText).toContain('R: [[0,0],[1,0],[2,0]]');
+        expect(preset?.state.specsText).toContain('C: [[4,0],[8,0],[16,0]]');
+        expect(preset?.state.specsText).not.toContain('R: [[4,0],[8,0],[16,0]]');
     });
 
     it('filters preset dropdown options by the current selection path', () => {
@@ -294,6 +321,29 @@ describe('compose layout helpers', () => {
             major: '',
         });
         expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA_m8n8k4_A_row_major_f16');
+    });
+
+    it('matches the corrected m8n8k4 B row-major f16 preset', () => {
+        const selection = matchedComposeLayoutPresetSelection({
+            specsText: [
+                'MMA_m8n8k4_B_row_major_f16: [T,R] -> [K,N]',
+                'T: [[1,0],[2,0],[0,0],[0,0],[0,4]]',
+                'R: [[0,1],[0,2]]',
+            ].join('\n'),
+            operationText: 'MMA_m8n8k4_B_row_major_f16',
+            inputName: 'Hardware Layout',
+        });
+
+        expect(selection).toEqual({
+            gpuArch: 'sm_70',
+            instruction: 'mma',
+            matrixSize: 'm8n8k4',
+            dtype: 'f16',
+            operand: 'B-row-major',
+            trans: '',
+            major: '',
+        });
+        expect(composeLayoutPresetForSelection(selection)?.title).toBe('MMA_m8n8k4_B_row_major_f16');
     });
 
     it('matches merged mma presets by storage width', () => {
