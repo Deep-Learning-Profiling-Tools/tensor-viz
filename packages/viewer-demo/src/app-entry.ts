@@ -59,6 +59,7 @@ import {
     syncLinearLayoutSelectionPreview,
     syncLinearLayoutState,
     syncLinearLayoutViewFilters,
+    toggleLinearLayoutPropagateOutputs,
     type InspectorCoordEntry,
     type LinearLayoutCellTextState,
     type LinearLayoutFormState,
@@ -71,6 +72,7 @@ import {
 } from './linear-layout-ui.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import './styles.css';
+import { linearLayoutPropagateOutputsInfo } from './widgets/linear-layout-color-widget.js';
 
 const app = getAppRoot();
 
@@ -913,6 +915,20 @@ function iconZOrderMapping(): string {
     `;
 }
 
+function iconPropagateOutputs(): string {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="2" width="6" height="6" />
+        <rect x="3" y="16" width="6" height="6" />
+        <rect x="15" y="9" width="6" height="6" />
+        <line x1="18" y1="9" x2="12.655" y2="6.624" />
+        <polygon points="9,5 13,3 13,7" fill="currentColor" stroke="none" transform="rotate(23.96 9 5)" />
+        <line x1="18" y1="15" x2="12.655" y2="17.376" />
+        <polygon points="9,19 13,17 13,21" fill="currentColor" stroke="none" transform="rotate(-23.96 9 19)" />
+      </svg>
+    `;
+}
+
 function iconPan(): string {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -925,6 +941,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
     const canRotate = snapshot.displayMode === '3d';
     const interactionMode = snapshot.interactionMode ?? viewer.getInteractionMode();
+    const linearLayoutActive = Boolean(activeTab() && isLinearLayoutTab(activeTab()!));
     const controls: ControlSpec[] = [
         {
             id: 'pan',
@@ -978,6 +995,20 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             onClick: () => viewer.setDisplayMode('3d'),
         },
         {
+            id: 'propagate-outputs',
+            label: 'Propagate Outputs',
+            description: linearLayoutActive
+                ? linearLayoutPropagateOutputsInfo(snapshot.injective)
+                : 'Propagate Outputs is available for linear-layout tabs.',
+            shortcut: 'N/A',
+            active: linearLayoutUiState.linearLayoutState.propagateOutputs,
+            disabled: !linearLayoutActive,
+            content: iconPropagateOutputs(),
+            onClick: async () => {
+                await toggleLinearLayoutPropagateOutputs(linearLayoutUi);
+            },
+        },
+        {
             id: 'dim-lines',
             label: 'Dim Lines',
             description: 'Toggle dimension guide lines to show axis extents and family orientation in the current layout.',
@@ -1026,7 +1057,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     controlDock.replaceChildren(...controls.map((control, index) => {
         const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}`;
         const tooltip = `<span class="control-tooltip"><strong>${control.label}</strong><span>${control.description}</span><span class="control-tooltip-shortcut">Shortcut: ${control.shortcut}</span></span>`;
-        if (index === 3 || index === 5 || index === 7 || index === 8) {
+        if (index === 3 || index === 6 || index === 8 || index === 9) {
             const fragment = document.createDocumentFragment();
             const divider = document.createElement('div');
             divider.className = 'control-dock-divider';

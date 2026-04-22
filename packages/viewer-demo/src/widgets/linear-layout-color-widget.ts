@@ -33,6 +33,31 @@ function linearLayoutColorHelpHtml(): string {
     `;
 }
 
+export function linearLayoutPropagateOutputsInfo(injective: boolean): string {
+    return injective
+        ? 'When off, colors and cell text come from the input space and flow forward. When on, they come from the final output space and flow backward.'
+        : 'When off, non-injective layouts keep the current popup, ghost-layer, and multi-input behavior. When on, colors and cell text come from the final output space.';
+}
+
+export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiContext): Promise<void> {
+    ctx.state.linearLayoutState.propagateOutputs = !ctx.state.linearLayoutState.propagateOutputs;
+    const autoColor = autoColorLayoutState(
+        ctx.state.linearLayoutState.specsText,
+        ctx.state.linearLayoutState.operationText,
+        ctx.state.linearLayoutState.propagateOutputs,
+    );
+    ctx.state.linearLayoutState.mapping = autoColor.mapping;
+    ctx.state.linearLayoutState.ranges = autoColor.ranges;
+    ctx.state.linearLayoutCellTextState = normalizeCellTextState(
+        ctx.state.linearLayoutCellTextState,
+        linearLayoutPropagationLabels(ctx).labels,
+    );
+    const tab = activeLinearLayoutTab(ctx);
+    if (tab) ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
+    await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
+    ctx.renderLinearLayoutEditorWidgets();
+}
+
 export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
     const activeElement = document.activeElement;
     const focusedInput = activeElement instanceof HTMLInputElement && ctx.linearLayoutColorWidget.contains(activeElement)
@@ -52,9 +77,7 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         ${linearLayoutColorHelpHtml()}
         <div class="field">
           <label class="checklist-row" for="linear-layout-propagate-outputs">
-            <span class="label-row"><span class="meta-label">Propagate Outputs</span>${infoButton(injective
-                ? 'When off, colors and cell text come from the input space and flow forward. When on, they come from the final output space and flow backward.'
-                : 'When off, non-injective layouts keep the current popup, ghost-layer, and multi-input behavior. When on, colors and cell text come from the final output space.')}</span>
+            <span class="label-row"><span class="meta-label">Propagate Outputs</span>${infoButton(linearLayoutPropagateOutputsInfo(injective))}</span>
             <input id="linear-layout-propagate-outputs" type="checkbox" ${ctx.state.linearLayoutState.propagateOutputs ? 'checked' : ''} />
           </label>
         </div>
@@ -107,23 +130,10 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
     `;
 
     ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-propagate-outputs')?.addEventListener('change', async () => {
-        ctx.state.linearLayoutState.propagateOutputs = ctx.linearLayoutColorWidget
+        const checked = ctx.linearLayoutColorWidget
             .querySelector<HTMLInputElement>('#linear-layout-propagate-outputs')?.checked ?? false;
-        const autoColor = autoColorLayoutState(
-            ctx.state.linearLayoutState.specsText,
-            ctx.state.linearLayoutState.operationText,
-            ctx.state.linearLayoutState.propagateOutputs,
-        );
-        ctx.state.linearLayoutState.mapping = autoColor.mapping;
-        ctx.state.linearLayoutState.ranges = autoColor.ranges;
-        ctx.state.linearLayoutCellTextState = normalizeCellTextState(
-            ctx.state.linearLayoutCellTextState,
-            linearLayoutPropagationLabels(ctx).labels,
-        );
-        const tab = activeLinearLayoutTab(ctx);
-        if (tab) ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
-        await applyLinearLayoutSpec(ctx, { silent: true, preserveTensorViews: true });
-        ctx.renderLinearLayoutEditorWidgets();
+        if (checked === ctx.state.linearLayoutState.propagateOutputs) return;
+        await toggleLinearLayoutPropagateOutputs(ctx);
     });
     const syncCellText = (): void => {
         ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
