@@ -94,7 +94,7 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
           </div>
         </div>
       </div>
-      <div class="tab-strip hidden" id="tab-strip"></div>
+      <div class="tab-strip" id="tab-strip"></div>
       <main class="viewport-wrap">
         <div id="viewport"></div>
         <div class="control-dock" id="control-dock"></div>

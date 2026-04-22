@@ -705,11 +705,9 @@ async function closeTab(tabId: string): Promise<void> {
 }
 
 function renderTabStrip(): void {
-    tabStrip.classList.toggle('hidden', sessionTabs.length < 2);
-    if (sessionTabs.length < 2) {
+    tabStrip.classList.remove('hidden');
+    if (sessionTabs.length === 0) {
         clearTabTitleEdit();
-        tabStrip.replaceChildren();
-        return;
     }
     const tabs = sessionTabs.map((tab) => {
         const tabElement = document.createElement('div');

@@ -144,7 +144,7 @@ textarea {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    min-height: 4.75rem;
+    min-height: 2.9rem;
     background: #e2e8f0;
     color: #334155;
 }
@@ -166,8 +166,8 @@ textarea {
     justify-content: center;
     min-width: 0;
     border: 0;
-    padding: 0.45rem 0.55rem 0.45rem 0.8rem;
-    min-height: 4.75rem;
+    padding: 0.3rem 0.55rem 0.3rem 0.8rem;
+    min-height: 2.9rem;
     background: transparent;
     color: inherit;
     line-height: 1.15;
@@ -188,7 +188,7 @@ textarea {
     flex: 0 0 auto;
     align-self: flex-start;
     border: 0;
-    padding: 0.3rem 0.45rem;
+    padding: 0.22rem 0.4rem;
     background: transparent;
     color: #64748b;
     font-size: 1rem;
@@ -208,7 +208,7 @@ textarea {
 
 .tab-strip-action {
     border: 0;
-    padding: 0.45rem 0.8rem;
+    padding: 0.3rem 0.8rem;
     background: #dbe4ee;
     color: #334155;
     cursor: pointer;
@@ -518,6 +518,7 @@ textarea {
     display: grid;
     gap: 0.75rem;
     padding-bottom: 1.1rem;
+    min-width: 0;
 }
 
 .widget-copy {
@@ -530,6 +531,7 @@ textarea {
 .field {
     display: grid;
     gap: 0.35rem;
+    min-width: 0;
 }
 
 .field-note {
@@ -1062,6 +1064,7 @@ textarea {
 .checklist-field {
     display: grid;
     gap: 0.35rem;
+    min-width: 0;
 }
 
 .checklist-row {
@@ -1080,6 +1083,8 @@ textarea {
 
 .checklist-row span {
     font-size: 0.9rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .inline-row input[type="number"] {
@@ -1087,7 +1092,10 @@ textarea {
 }
 
 .mapping-row {
+    display: grid;
+    grid-template-columns: 3.2rem minmax(0, 1fr) minmax(0, 5.4rem) auto minmax(0, 5.4rem);
     align-items: stretch;
+    min-width: 0;
 }
 
 .mapping-pool {
@@ -1112,10 +1120,16 @@ textarea {
 .mapping-drop-zone {
     display: flex;
     align-items: center;
-    min-width: 7.5rem;
+    flex-wrap: wrap;
+    min-width: 0;
+    width: 100%;
     padding: 0.2rem;
     border: 1px dashed rgba(100, 116, 139, 0.3);
     background: #f8fafc;
+}
+
+.mapping-row > * {
+    min-width: 0;
 }
 
 .mapping-drop-zone.drag-over {
@@ -1130,6 +1144,8 @@ textarea {
     color: #334155;
     cursor: grab;
     text-transform: uppercase;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 .mapping-chip:active {
@@ -1153,6 +1169,16 @@ textarea {
     font-size: 0.75rem;
     text-transform: uppercase;
     color: #64748b;
+}
+
+.range-separator-unused {
+    color: #94a3b8;
+}
+
+.unused-range-input {
+    color: #94a3b8;
+    background: #f8fafc;
+    cursor: default;
 }
 
 .mono-block,

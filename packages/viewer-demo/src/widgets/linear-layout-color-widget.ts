@@ -76,19 +76,30 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
             ${availableLabels.length === 0 ? '<span class="mapping-empty">all axes assigned</span>' : ''}
           </div>
         </div>
-        ${LINEAR_LAYOUT_CHANNELS.map((channel) => `
+        ${LINEAR_LAYOUT_CHANNELS.map((channel) => {
+            const assignedAxis = ctx.state.linearLayoutState.mapping[channel];
+            const assigned = assignedAxis !== 'none' && labels.includes(assignedAxis);
+            return `
           <div class="inline-row mapping-row">
             <span class="range-label">${channelLabels[channel]}</span>
             <div class="mapping-drop-zone" data-channel="${channel}">
-              ${ctx.state.linearLayoutState.mapping[channel] !== 'none' && labels.includes(ctx.state.linearLayoutState.mapping[channel] as string)
-        ? `<button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${ctx.state.linearLayoutState.mapping[channel]}">${ctx.state.linearLayoutState.mapping[channel]}</button>`
+              ${assigned
+        ? `<button class="mapping-chip mapping-chip-assigned" type="button" draggable="true" data-channel="${channel}" data-axis="${assignedAxis}">${assignedAxis}</button>`
         : '<span class="mapping-empty">none</span>'}
             </div>
             <input id="linear-layout-${channel.toLowerCase()}-min" type="number" step="0.01" value="${escapeInfo(ctx.state.linearLayoutState.ranges[channel][0])}" />
-            <span class="range-separator">to</span>
-            <input id="linear-layout-${channel.toLowerCase()}-max" type="number" step="0.01" value="${escapeInfo(ctx.state.linearLayoutState.ranges[channel][1])}" />
+            <span class="range-separator${assigned ? '' : ' range-separator-unused'}">to</span>
+            <input
+              id="linear-layout-${channel.toLowerCase()}-max"
+              class="${assigned ? '' : 'unused-range-input'}"
+              type="${assigned ? 'number' : 'text'}"
+              ${assigned ? 'step="0.01"' : ''}
+              value="${assigned ? escapeInfo(ctx.state.linearLayoutState.ranges[channel][1]) : 'N/A'}"
+              ${assigned ? '' : 'readonly aria-readonly="true" title="This upper bound is unused while no axis is mapped to this color channel."'}
+            />
           </div>
-        `).join('')}
+        `;
+        }).join('')}
         <div class="button-row">
           <button class="primary-button" id="linear-layout-recolor" type="button" title="Apply the current H/S/L axis assignments and numeric ranges to recolor the layout.">Recolor Layout</button>
         </div>
