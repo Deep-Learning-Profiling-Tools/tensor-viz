@@ -8,6 +8,7 @@ import {
     createComposeLayoutDocument,
     defaultComposeLayoutState,
     matchedComposeLayoutPresetSelection,
+    normalizeComposeLayoutPresetSelection,
     propagationLabels,
 } from './linear-layout.js';
 import {
@@ -94,7 +95,7 @@ describe('compose layout helpers', () => {
             matrixSize: 'm8n8.x1',
             dtype: 'b16',
             operand: '',
-            trans: '',
+            trans: 'no',
             major: '',
         });
         const preset = composeLayoutPresetForSelection(selection);
@@ -105,6 +106,22 @@ describe('compose layout helpers', () => {
         expect(preset?.state.specsText).toContain('# R32 = packed 32-bit register');
         expect(preset?.state.specsText).toContain('# Consecutive rows need not be contiguous in memory; each row address points to the start of a matrix row.');
         expect(preset?.state.inputName).toBe('Shared Memory');
+    });
+
+    it('emits transposed m16n16 ldmatrix specs', () => {
+        const preset = composeLayoutPresetForSelection({
+            gpuArch: 'sm_100',
+            instruction: 'ldmatrix',
+            matrixSize: 'm16n16.x1',
+            dtype: 'b8',
+            operand: '',
+            trans: 'yes',
+            major: '',
+        });
+
+        expect(preset?.title).toBe('ldmatrix_m16n16_x1_b8_trans');
+        expect(preset?.state.specsText).toContain('R: [[0,0],[0,0],[1,0],[2,0]]');
+        expect(preset?.state.specsText).toContain('C: [[4,0],[8,0],[16,0],[0,1]]');
     });
 
     it('filters preset dropdown options by the current selection path', () => {
@@ -143,7 +160,7 @@ describe('compose layout helpers', () => {
             matrixSizes: ['m8n8.x1', 'm8n8.x2', 'm8n8.x4', 'm16n16.x1', 'm16n16.x2', 'm8n16.x1', 'm8n16.x2', 'm8n16.x4'],
             dtypes: ['b16', 'b8', 'b4'],
             operands: [],
-            transes: [],
+            transes: ['no', 'yes'],
         });
 
         expect(composeLayoutPresetOptions({
@@ -156,7 +173,7 @@ describe('compose layout helpers', () => {
             major: '',
         })).toMatchObject({
             operands: [],
-            transes: [],
+            transes: ['no', 'yes'],
         });
 
         expect(composeLayoutPresetOptions({
@@ -234,6 +251,26 @@ describe('compose layout helpers', () => {
             trans: '',
             major: '',
         }).instructions).toEqual(['mma', 'ldmatrix', 'stmatrix']);
+    });
+
+    it('autofills singleton preset fields during normalization', () => {
+        expect(normalizeComposeLayoutPresetSelection({
+            gpuArch: '',
+            instruction: 'wgmma',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+            trans: '',
+            major: '',
+        })).toEqual({
+            gpuArch: 'sm_90a',
+            instruction: 'wgmma',
+            matrixSize: '',
+            dtype: '',
+            operand: '',
+            trans: '',
+            major: '',
+        });
     });
 
     it('matches shipped mma presets with row-major and col-major operand variants', () => {
@@ -334,6 +371,44 @@ describe('compose layout helpers', () => {
         });
     });
 
+    it('surfaces ldmatrix transpose as preset metadata', () => {
+        expect(normalizeComposeLayoutPresetSelection({
+            gpuArch: 'sm_100',
+            instruction: 'ldmatrix',
+            matrixSize: 'm16n16.x1',
+            dtype: 'b8',
+            operand: '',
+            trans: '',
+            major: '',
+        })).toEqual({
+            gpuArch: 'sm_100',
+            instruction: 'ldmatrix',
+            matrixSize: 'm16n16.x1',
+            dtype: 'b8',
+            operand: '',
+            trans: 'yes',
+            major: '',
+        });
+
+        expect(normalizeComposeLayoutPresetSelection({
+            gpuArch: 'sm_100',
+            instruction: 'ldmatrix',
+            matrixSize: 'm8n16.x1',
+            dtype: 'b4',
+            operand: '',
+            trans: '',
+            major: '',
+        })).toEqual({
+            gpuArch: 'sm_100',
+            instruction: 'ldmatrix',
+            matrixSize: 'm8n16.x1',
+            dtype: 'b4',
+            operand: '',
+            trans: 'no',
+            major: '',
+        });
+    });
+
     it('matches the shipped swizzle preset from its editor state', () => {
         const selection = matchedComposeLayoutPresetSelection({
             specsText: [
@@ -400,7 +475,7 @@ describe('compose layout helpers', () => {
             matrixSize: 'm8n8.x4',
             dtype: 'b16',
             operand: '',
-            trans: '',
+            trans: 'no',
             major: '',
         });
         expect(composeLayoutPresetForSelection(selection)?.title).toBe('stmatrix_m8n8_x4_b16');

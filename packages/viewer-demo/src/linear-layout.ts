@@ -435,7 +435,7 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b8',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0],[0,1]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        rows: [['R', '[[0,0],[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0],[0,1]]']],
     },
     {
         name: 'ldmatrix_m16n16_x2_b8',
@@ -445,7 +445,7 @@ const MATRIX_TRANSFER_LAYOUTS = [
         dtype: 'b8',
         operand: '',
         inputName: 'Shared Memory',
-        rows: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
+        rows: [['R', '[[0,0],[0,0],[1,0],[2,0]]'], ['C', '[[4,0],[8,0],[16,0],[0,1],[0,2]]']],
     },
     {
         name: 'ldmatrix_m8n16_x1_b4',
@@ -489,20 +489,35 @@ const MATRIX_TRANSFER_PRESETS: ComposeLayoutPresetDefinition[] = MATRIX_TRANSFER
         rows: layout.rows,
         inputName: layout.inputName,
     };
+    const transes = layout.dtype === 'b16'
+        ? ['no', 'yes']
+        : layout.dtype === 'b8'
+            ? ['yes']
+            : ['no'];
     return [
-        {
+        ...transes.map((trans) => ({
             ...shared,
-            name: layout.name,
-            instruction: 'ldmatrix',
+            name: trans === 'yes' ? `${layout.name}_trans` : layout.name,
+            instruction: 'ldmatrix' as const,
             operand: '',
-        },
-        {
+            trans,
+            comments: trans === 'yes'
+                ? [...shared.comments, 'trans = yes means the matrix is loaded in column-major format.']
+                : shared.comments,
+        })),
+        ...transes.map((trans) => ({
             ...shared,
-            name: layout.name.replace(/^ldmatrix/, 'stmatrix'),
+            name: trans === 'yes'
+                ? `${layout.name.replace(/^ldmatrix/, 'stmatrix')}_trans`
+                : layout.name.replace(/^ldmatrix/, 'stmatrix'),
             gpuArch: layout.gpuArch === 'sm_75' ? 'sm_90' : layout.gpuArch,
-            instruction: 'stmatrix',
+            instruction: 'stmatrix' as const,
             operand: '',
-        },
+            trans,
+            comments: trans === 'yes'
+                ? [...shared.comments, 'trans = yes means the matrix is stored in column-major format.']
+                : shared.comments,
+        })),
     ];
 });
 
@@ -1804,7 +1819,8 @@ function filteredPresets(
 }
 
 function normalizedPresetField(value: string, options: string[]): string {
-    return options.includes(value) ? value : '';
+    if (options.includes(value)) return value;
+    return options.length === 1 ? options[0] ?? '' : '';
 }
 
 function uniquePresetField<K extends keyof ComposeLayoutPresetSelection>(
