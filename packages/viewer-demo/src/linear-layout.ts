@@ -6,7 +6,7 @@ import {
     type TensorViewSnapshot,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
-import { COMPOSE_LAYOUT_PRESET_FAMILIES, PRESET_GPU_ARCHS } from './linear-layout-presets/index.js';
+import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './linear-layout-presets/index.js';
 import type {
     ComposeLayoutPresetDefinition,
     ComposeLayoutPresetFacetValue,
@@ -168,15 +168,6 @@ const DEFAULT_EMPTY_SPEC_TEXT = [
     'R: [[1,0],[2,0]]',
 ].join('\n');
 
-const GPU_ARCHS_SM70_PLUS = [...PRESET_GPU_ARCHS];
-const GPU_ARCHS_SM75_PLUS = ['sm_75', 'sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
-const GPU_ARCHS_SM80_PLUS = ['sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
-const GPU_ARCHS_SM90_PLUS = ['sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
-const GPU_ARCHS_SM100_PLUS = ['sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
-const GPU_ARCHS_SM120_ONLY = ['sm_120', 'sm_120a', 'sm_120f'];
-const GPU_ARCHS_SWIZZLE = ['sm_90a', 'sm_100a', 'sm_100f', 'sm_110a', 'sm_110f', 'sm_120a', 'sm_120f'];
-const GPU_ARCHS_WGMMA = ['sm_90a'];
-
 // sync-linear-layout-examples:start
 const BLOCKED_LAYOUT_TEXT = [
     'Blocked_Layout: [T,W,R] -> [Y,X]',
@@ -297,35 +288,6 @@ function presetOperationText(specsText: string): string {
     return (colonIndex === -1 ? signature : signature.slice(0, colonIndex)).trim();
 }
 
-function presetGpuArchs(definition: ComposeLayoutPresetDefinition): string[] {
-    const instruction = definition.instruction ?? '';
-    const matrixSize = definition.matrixSize ?? '';
-    const dtype = definition.dtype ?? '';
-    if (instruction === 'ldmatrix') return dtype === 'b16' ? GPU_ARCHS_SM75_PLUS : GPU_ARCHS_SM100_PLUS;
-    if (instruction === 'stmatrix') return dtype === 'b16' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM100_PLUS;
-    if (instruction === 'swizzle') return GPU_ARCHS_SWIZZLE;
-    if (instruction === 'wgmma') return GPU_ARCHS_WGMMA;
-    if (instruction !== 'mma') return definition.gpuArch ? [definition.gpuArch] : [];
-    if (matrixSize === 'm8n8k4') return dtype === 'f64' ? GPU_ARCHS_SM80_PLUS : GPU_ARCHS_SM70_PLUS;
-    if (matrixSize === 'm8n8k16' || matrixSize === 'm8n8k32' || matrixSize === 'm8n8k128') return GPU_ARCHS_SM75_PLUS;
-    if (matrixSize === 'm16n8k4') return dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
-    if (matrixSize === 'm16n8k8') {
-        if (dtype === 'b16') return GPU_ARCHS_SM75_PLUS;
-        return dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
-    }
-    if (matrixSize === 'm16n8k16') {
-        if (dtype === 'f64') return GPU_ARCHS_SM90_PLUS;
-        return GPU_ARCHS_SM80_PLUS;
-    }
-    if (matrixSize === 'm16n8k32') {
-        if (dtype === 'f16') return GPU_ARCHS_SM120_ONLY;
-        return GPU_ARCHS_SM80_PLUS;
-    }
-    if (matrixSize === 'm16n8k64') return GPU_ARCHS_SM80_PLUS;
-    if (matrixSize === 'm16n8k128' || matrixSize === 'm16n8k256') return GPU_ARCHS_SM80_PLUS;
-    return definition.gpuArch ? [definition.gpuArch] : [];
-}
-
 function axisComment(label: string, signature: { inputs: string[]; outputs: string[] }): string {
     if (label === 'T') return 'T = thread (AKA lane)';
     if (label === 'R') {
@@ -369,7 +331,6 @@ function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Reco
 function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, key: string): string[] {
     const facet = definition.facets?.[key];
     if (facet !== undefined) return normalizePresetFacetValue(facet);
-    if (key === 'gpuArch' && definition.gpuArch) return presetGpuArchs(definition);
     if (isLegacyPresetFieldKey(key)) return normalizePresetFacetValue(definition[key] ?? '');
     return [];
 }
@@ -431,7 +392,7 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
 
 const COMPOSE_LAYOUT_PRESET_CATALOG = PRESET_DEFINITIONS.map((definition) => composeLayoutPreset(definition));
 
-function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
+export function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
     return COMPOSE_LAYOUT_PRESET_CATALOG;
 }
 

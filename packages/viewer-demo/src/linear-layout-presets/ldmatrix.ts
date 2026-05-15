@@ -1,3 +1,4 @@
+import { GPU_ARCHS_SM75_PLUS, GPU_ARCHS_SM100_PLUS } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition, MatrixTransferLayoutDefinition } from './types.js';
 
 export const MATRIX_TRANSFER_LAYOUTS: MatrixTransferLayoutDefinition[] = [
@@ -112,6 +113,14 @@ export const LDMATRIX_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = MATR
             dtype: layout.dtype,
             operand: '',
             trans,
+            facets: {
+                gpuArch: layout.dtype === 'b16' ? GPU_ARCHS_SM75_PLUS : GPU_ARCHS_SM100_PLUS,
+                instruction: 'ldmatrix',
+                matrixSize: layout.matrixSize,
+                dtype: layout.dtype,
+                operand: '',
+                trans,
+            },
             inputName: layout.inputName,
             signature: '[R, C] -> [T, R32]',
             name: trans === 'yes' ? layout.name.replace(/_([^_]+)$/, '_trans_$1') : layout.name,

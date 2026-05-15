@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     autoColorLayoutState,
     buildComposeRuntime,
+    composeLayoutPresetCatalog,
     composeLayoutPresetFields,
     composeLayoutPresetForSelection,
     composeLayoutPresetOptions,
@@ -13,6 +14,7 @@ import {
     propagationLabels,
     type ComposeLayoutState,
 } from './linear-layout.js';
+import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './linear-layout-presets/index.js';
 import {
     coordsForRootIndexes,
     linearLayoutDisplayModel,
@@ -43,6 +45,22 @@ function composeState(specsText: string, operationText: string): ComposeLayoutSt
             L: [DEFAULT_RANGES.L[0], DEFAULT_RANGES.L[1]],
         },
     };
+}
+
+function presetName(preset: (typeof COMPOSE_LAYOUT_PRESET_FAMILIES)[number]['presets'][number]): string {
+    if (preset.title) return preset.title;
+    return 'name' in preset ? preset.name : preset.specsText.split(':', 1)[0] ?? 'unnamed preset';
+}
+
+function concretePresetSelections(
+    preset: ReturnType<typeof composeLayoutPresetCatalog>[number],
+): Record<string, string>[] {
+    return composeLayoutPresetFields().reduce((selections, field) => (
+        selections.flatMap((selection) => {
+            const values = preset.facets[field.key]?.length ? preset.facets[field.key]! : [''];
+            return values.map((value) => ({ ...selection, [field.key]: value }));
+        })
+    ), [{}] as Record<string, string>[]);
 }
 
 describe('compose layout helpers', () => {
@@ -273,6 +291,41 @@ describe('compose layout helpers', () => {
             'major',
         ]);
         expect(composeLayoutPresetFields().find(({ key }) => key === 'operand')?.dependsOn).toEqual(['instruction']);
+    });
+
+    it('requires shipped preset definitions to declare gpu arch facets', () => {
+        const missing = COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => (
+            family.presets
+                .filter((preset) => !preset.facets?.gpuArch)
+                .map((preset) => presetName(preset))
+        ));
+
+        expect(missing).toEqual([]);
+    });
+
+    it('keeps every concrete preset selection unique and resolvable', () => {
+        const requiredFields = composeLayoutPresetFields().filter((field) => field.required).map((field) => field.key);
+        const missingRequired = composeLayoutPresetCatalog().flatMap((preset) => (
+            requiredFields
+                .filter((key) => !preset.facets[key]?.length)
+                .map((key) => `${preset.title}:${key}`)
+        ));
+        const seen = new Map<string, string>();
+        const duplicates: string[] = [];
+        const unresolved: string[] = [];
+        composeLayoutPresetCatalog().forEach((preset) => {
+            concretePresetSelections(preset).forEach((selection) => {
+                const key = composeLayoutPresetFields().map((field) => `${field.key}:${selection[field.key] ?? ''}`).join('|');
+                const previous = seen.get(key);
+                if (previous && previous !== preset.title) duplicates.push(`${previous} / ${preset.title}: ${key}`);
+                seen.set(key, preset.title);
+                if (composeLayoutPresetForSelection(selection)?.title !== preset.title) unresolved.push(`${preset.title}: ${key}`);
+            });
+        });
+
+        expect(missingRequired).toEqual([]);
+        expect(duplicates).toEqual([]);
+        expect(unresolved).toEqual([]);
     });
 
     it('matches presets across every supported architecture in the family list', () => {

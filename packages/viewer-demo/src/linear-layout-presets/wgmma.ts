@@ -1,3 +1,4 @@
+import { GPU_ARCHS_WGMMA } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
 const WGMMA_D_PRESETS: ComposeLayoutPresetDefinition[] = [
@@ -91,7 +92,7 @@ const WGMMA_D_PRESETS: ComposeLayoutPresetDefinition[] = [
     },
 ];
 
-export const WGMMA_PRESET_DEFINITIONS = [
+const WGMMA_RAW_PRESET_DEFINITIONS = [
     {
         name: 'WGMMA_m64k8_A_b32',
         gpuArch: 'sm_90',
@@ -137,3 +138,14 @@ export const WGMMA_PRESET_DEFINITIONS = [
     },
     ...WGMMA_D_PRESETS,
 ] satisfies ComposeLayoutPresetDefinition[];
+
+export const WGMMA_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = WGMMA_RAW_PRESET_DEFINITIONS.map((preset) => ({
+    ...preset,
+    facets: {
+        gpuArch: GPU_ARCHS_WGMMA,
+        instruction: preset.instruction ?? 'wgmma',
+        matrixSize: preset.matrixSize ?? '',
+        dtype: preset.dtype ?? '',
+        operand: preset.operand ?? '',
+    },
+}));

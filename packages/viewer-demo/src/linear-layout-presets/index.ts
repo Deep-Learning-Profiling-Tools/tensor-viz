@@ -1,26 +1,11 @@
+import { PRESET_GPU_ARCHS } from './gpu-archs.js';
 import { LDMATRIX_PRESET_DEFINITIONS } from './ldmatrix.js';
 import { MMA_PRESET_DEFINITIONS } from './mma.js';
 import { STMATRIX_PRESET_DEFINITIONS } from './stmatrix.js';
 import { SWIZZLE_PRESET_DEFINITIONS } from './swizzle.js';
 import type { ComposeLayoutPresetFamily, ComposeLayoutPresetFieldDefinition } from './types.js';
 import { WGMMA_PRESET_DEFINITIONS } from './wgmma.js';
-
-export const PRESET_GPU_ARCHS = [
-    'sm_70',
-    'sm_75',
-    'sm_80',
-    'sm_90',
-    'sm_90a',
-    'sm_100',
-    'sm_100a',
-    'sm_100f',
-    'sm_110',
-    'sm_110a',
-    'sm_110f',
-    'sm_120',
-    'sm_120a',
-    'sm_120f',
-] as const;
+export { PRESET_GPU_ARCHS } from './gpu-archs.js';
 
 const DEFAULT_PRESET_FIELDS = [
     {

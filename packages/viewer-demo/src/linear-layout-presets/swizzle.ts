@@ -1,3 +1,4 @@
+import { GPU_ARCHS_SWIZZLE } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
 function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): string {
@@ -22,7 +23,7 @@ export const SWIZZLE_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = SWIZZ
     {
         name: `swizzle_128B_MN_major_${dtype}`,
         facets: {
-            gpuArch: 'sm_90a',
+            gpuArch: GPU_ARCHS_SWIZZLE,
             instruction: 'swizzle',
             matrixSize: '128B',
             dtype,
@@ -36,7 +37,7 @@ export const SWIZZLE_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = SWIZZ
     {
         name: `swizzle_128B_K_major_${dtype}`,
         facets: {
-            gpuArch: 'sm_90a',
+            gpuArch: GPU_ARCHS_SWIZZLE,
             instruction: 'swizzle',
             matrixSize: '128B',
             dtype,

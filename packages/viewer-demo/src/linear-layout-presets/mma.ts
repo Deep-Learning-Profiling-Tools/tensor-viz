@@ -1,3 +1,10 @@
+import {
+    GPU_ARCHS_SM70_PLUS,
+    GPU_ARCHS_SM75_PLUS,
+    GPU_ARCHS_SM80_PLUS,
+    GPU_ARCHS_SM90_PLUS,
+    GPU_ARCHS_SM120_ONLY,
+} from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
 function layoutSpecText(signature: string, rows: string[]): string {
@@ -69,7 +76,7 @@ const MMA_M8N8K16_D_S32_TEXT = layoutSpecText('MMA_m8n8k16_D_s32: [T,R] -> [M,N]
     'R: [[4,0]]',
 ]);
 
-export const MMA_PRESET_DEFINITIONS = [
+const MMA_RAW_PRESET_DEFINITIONS = [
     {
         title: 'MMA_m8n8k4_A_row_major_f16',
         gpuArch: 'sm_70',
@@ -857,3 +864,26 @@ export const MMA_PRESET_DEFINITIONS = [
         rows: [['T', '[[0,32],[0,64],[1,0],[2,0],[4,0]]'], ['R', '[[0,1],[0,2],[0,4],[0,8],[0,16],[8,0],[0,128]]']],
     },
 ] satisfies ComposeLayoutPresetDefinition[];
+
+function mmaGpuArchs(preset: ComposeLayoutPresetDefinition): readonly string[] {
+    const matrixSize = preset.matrixSize ?? '';
+    const dtype = preset.dtype ?? '';
+    if (matrixSize === 'm8n8k4') return dtype === 'f64' ? GPU_ARCHS_SM80_PLUS : GPU_ARCHS_SM70_PLUS;
+    if (matrixSize === 'm8n8k16' || matrixSize === 'm8n8k32' || matrixSize === 'm8n8k128') return GPU_ARCHS_SM75_PLUS;
+    if (matrixSize === 'm16n8k4') return dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    if (matrixSize === 'm16n8k8') return dtype === 'b16' ? GPU_ARCHS_SM75_PLUS : dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    if (matrixSize === 'm16n8k16') return dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    if (matrixSize === 'm16n8k32') return dtype === 'f16' ? GPU_ARCHS_SM120_ONLY : GPU_ARCHS_SM80_PLUS;
+    return GPU_ARCHS_SM80_PLUS;
+}
+
+export const MMA_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = MMA_RAW_PRESET_DEFINITIONS.map((preset) => ({
+    ...preset,
+    facets: {
+        gpuArch: mmaGpuArchs(preset),
+        instruction: preset.instruction ?? 'mma',
+        matrixSize: preset.matrixSize ?? '',
+        dtype: preset.dtype ?? '',
+        operand: preset.operand ?? '',
+    },
+}));
