@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@tensor-viz/viewer-core": [
+        "../viewer-core/src/index.ts"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts",
