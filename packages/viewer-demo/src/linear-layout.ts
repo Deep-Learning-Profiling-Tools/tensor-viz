@@ -6,12 +6,37 @@ import {
     type TensorViewSnapshot,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
-import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './linear-layout-presets/index.js';
-import type {
-    ComposeLayoutPresetDefinition,
-    ComposeLayoutPresetFacetValue,
-    ComposeLayoutPresetFieldDefinition,
-} from './linear-layout-presets/types.js';
+import {
+    cloneComposeLayoutPresetSelection,
+    emptyComposeLayoutPresetSelection,
+    isComposeLayoutPresetSelection,
+    matchedComposeLayoutPresetSelection,
+    type ComposeLayoutPresetSelection,
+} from './linear-layout-preset-model.js';
+import {
+    formatSpecsText,
+    parseLayoutSpecs,
+    type NamedLayoutSpec,
+} from './linear-layout-parser.js';
+export {
+    cloneComposeLayoutPresetSelection,
+    composeLayoutPresetCatalog,
+    composeLayoutPresetFields,
+    composeLayoutPresetForSelection,
+    composeLayoutPresetOptions,
+    composeLayoutPresets,
+    emptyComposeLayoutPresetSelection,
+    isComposeLayoutPresetSelection,
+    matchedComposeLayoutPresetSelection,
+    normalizeComposeLayoutPresetSelection,
+} from './linear-layout-preset-model.js';
+export type {
+    ComposeLayoutPreset,
+    ComposeLayoutPresetField,
+    ComposeLayoutPresetOptions,
+    ComposeLayoutPresetSelection,
+} from './linear-layout-preset-model.js';
+export type { NamedLayoutSpec } from './linear-layout-parser.js';
 
 export type ComposeChannel = 'H' | 'S' | 'L';
 export type ComposeMappingValue = string | 'none';
@@ -25,43 +50,6 @@ export type ComposeLayoutState = {
     propagateOutputs: boolean;
     mapping: Record<ComposeChannel, ComposeMappingValue>;
     ranges: Record<ComposeChannel, [string, string]>;
-};
-
-export type ComposeLayoutPresetSelection = Record<string, string>;
-
-export type ComposeLayoutPresetField = Required<Omit<ComposeLayoutPresetFieldDefinition, 'values'>> & {
-    id: string;
-    values: string[];
-};
-
-export type ComposeLayoutPreset = {
-    title: string;
-    facets: Record<string, string[]>;
-    gpuArchs: string[];
-    instruction: string;
-    matrixSize: string;
-    dtype: string;
-    operand: string;
-    trans: string;
-    major: string;
-    state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>;
-};
-
-export type ComposeLayoutPresetOptions = Record<string, string[]> & {
-    gpuArchs: string[];
-    instructions: string[];
-    matrixSizes: string[];
-    dtypes: string[];
-    operands: string[];
-    transes: string[];
-    majors: string[];
-};
-
-export type NamedLayoutSpec = {
-    name: string;
-    inputs: string[];
-    outputs: string[];
-    bases: number[][][];
 };
 
 export type MatrixAxis = {
@@ -214,188 +202,6 @@ const BAKED_EXAMPLE_DEFINITIONS = [
 ] as const;
 // sync-linear-layout-examples:end
 
-const LEGACY_PRESET_FIELD_KEYS = ['gpuArch', 'instruction', 'matrixSize', 'dtype', 'operand', 'trans', 'major'] as const;
-
-const PRESET_FIELD_OPTION_ALIASES = {
-    gpuArch: 'gpuArchs',
-    instruction: 'instructions',
-    matrixSize: 'matrixSizes',
-    dtype: 'dtypes',
-    operand: 'operands',
-    trans: 'transes',
-    major: 'majors',
-} as const;
-
-const PRESET_DEFINITIONS: readonly ComposeLayoutPresetDefinition[] = COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.presets);
-
-const COMPOSE_LAYOUT_PRESET_FIELDS = mergedPresetFields([
-    ...COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.fields ?? []),
-    ...PRESET_DEFINITIONS.flatMap((definition) => (
-        Object.keys(definition.facets ?? {}).map((key) => inferredPresetFieldDefinition(key))
-    )),
-]);
-
-function layoutSpecText(signature: string, rows: string[]): string {
-    return [signature, ...rows].join('\n');
-}
-
-function mergedPresetFields(definitions: readonly ComposeLayoutPresetFieldDefinition[]): ComposeLayoutPresetField[] {
-    const fields = new Map<string, ComposeLayoutPresetField>();
-    definitions.forEach((definition) => {
-        fields.set(definition.key, normalizePresetFieldDefinition(definition, fields.get(definition.key)));
-    });
-    return Array.from(fields.values()).sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
-}
-
-function normalizePresetFieldDefinition(
-    definition: ComposeLayoutPresetFieldDefinition,
-    current?: ComposeLayoutPresetField,
-): ComposeLayoutPresetField {
-    const values = [...new Set([...(current?.values ?? []), ...(definition.values ?? [])])];
-    const dependsOn = [...new Set([...(current?.dependsOn ?? []), ...(definition.dependsOn ?? [])])];
-    return {
-        key: definition.key,
-        id: current?.id ?? `linear-layout-preset-${kebabPresetFieldKey(definition.key)}`,
-        label: current?.label ?? definition.label,
-        placeholder: current?.placeholder ?? definition.placeholder,
-        order: Math.min(current?.order ?? definition.order, definition.order),
-        required: Boolean(current?.required || definition.required),
-        dependsOn,
-        values,
-    };
-}
-
-function inferredPresetFieldDefinition(key: string): ComposeLayoutPresetFieldDefinition {
-    const label = key
-        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-        .replace(/[_-]+/g, ' ')
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-    return {
-        key,
-        label,
-        placeholder: `Type ${label.toLowerCase()}`,
-        order: 100,
-    };
-}
-
-function kebabPresetFieldKey(key: string): string {
-    return key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-}
-
-function presetOperationText(specsText: string): string {
-    const signature = specsText.split('\n', 1)[0]?.trim() ?? '';
-    const colonIndex = signature.indexOf(':');
-    return (colonIndex === -1 ? signature : signature.slice(0, colonIndex)).trim();
-}
-
-function axisComment(label: string, signature: { inputs: string[]; outputs: string[] }): string {
-    if (label === 'T') return 'T = thread (AKA lane)';
-    if (label === 'R') {
-        return signature.inputs.includes('C') || signature.outputs.includes('R32')
-            ? 'R = row'
-            : 'R = register';
-    }
-    if (label === 'R32') return 'R32 = packed 32-bit register';
-    if (label === 'C') return 'C = column';
-    if (label === 'W') return 'W = warp';
-    if (label === 'Y') return 'Y = y-position';
-    if (label === 'X') return 'X = x-position';
-    if (label === 'M') return 'M = row';
-    if (label === 'N') return 'N = column';
-    if (label === 'K') return 'K = reduction dimension';
-    if (label === 'O') return 'O = logical offset';
-    if (label === 'H') return 'H = higher-order tile axis';
-    if (label === 'L') return 'L = line';
-    if (label === 'B') return 'B = byte offset';
-    return `${label} = ${label} axis`;
-}
-
-function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): string {
-    const lines = specsText.replace(/\r\n/g, '\n').split('\n');
-    const signature = parseSignature(stripLayoutComment(lines[0] ?? '').trim());
-    const labelComments = [...signature.inputs, ...signature.outputs].map((label) => axisComment(label, signature));
-    return [
-        lines[0] ?? '',
-        ...Array.from(new Set([...labelComments, ...comments])).map((comment) => `# ${comment}`),
-        ...lines.slice(1),
-    ].join('\n');
-}
-
-function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Record<string, string[]> {
-    return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [
-        field.key,
-        presetDefinitionFacetValues(definition, field.key),
-    ]));
-}
-
-function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, key: string): string[] {
-    const facet = definition.facets?.[key];
-    if (facet !== undefined) return normalizePresetFacetValue(facet);
-    if (isLegacyPresetFieldKey(key)) return normalizePresetFacetValue(definition[key] ?? '');
-    return [];
-}
-
-function normalizePresetFacetValue(value: ComposeLayoutPresetFacetValue): string[] {
-    const values = Array.isArray(value) ? value : [value];
-    return values.map((entry) => String(entry)).filter(Boolean);
-}
-
-function isLegacyPresetFieldKey(key: string): key is typeof LEGACY_PRESET_FIELD_KEYS[number] {
-    return LEGACY_PRESET_FIELD_KEYS.includes(key as typeof LEGACY_PRESET_FIELD_KEYS[number]);
-}
-
-function presetFacetScalar(facets: Record<string, string[]>, key: string): string {
-    return facets[key]?.[0] ?? '';
-}
-
-function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): ComposeLayoutPreset {
-    const inputName = definition.inputName ?? 'Hardware Layout';
-    const facets = presetDefinitionFacets(definition);
-    const gpuArchs = facets.gpuArch ?? [];
-    if ('specsText' in definition) {
-        const specsText = annotatedLayoutSpecsText(definition.specsText, definition.comments);
-        const operationText = presetOperationText(specsText);
-        return {
-            title: definition.title ?? operationText,
-            facets,
-            gpuArchs,
-            instruction: presetFacetScalar(facets, 'instruction'),
-            matrixSize: presetFacetScalar(facets, 'matrixSize'),
-            dtype: presetFacetScalar(facets, 'dtype'),
-            operand: presetFacetScalar(facets, 'operand'),
-            trans: presetFacetScalar(facets, 'trans'),
-            major: presetFacetScalar(facets, 'major'),
-            state: { specsText, operationText, inputName },
-        };
-    }
-    const specsText = annotatedLayoutSpecsText(
-        layoutSpecText(`${definition.name}: ${definition.signature}`, definition.rows.map(([label, bases]) => `${label}: ${bases}`)),
-        definition.comments,
-    );
-    return {
-        title: definition.title ?? definition.name,
-        facets,
-        gpuArchs,
-        instruction: presetFacetScalar(facets, 'instruction'),
-        matrixSize: presetFacetScalar(facets, 'matrixSize'),
-        dtype: presetFacetScalar(facets, 'dtype'),
-        operand: presetFacetScalar(facets, 'operand'),
-        trans: presetFacetScalar(facets, 'trans'),
-        major: presetFacetScalar(facets, 'major'),
-        state: {
-            specsText,
-            operationText: definition.name,
-            inputName,
-        },
-    };
-}
-
-const COMPOSE_LAYOUT_PRESET_CATALOG = PRESET_DEFINITIONS.map((definition) => composeLayoutPreset(definition));
-
-export function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
-    return COMPOSE_LAYOUT_PRESET_CATALOG;
-}
-
 function bakedExample(
     title: string,
     specsText: string,
@@ -527,148 +333,6 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
         mapping: Object.keys(legacy.colorAxes).length > 0 ? legacyMapping(labelMap, legacy.colorAxes) : autoColor.mapping,
         ranges: Object.keys(legacy.colorRanges).length > 0 ? legacyRanges(legacy.colorRanges) : autoColor.ranges,
     };
-}
-
-export function emptyComposeLayoutPresetSelection(): ComposeLayoutPresetSelection {
-    return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [field.key, '']));
-}
-
-export function cloneComposeLayoutPresetSelection(
-    selection: ComposeLayoutPresetSelection | undefined,
-): ComposeLayoutPresetSelection {
-    const record = selection as (Record<string, unknown> & { category?: unknown }) | undefined;
-    const cloned = emptyComposeLayoutPresetSelection();
-    COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
-        const value = record?.[field.key];
-        cloned[field.key] = typeof value === 'string' ? value : '';
-    });
-    if (!cloned.instruction && typeof record?.category === 'string') cloned.instruction = record.category;
-    return cloned;
-}
-
-export function isComposeLayoutPresetSelection(value: unknown): value is ComposeLayoutPresetSelection {
-    if (!value || typeof value !== 'object') return false;
-    return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string');
-}
-
-export function composeLayoutPresetFields(): ComposeLayoutPresetField[] {
-    return COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => ({
-        ...field,
-        dependsOn: [...field.dependsOn],
-        values: [...field.values],
-    }));
-}
-
-export function composeLayoutPresets(): ComposeLayoutPreset[] {
-    return composeLayoutPresetCatalog().map((preset) => ({
-        ...preset,
-        facets: Object.fromEntries(Object.entries(preset.facets).map(([key, values]) => [key, [...values]])),
-        gpuArchs: [...preset.gpuArchs],
-        state: { ...preset.state },
-    }));
-}
-
-export function matchedComposeLayoutPresetSelection(
-    state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>,
-): ComposeLayoutPresetSelection {
-    const canonicalSpecsText = canonicalLayoutSpecsText(state.specsText);
-    const preset = composeLayoutPresetCatalog().find((entry) => canonicalLayoutSpecsText(entry.state.specsText) === canonicalSpecsText
-        && entry.state.operationText === state.operationText
-        && entry.state.inputName === state.inputName);
-    if (!preset) return emptyComposeLayoutPresetSelection();
-    return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [
-        field.key,
-        preset.facets[field.key]?.[0] ?? '',
-    ]));
-}
-
-export function composeLayoutPresetOptions(
-    selection: ComposeLayoutPresetSelection | undefined,
-): ComposeLayoutPresetOptions {
-    const current = cloneComposeLayoutPresetSelection(selection);
-    const presets = composeLayoutPresetCatalog();
-    const options: ComposeLayoutPresetOptions = {
-        gpuArchs: [],
-        instructions: [],
-        matrixSizes: [],
-        dtypes: [],
-        operands: [],
-        transes: [],
-        majors: [],
-    };
-    COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
-        const values = uniquePresetFacetValues(filteredPresets(presets, withoutPresetField(current, field.key)), field);
-        options[field.key] = values;
-        const alias = PRESET_FIELD_OPTION_ALIASES[field.key as keyof typeof PRESET_FIELD_OPTION_ALIASES];
-        if (alias) options[alias] = values;
-    });
-    return options;
-}
-
-export function normalizeComposeLayoutPresetSelection(
-    selection: ComposeLayoutPresetSelection | undefined,
-): ComposeLayoutPresetSelection {
-    const current = cloneComposeLayoutPresetSelection(selection);
-    const normalized = { ...current };
-    COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
-        normalized[field.key] = normalizedPresetField(current[field.key] ?? '', composeLayoutPresetOptions(normalized)[field.key] ?? []);
-    });
-    return normalized;
-}
-
-export function composeLayoutPresetForSelection(
-    selection: ComposeLayoutPresetSelection | undefined,
-): ComposeLayoutPreset | null {
-    const current = cloneComposeLayoutPresetSelection(selection);
-    const matches = filteredPresets(composeLayoutPresetCatalog(), current).filter((preset) => (
-        COMPOSE_LAYOUT_PRESET_FIELDS.every((field) => presetFieldIsComplete(preset, current, field.key))
-    ));
-    return matches.length === 1 ? matches[0]! : null;
-}
-
-function filteredPresets(
-    presets: ComposeLayoutPreset[],
-    filters: ComposeLayoutPresetSelection,
-): ComposeLayoutPreset[] {
-    return presets.filter((preset) => Object.entries(filters).every(([key, value]) => {
-        if (!value) return true;
-        return preset.facets[key]?.includes(value) ?? false;
-    }));
-}
-
-function normalizedPresetField(value: string, options: string[]): string {
-    if (options.includes(value)) return value;
-    return options.length === 1 ? options[0] ?? '' : '';
-}
-
-function withoutPresetField(selection: ComposeLayoutPresetSelection, key: string): ComposeLayoutPresetSelection {
-    return Object.fromEntries(Object.entries(selection).map(([fieldKey, value]) => [fieldKey, fieldKey === key ? '' : value]));
-}
-
-function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeLayoutPresetField): string[] {
-    const values = new Set(presets.flatMap((preset) => preset.facets[field.key] ?? []));
-    return [
-        ...field.values.filter((value) => values.has(value)),
-        ...Array.from(values).filter((value) => !field.values.includes(value)),
-    ];
-}
-
-function presetFieldIsComplete(
-    preset: ComposeLayoutPreset,
-    selection: ComposeLayoutPresetSelection,
-    key: string,
-): boolean {
-    const values = preset.facets[key] ?? [];
-    const selected = selection[key] ?? '';
-    return values.length === 0 ? selected === '' : values.includes(selected);
-}
-
-function canonicalLayoutSpecsText(specsText: string): string {
-    try {
-        return formatSpecsText(parseLayoutSpecs(specsText));
-    } catch {
-        return specsText.replace(/\r\n/g, '\n').trim();
-    }
 }
 
 export function autoColorLayoutState(
@@ -984,111 +648,6 @@ function propagationCoordsForTensor(
         coords[flatIndex(tensorCoord, tensor.shape)] = unravelIndex(rootIndex, runtime.inputShape);
     });
     return coords;
-}
-
-function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
-    const lines = text.replace(/\r\n/g, '\n').split('\n');
-    const specs: NamedLayoutSpec[] = [];
-    let index = 0;
-    while (index < lines.length) {
-        while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
-        if (index >= lines.length) break;
-        const signatureLine = stripLayoutComment(lines[index]!).trim();
-        const signature = parseSignature(signatureLine);
-        index += 1;
-        const basisByLabel = new Map<string, number[][]>();
-        for (let axis = 0; axis < signature.inputs.length; axis += 1) {
-            while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
-            const line = stripLayoutComment(lines[index] ?? '').trim();
-            if (!line) {
-                throw new Error(`Layout ${signature.name} is missing basis row for ${signature.inputs[axis]}.`);
-            }
-            const match = line.match(/^([A-Za-z][0-9]*)\s*:\s*(.+)$/);
-            if (!match) {
-                throw new Error(`Layout ${signature.name} basis rows must use "<label>: <json>" syntax.`);
-            }
-            const axisLabel = match[1]!;
-            if (!signature.inputs.includes(axisLabel)) {
-                throw new Error(`Layout ${signature.name} received basis row for unknown input label ${axisLabel}.`);
-            }
-            if (basisByLabel.has(axisLabel)) {
-                throw new Error(`Layout ${signature.name} has duplicate basis row for ${axisLabel}.`);
-            }
-            basisByLabel.set(axisLabel, parseBasisRow(match[2]!, signature.outputs.length, axisLabel));
-            index += 1;
-        }
-        const bases = signature.inputs.map((axisLabel) => {
-            const basis = basisByLabel.get(axisLabel);
-            if (!basis) throw new Error(`Layout ${signature.name} is missing basis row for ${axisLabel}.`);
-            return basis;
-        });
-        const spec = {
-            name: signature.name,
-            inputs: signature.inputs,
-            outputs: signature.outputs,
-            bases,
-        };
-        specs.push(spec);
-        while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
-    }
-    const duplicate = duplicateValue(specs.map((spec) => spec.name));
-    if (duplicate) throw new Error(`Layout names must be unique; received duplicate ${duplicate}.`);
-    return specs;
-}
-
-function stripLayoutComment(line: string): string {
-    return line.replace(/#.*$/, '');
-}
-
-function parseSignature(line: string): { name: string; inputs: string[]; outputs: string[] } {
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[(.*)\]\s*->\s*\[(.*)\]\s*$/);
-    if (!match) {
-        throw new Error('Each specification must start with "<name>: [labels] -> [labels]".');
-    }
-    const name = match[1]!;
-    const inputs = parseLabelList(match[2] ?? '', `${name} inputs`);
-    const outputs = parseLabelList(match[3] ?? '', `${name} outputs`);
-    const duplicateInput = duplicateValue(inputs);
-    if (duplicateInput) throw new Error(`Layout ${name} has duplicate input label ${duplicateInput}.`);
-    const duplicateOutput = duplicateValue(outputs);
-    if (duplicateOutput) throw new Error(`Layout ${name} has duplicate output label ${duplicateOutput}.`);
-    return { name, inputs, outputs };
-}
-
-function parseLabelList(source: string, label: string): string[] {
-    const trimmed = source.trim();
-    if (!trimmed) return [];
-    return trimmed.split(',').map((entry) => {
-        const value = entry.trim();
-        if (!/^[A-Za-z][0-9]*$/.test(value)) {
-            throw new Error(`${label} may only contain labels like T, A0, or B12 (received ${JSON.stringify(value)}).`);
-        }
-        return value;
-    });
-}
-
-function parseBasisRow(line: string, outputCount: number, axisLabel: string): number[][] {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(line);
-    } catch {
-        throw new Error(`${axisLabel} bases must be valid JSON.`);
-    }
-    if (!Array.isArray(parsed)) throw new Error(`${axisLabel} bases must be a JSON array.`);
-    return parsed.map((basis, basisIndex) => {
-        if (!Array.isArray(basis)) {
-            throw new Error(`${axisLabel} basis ${basisIndex + 1} must be an array.`);
-        }
-        if (basis.length !== outputCount) {
-            throw new Error(`${axisLabel} basis ${basisIndex + 1} must have length ${outputCount}.`);
-        }
-        return basis.map((value, outputAxis) => {
-            if (!Number.isInteger(value) || Number(value) < 0) {
-                throw new Error(`${axisLabel} basis ${basisIndex + 1}[${outputAxis + 1}] must be a non-negative integer.`);
-            }
-            return Number(value);
-        });
-    });
 }
 
 function parseOperation(source: string): LayoutExpr {
@@ -1647,15 +1206,6 @@ function expandInputColumns(
     )));
 }
 
-function duplicateValue(values: string[]): string | null {
-    const seen = new Set<string>();
-    for (const value of values) {
-        if (seen.has(value)) return value;
-        seen.add(value);
-    }
-    return null;
-}
-
 function rgbColorForRootCoord(
     coord: number[],
     shape: number[],
@@ -1736,13 +1286,6 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
 function sanitizeIdentifier(value: string): string {
     const cleaned = value.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
     return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Layout_${cleaned || '1'}`;
-}
-
-function formatSpecsText(specs: NamedLayoutSpec[]): string {
-    return specs.map((spec) => [
-        `${spec.name}: [${spec.inputs.join(',')}] -> [${spec.outputs.join(',')}]`,
-        ...spec.bases.map((row, axis) => `${spec.inputs[axis]}: ${JSON.stringify(row)}`),
-    ].join('\n')).join('\n\n');
 }
 
 function parseLegacySpec(raw: unknown, fallbackTitle: string): {
