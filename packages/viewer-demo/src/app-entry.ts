@@ -473,6 +473,8 @@ function filteredCommandActions(): CommandAction[] {
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
     const currentTab = activeTab();
     const linearLayoutActive = Boolean(currentTab && isLinearLayoutTab(currentTab));
+    // widget visibility is derived from the active tab and viewer state instead
+    // of unmounting widgets permanently, so drag order and collapsed state survive.
     return widgetOrder.filter((widgetId) => (
         (widgetId === 'linear-layout-preset' && linearLayoutActive)
         || (widgetId === 'linear-layout' && linearLayoutActive)
@@ -1000,6 +1002,8 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     const linearLayoutInjective = currentTab && isLinearLayoutTab(currentTab)
         ? (composeLayoutMetaForTab(currentTab)?.injective ?? true)
         : true;
+    // app-entry decides control state because it owns viewer/tab context; the
+    // control-dock module only renders this declarative list.
     const controls: ControlSpec[] = [
         {
             id: 'pan',
@@ -1122,6 +1126,8 @@ async function loadTab(tabId: string): Promise<void> {
     switchingTab = true;
     activeTabId = tabId;
     try {
+        // normalize before loading so old or partial snapshots cannot hand the
+        // viewer tensor-view state that no longer matches the manifest tensors.
         tab.manifest.viewer = normalizeViewerSnapshot(tab, tab.manifest.viewer);
         viewer.loadBundleData(tab.manifest, tab.tensors);
         if (tab.manifest.viewer.dimensionMappingScheme) {
@@ -1135,6 +1141,8 @@ async function loadTab(tabId: string): Promise<void> {
         switchingTab = false;
     }
     renderTabStrip();
+    // after the viewer owns the new tensors, sync the linear-layout widgets from
+    // tab metadata so UI state and rendered data change in one visible step.
     syncLinearLayoutState(linearLayoutUi, tab);
     syncLinearLayoutCellTextState(linearLayoutUi, tab);
     syncLinearLayoutMultiInputState(linearLayoutUi, tab);
@@ -2023,6 +2031,8 @@ async function tryLoadSession(): Promise<boolean> {
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
     const initialMapping = manifest.tabs[0]?.viewer.dimensionMappingScheme;
     if (initialMapping) viewer.setDimensionMappingScheme(initialMapping);
+    // session load replaces every tab, so caches derived from old tab ids must
+    // be cleared before loadSessionTab rebuilds documents.
     linearLayoutUiState.linearLayoutMultiInputStates.clear();
     linearLayoutUiState.linearLayoutSelectionMaps.clear();
     sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));

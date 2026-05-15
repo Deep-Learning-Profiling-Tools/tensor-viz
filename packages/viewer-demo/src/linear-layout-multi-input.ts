@@ -39,6 +39,8 @@ export function linearLayoutSelectionMapForMeta(
         const rootToTensorKeys = tensorMeta.rootToTensor.map((coord) => coordKey(coord));
         const coordKeyToFlatIndex = new Map<string, number>();
         const cellRootIndexes = Array.from({ length: product(tensorMeta.shape) }, () => [] as number[]);
+        // non-injective tensors can map many root inputs into one cell.  Keep
+        // all roots by flat cell so hover, selection, and ghost layers agree.
         rootToTensorKeys.forEach((tensorKey, rootIndex) => {
             const flat = flatIndex(coordFromKey(tensorKey), tensorMeta.shape);
             coordKeyToFlatIndex.set(tensorKey, flat);
@@ -70,6 +72,8 @@ export function linearLayoutMultiInputModel(
     const tensor = mapping.tensors.get(focusedTensorId);
     if (!tensor) return null;
     const size = Math.max(0, ...tensor.cellRootIndexes.map((roots) => roots.length));
+    // the slider exists only for many-to-one cells; injective or currently
+    // one-to-one views should not expose an extra control.
     if (size <= 1) return null;
     const storedValue = ctx.state.linearLayoutMultiInputState[focusedTensorId] ?? -1;
     const value = storedValue < 0 ? -1 : Math.min(size - 1, storedValue);
@@ -100,6 +104,8 @@ export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
             data[flat] = rootIndex;
             rgb.set(colors[propagatedIndexForRoot(mapping, rootIndex, ctx.state.linearLayoutState.propagateOutputs)]!, flat * 3);
         });
+        // data, colors, visible coords, and ghost layers are updated together so
+        // rendering cannot show stale hidden roots after slicing or slider edits.
         ctx.viewer.setTensorData(tensorId, data, 'float32');
         ctx.viewer.colorTensor(tensorId, rgb);
         ctx.viewer.setTensorVisibleCoords(tensorId, display.visibleCoordsByTensor.get(tensorId) ?? []);
@@ -125,6 +131,8 @@ export function linearLayoutDisplayModel(
     const sliceVisibleRootIndexes = sliceVisibleRootIndexesByTensor(ctx, mapping);
     const slicedRoots = intersectRootIndexes(sliceVisibleRootIndexes.values(), mapping.rootKeys.length);
     const multiInput = linearLayoutMultiInputModel(ctx, mapping);
+    // visibility is the intersection of active tensor-view slices, then
+    // optionally narrowed to one many-to-one member by the focused tensor slider.
     const focusedRoots = multiInput
         ? focusedRootIndexes(mapping, multiInput.focusedTensorId, multiInput.value, sliceVisibleRootIndexes)
         : null;
@@ -141,6 +149,8 @@ export function linearLayoutDisplayModel(
             rootIndex === null ? [] : [unravelIndex(flat, tensor.meta.shape)]
         )));
         ghostRootIndexesByTensor.set(tensorId, visibleRoots.flatMap((roots, flat) => (
+            // root zero is rendered as the main cell; additional roots become
+            // offset ghost layers so non-injective cells remain inspectable.
             roots.slice(1).map((rootIndex, layer) => ({
                 coord: unravelIndex(flat, tensor.meta.shape),
                 rootIndex,

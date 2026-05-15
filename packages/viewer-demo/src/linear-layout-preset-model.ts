@@ -65,6 +65,8 @@ const PRESET_FIELD_OPTION_ALIASES = {
 
 const PRESET_DEFINITIONS: readonly ComposeLayoutPresetDefinition[] = COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.presets);
 
+// field metadata is merged from family declarations plus facet keys found in
+// preset data; this lets contributed families add fields without widget edits.
 const COMPOSE_LAYOUT_PRESET_FIELDS = mergedPresetFields([
     ...COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.fields ?? []),
     ...PRESET_DEFINITIONS.flatMap((definition) => (
@@ -128,6 +130,8 @@ export function matchedComposeLayoutPresetSelection(
     state: ComposeLayoutPresetState,
 ): ComposeLayoutPresetSelection {
     const canonicalSpecsText = canonicalLayoutSpecsText(state.specsText);
+    // presets are matched by canonicalized text, operation, and input name so
+    // adding comments to a preset does not strand an already-loaded editor state.
     const preset = composeLayoutPresetCatalog().find((entry) => canonicalLayoutSpecsText(entry.state.specsText) === canonicalSpecsText
         && entry.state.operationText === state.operationText
         && entry.state.inputName === state.inputName);
@@ -154,6 +158,8 @@ export function composeLayoutPresetOptions(
         majors: [],
     };
     COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
+        // when computing choices for one field, ignore that field's current
+        // value; otherwise a typo would hide the valid options needed to recover.
         const values = uniquePresetFacetValues(filteredPresets(presets, withoutPresetField(current, field.key)), field);
         options[field.key] = values;
         const alias = PRESET_FIELD_OPTION_ALIASES[field.key as keyof typeof PRESET_FIELD_OPTION_ALIASES];
@@ -264,6 +270,8 @@ function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): s
     const lines = specsText.replace(/\r\n/g, '\n').split('\n');
     const signature = parseSignature(stripLayoutComment(lines[0] ?? '').trim());
     const labelComments = [...signature.inputs, ...signature.outputs].map((label) => axisComment(label, signature));
+    // comments become part of the loaded editor text, so keep generated axis
+    // notes deterministic and deduplicated to avoid preset matching churn.
     return [
         lines[0] ?? '',
         ...Array.from(new Set([...labelComments, ...comments])).map((comment) => `# ${comment}`),
@@ -272,6 +280,8 @@ function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): s
 }
 
 function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Record<string, string[]> {
+    // every normalized preset receives every known field key.  Empty arrays mean
+    // the field is irrelevant for that preset and should remain blank.
     return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [
         field.key,
         presetDefinitionFacetValues(definition, field.key),
@@ -281,6 +291,8 @@ function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Reco
 function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, key: string): string[] {
     const facet = definition.facets?.[key];
     if (facet !== undefined) return normalizePresetFacetValue(facet);
+    // legacy scalar fields keep old NVIDIA presets working while new families
+    // can describe selector behavior entirely through facets.
     if (isLegacyPresetFieldKey(key)) return normalizePresetFacetValue(definition[key] ?? '');
     return [];
 }
@@ -318,6 +330,8 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
             state: { specsText, operationText, inputName },
         };
     }
+    // named definitions are the compact path for ISA-table-style presets: the
+    // source file stores row data, and this model builds the editor notation.
     const specsText = annotatedLayoutSpecsText(
         layoutSpecText(`${definition.name}: ${definition.signature}`, definition.rows.map(([label, bases]) => `${label}: ${bases}`)),
         definition.comments,
@@ -361,6 +375,8 @@ function withoutPresetField(selection: ComposeLayoutPresetSelection, key: string
 
 function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeLayoutPresetField): string[] {
     const values = new Set(presets.flatMap((preset) => preset.facets[field.key] ?? []));
+    // catalog-provided values define display order; contributed values still
+    // appear, but after known values so existing UX stays stable.
     return [
         ...field.values.filter((value) => values.has(value)),
         ...Array.from(values).filter((value) => !field.values.includes(value)),

@@ -8,7 +8,7 @@ export type NamedLayoutSpec = {
 
 /** parse the editor notation used in the layout specs textarea.
  *
- * Keeping this as the only specs parser prevents notation changes from
+ * keeping this as the only specs parser prevents notation changes from
  * spreading into preset matching, legacy migration, and runtime evaluation.
  */
 export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
@@ -22,6 +22,8 @@ export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
         const signature = parseSignature(signatureLine);
         index += 1;
         const basisByLabel = new Map<string, number[][]>();
+        // read rows by label instead of position so the canonical formatter can
+        // preserve signature order while users keep spec rows grouped naturally.
         for (let axis = 0; axis < signature.inputs.length; axis += 1) {
             while (index < lines.length && !stripLayoutComment(lines[index]!).trim()) index += 1;
             const line = stripLayoutComment(lines[index] ?? '').trim();
@@ -113,10 +115,12 @@ function parseBasisRow(line: string, outputCount: number, axisLabel: string): nu
         if (!Array.isArray(basis)) {
             throw new Error(`${axisLabel} basis ${basisIndex + 1} must be an array.`);
         }
-        if (basis.length !== outputCount) {
-            throw new Error(`${axisLabel} basis ${basisIndex + 1} must have length ${outputCount}.`);
-        }
-        return basis.map((value, outputAxis) => {
+            if (basis.length !== outputCount) {
+                throw new Error(`${axisLabel} basis ${basisIndex + 1} must have length ${outputCount}.`);
+            }
+            // bases are integer bit contributions; negative or fractional values
+            // would break the gf(2) matrix conversion in linear-layout.ts.
+            return basis.map((value, outputAxis) => {
             if (!Number.isInteger(value) || Number(value) < 0) {
                 throw new Error(`${axisLabel} basis ${basisIndex + 1}[${outputAxis + 1}] must be a non-negative integer.`);
             }

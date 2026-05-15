@@ -10,6 +10,8 @@ export type ControlSpec = {
     onClick: () => void | Promise<void>;
 };
 
+// dividers are keyed by control id instead of position so adding/removing
+// controls does not silently move visual groups.
 const DIVIDER_BEFORE_IDS = new Set(['2d', 'dim-lines', 'gaps', 'mapping-contiguous']);
 
 /** shared dock/widget icons so controls can move without duplicating svg markup. */
@@ -95,6 +97,8 @@ function controlButton(control: ControlSpec): HTMLButtonElement {
     button.dataset.tooltipLabel = control.label;
     button.dataset.tooltipDescription = control.description;
     button.dataset.tooltipShortcut = control.shortcut;
+    // control content is trusted markup from controlIcons or app-entry text
+    // labels; user-provided strings should go into data attributes instead.
     button.innerHTML = control.content;
     button.disabled = Boolean(control.disabled);
     button.setAttribute('aria-label', control.label);

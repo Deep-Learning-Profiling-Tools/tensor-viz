@@ -41,6 +41,7 @@ export type { NamedLayoutSpec } from './linear-layout-parser.js';
 export type ComposeChannel = 'H' | 'S' | 'L';
 export type ComposeMappingValue = string | 'none';
 
+/** editable state owned by the sidebar before it is rendered into viewer data. */
 export type ComposeLayoutState = {
     specsText: string;
     operationText: string;
@@ -64,6 +65,7 @@ export type MatrixBlock = {
     values: number[][];
 };
 
+/** one displayable tensor in the evaluated layout chain. */
 export type ComposeTensorMeta = {
     id: string;
     title: string;
@@ -76,6 +78,7 @@ export type ComposeTensorMeta = {
     visible: boolean;
 };
 
+/** persisted metadata that lets widgets map viewer cells back to layout roots. */
 export type ComposeLayoutMeta = {
     version: 3;
     specsText: string;
@@ -89,6 +92,7 @@ export type ComposeLayoutMeta = {
     tensors: ComposeTensorMeta[];
 };
 
+/** fully evaluated layout operation plus artifacts needed by widgets and docs. */
 export type ComposeRuntime = {
     specs: NamedLayoutSpec[];
     inputLabels: string[];
@@ -104,6 +108,7 @@ export type ComposeRuntime = {
     meta: ComposeLayoutMeta;
 };
 
+/** small expression tree for the layout operation field. */
 type LayoutExpr =
     | { kind: 'name'; name: string }
     | { kind: 'inverse'; expr: LayoutExpr }
@@ -156,6 +161,8 @@ const DEFAULT_EMPTY_SPEC_TEXT = [
     'R: [[1,0],[2,0]]',
 ].join('\n');
 
+// these examples are synced into docs by tools/sync-linear-layout-examples.py;
+// avoid editing generated docs directly when changing their source text here.
 // sync-linear-layout-examples:start
 const BLOCKED_LAYOUT_TEXT = [
     'Blocked_Layout: [T,W,R] -> [Y,X]',
@@ -260,6 +267,8 @@ export function bakedComposeLayoutExamples(): ExampleState[] {
 }
 
 export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayoutState {
+    // state is copied across tabs and snapshots, so clone nested structures to
+    // keep one tab's widget edits from mutating another tab's saved state.
     return {
         specsText: state.specsText,
         operationText: state.operationText,
@@ -293,6 +302,7 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
 export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta {
     if (!value || typeof value !== 'object') return false;
     const record = value as Record<string, unknown>;
+    // version 1 is accepted only for older saved sessions; new documents write v3.
     return (record.version === 1 || record.version === 3)
         && typeof record.specsText === 'string'
         && typeof record.operationText === 'string'
@@ -308,6 +318,8 @@ export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta 
 export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = 'Layout_1'): ComposeLayoutState {
     const legacy = parseLegacySpec(raw, fallbackTitle);
     const labelMap = new Map<string, string>();
+    // old demos used semantic names like thread/warp/register.  Normalize them
+    // to the short labels used by current presets so color mappings survive.
     const inputEntries = legacy.inputs.map((name, axis) => {
         const label = canonicalLegacyLabel(name, axis);
         labelMap.set(name, label);
@@ -340,6 +352,8 @@ export function autoColorLayoutState(
     operationText: string,
     propagateOutputs = false,
 ): Pick<ComposeLayoutState, 'mapping' | 'ranges'> {
+    // auto-color needs the evaluated operation, not just the raw specs, because
+    // propagateOutputs changes whether labels come from the root or final space.
     const runtime = buildComposeRuntime({
         specsText,
         operationText,
@@ -373,6 +387,8 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     const codeLines: CodeLine[] = [];
     const tempRefs = new WeakMap<object, EvaluatedLayout>();
     let tempIndex = 0;
+    // evaluation is memoized by AST node so matrix blocks and generated python
+    // reuse the same temporary names for shared subexpressions.
     const evaluate = (expr: LayoutExpr): EvaluatedLayout => {
         const cached = tempRefs.get(expr as object);
         if (cached) return cached;
@@ -439,6 +455,8 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     const injective = isInjectiveLayout(finalLayout);
     const inputName = state.inputName.trim() || DEFAULT_INPUT_NAME;
     const visibleTensors = state.visibleTensors ?? {};
+    // every intermediate tensor is indexed by the same root input space; this is
+    // what lets selection, hover popups, and multi-input display stay aligned.
     const finalCoords = Array.from({ length: rootCount }, (_entry, rootIndex) => (
         mapCoord(unravelIndex(rootIndex, inputShape), inputBitCounts, finalLayout.matrix, finalOutputBitCounts)
     ));
@@ -462,6 +480,9 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
             ));
             const tensorToFinal = Array.from({ length: product(shape) }, () => null as number[] | null);
             rootToTensor.forEach((coord, rootIndex) => {
+                // non-injective layouts overwrite this slot with the last root,
+                // while cellRootIndexes in createComposeLayoutDocument preserves
+                // every root for hover and multi-input display.
                 tensorToFinal[flatIndex(coord, shape)] = finalCoords[rootIndex]!.slice();
             });
             return {
@@ -541,6 +562,8 @@ export function createComposeLayoutDocument(
             tensor.rootToTensor.forEach((coord, rootIndex) => {
                 cellRootIndexes[flatIndex(coord, tensor.shape)]!.push(rootIndex);
             });
+            // the dense data buffer stores the displayed root id.  Empty cells
+            // stay -1 so the viewer can mark holes without inventing values.
             cellRootIndexes.forEach((rootIndexes, flat) => {
                 const rootIndex = rootIndexes[0];
                 if (rootIndex === undefined) return;
@@ -548,6 +571,8 @@ export function createComposeLayoutDocument(
             });
             const rgb = colorBuffers.get(tensor.id) ?? new Float32Array(product(tensor.shape) * 3);
             tensor.tensorToFinal.forEach((coord, flat) => {
+                // output propagation switches displayed values from input-root
+                // ids to final-output ids so labels/colors share one coordinate space.
                 if (coord && state.propagateOutputs) data[flat] = flatIndex(coord, runtime.finalOutputShape);
             });
             const markerCoords = Array.from({ length: data.length }, (_entry, index) => index)
@@ -621,6 +646,8 @@ export function composeTensorColorBuffers(
         .filter((tensor) => tensor.visible)
         .map((tensor) => {
             const rgb = new Float32Array(product(tensor.shape) * 3);
+            // map each rendered cell into the active propagation space.  null
+            // coordinates represent holes in non-surjective intermediate layouts.
             propagationCoordsForTensor(runtime, tensor, state.propagateOutputs).forEach((coord, flat) => {
                 if (!coord) return;
                 rgb.set(colors[flatIndex(coord, shape)]!, flat * 3);
@@ -644,6 +671,8 @@ function propagationCoordsForTensor(
 ): Array<number[] | null> {
     if (propagateOutputs) return tensor.tensorToFinal;
     const coords = Array.from({ length: product(tensor.shape) }, () => null as number[] | null);
+    // input propagation reverses rootToTensor into a cell-indexed lookup so
+    // color buffers can be filled in viewer storage order.
     tensor.rootToTensor.forEach((tensorCoord, rootIndex) => {
         coords[flatIndex(tensorCoord, tensor.shape)] = unravelIndex(rootIndex, runtime.inputShape);
     });
@@ -657,6 +686,11 @@ function parseOperation(source: string): LayoutExpr {
     return expr;
 }
 
+/** recursive descent parser for layout expressions.
+ *
+ * precedence is intentionally small and explicit:
+ * product binds weaker than application, and `inv(...)` is a unary form.
+ */
 class OperationParser {
     private index = 0;
 
@@ -780,6 +814,8 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
     if (!sameLabels(inner.outputs, outer.inputs)) {
         throw new Error(`${outer.exprText} expects [${outer.inputs.join(',')}] but received [${inner.outputs.join(',')}].`);
     }
+    // axes may use fewer bits before or after composition.  Pad both matrices
+    // to the bridge width so gf(2) multiplication lines up by axis and bit.
     const bridgeBitCounts = inner.outputBitCounts.map((bits, axis) => Math.max(bits, outer.inputBitCounts[axis] ?? 0));
     const matrix = multiplyMatrices(
         expandInputColumns(outer.matrix, outer.inputBitCounts, bridgeBitCounts),
@@ -811,6 +847,8 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
     ));
     const rightInputBitOffsets = inputs.map((label) => left.inputBitCounts[left.inputs.indexOf(label)] ?? 0);
     const rightOutputBitOffsets = outputs.map((label) => left.outputBitCounts[left.outputs.indexOf(label)] ?? 0);
+    // product combines independent layouts by embedding each matrix into a
+    // shared axis list, then OR-ing their disjoint bit lanes together.
     const matrix = mergeProductMatrices(
         embedProductMatrix(
             left,
@@ -868,6 +906,8 @@ function renderSteps(
     expr: LayoutExpr,
     evaluate: (expr: LayoutExpr) => EvaluatedLayout,
 ): Array<{ exprText: string; layout: EvaluatedLayout }> {
+    // only application creates user-visible intermediate tensors; product and
+    // inverse remain part of the expression that feeds each step.
     if (expr.kind !== 'apply') {
         return [{ exprText: exprToString(expr), layout: evaluate(expr) }];
     }
@@ -945,6 +985,8 @@ function matrixFromBases(
     const matrix = Array.from({ length: rowCount }, () => new Array(columnCount).fill(0));
     const inputOffsets = offsets(inputBitCounts);
     const outputOffsets = offsets(outputBitCounts);
+    // basis vectors encode output coordinates as integers.  Expanding them to a
+    // gf(2) matrix makes composition/product/inversion all use one algebra.
     bases.forEach((axisBases, inputAxis) => {
         axisBases.forEach((basis, bit) => {
             const column = inputOffsets[inputAxis]! + bit;
@@ -991,6 +1033,7 @@ function coordFromBits(bits: number[], bitCounts: number[]): number[] {
 }
 
 function multiplyMatrixVector(matrix: number[][], vector: number[]): number[] {
+    // linear layouts operate over bits, so addition is xor and multiplication is and.
     return matrix.map((row) => row.reduce((value, cell, column) => value ^ (cell & (vector[column] ?? 0)), 0));
 }
 
@@ -1062,6 +1105,8 @@ function invertSquareMatrix(matrix: number[][]): number[][] | null {
         ...row.slice(),
         ...Array.from({ length: size }, (_entry, column) => column === index ? 1 : 0),
     ]);
+    // gaussian elimination over gf(2); if any pivot is missing, inverse layout
+    // would map multiple inputs to the same output and must be rejected.
     let pivotRow = 0;
     for (let column = 0; column < size; column += 1) {
         const candidate = rows.findIndex((row, index) => index >= pivotRow && row[column] === 1);
@@ -1087,6 +1132,7 @@ function gf2Rank(matrix: number[][]): number {
     const rows = matrix.map((row) => row.slice());
     const columnCount = rows[0]?.length ?? 0;
     let rank = 0;
+    // rank over gf(2) is the injectivity test for the input bit space.
     for (let column = 0; column < columnCount; column += 1) {
         const pivot = rows.findIndex((row, index) => index >= rank && row[column] === 1);
         if (pivot === -1) continue;
@@ -1144,7 +1190,7 @@ function trimOutputBitCounts(matrix: number[][], outputBitCounts: number[]): num
 function trimMatrixRows(matrix: number[][], currentBitCounts: number[], nextBitCounts: number[]): number[][] {
     const currentOffsets = offsets(currentBitCounts);
     // keep only the still-live rows for each axis so matrix row layout stays aligned
-    // with nextBitCounts; otherwise later axes read stale rows from trimmed-away bits
+    // with nextBitCounts; otherwise later axes read stale rows from trimmed-away bits.
     return nextBitCounts.flatMap((bitCount, axis) => (
         Array.from({ length: bitCount }, (_entry, bit) => matrix[currentOffsets[axis]! + bit]!.slice())
     ));
@@ -1267,6 +1313,8 @@ function flatIndex(coord: number[], shape: number[]): number {
 
 function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): Partial<ViewerSnapshot> {
     if (!viewer) return { dimensionMappingScheme: 'contiguous' };
+    // omit tensor snapshots here because createBundleManifest rebuilds tensors
+    // from the evaluated runtime; preserving stale tensor ids would corrupt tabs.
     return {
         displayMode: viewer.displayMode,
         heatmap: viewer.heatmap,
@@ -1300,6 +1348,8 @@ function parseLegacySpec(raw: unknown, fallbackTitle: string): {
         throw new Error('Unable to upgrade legacy layout state.');
     }
     const record = raw as Record<string, unknown>;
+    // legacy specs appeared in several shapes while the demo evolved, so keep
+    // this migration tolerant and canonicalize only after the raw pieces are read.
     const basesEntries = Array.isArray(record.input_dims)
         ? record.input_dims
         : Array.isArray(record.bases)
@@ -1371,6 +1421,8 @@ function legacyMapping(
     labelMap: Map<string, string>,
     colorAxes: Record<string, string>,
 ): Record<ComposeChannel, ComposeMappingValue> {
+    // preserve the old thread/warp/register color defaults, then apply any
+    // saved channel overrides that reference known legacy axes.
     const mapping: Record<ComposeChannel, ComposeMappingValue> = {
         H: labelMap.get('thread') ?? 'none',
         S: labelMap.get('warp') ?? 'none',

@@ -27,6 +27,8 @@ export async function applyLinearLayoutSpec(
     try {
         const activeTab = activeLinearLayoutTab(ctx);
         const activeMeta = activeTab ? composeLayoutMetaForTab(activeTab) : null;
+        // recolor only when the evaluated label space changed or the current
+        // mapping references labels that no longer exist after an edit.
         const layoutChanged = !activeMeta
             || activeMeta.specsText !== ctx.state.linearLayoutState.specsText
             || activeMeta.operationText !== ctx.state.linearLayoutState.operationText;
@@ -74,6 +76,8 @@ async function upsertLinearLayoutTab(
     const targetId = activeTab?.id ?? document.id;
     const targetTitle = activeTab?.title ?? document.title;
     const nextDocument = { ...document, id: targetId, title: targetTitle };
+    // tab-local widget state is saved before loadTab swaps viewer data; without
+    // this, applying a layout would reset cell text, multi-input, and selection caches.
     ctx.state.linearLayoutStates.set(targetId, cloneLinearLayoutState(ctx.state.linearLayoutState));
     ctx.state.linearLayoutCellTextStates.set(targetId, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
     ctx.state.linearLayoutMultiInputStates.set(targetId, cloneLinearLayoutMultiInputState(ctx.state.linearLayoutMultiInputState));

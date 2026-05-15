@@ -34,6 +34,8 @@ export function preservedLinearLayoutTensorViews(
     tabId: string | null = ctx.getActiveTabId(),
 ): LinearLayoutTensorViewsState {
     const stored = tabId ? ctx.state.linearLayoutTensorViewsStates.get(tabId) ?? {} : {};
+    // inactive tabs only have their last saved snapshots; the active tab also
+    // needs the live viewer snapshot so applying specs preserves unsaved slices.
     if (!tabId || ctx.getActiveTabId() !== tabId) return { ...stored };
     return { ...stored, ...snapshotTensorViews(ctx.viewer.getSnapshot()) };
 }
@@ -41,6 +43,8 @@ export function preservedLinearLayoutTensorViews(
 export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = ctx.state.linearLayoutSelectionMaps.get(tab.id);
     if (cached) return cached;
+    // selection maps are pure metadata derived from the manifest, so cache them
+    // per tab and invalidate when a tab is regenerated.
     const map = linearLayoutSelectionMapForMeta(tab);
     if (!map) return null;
     ctx.state.linearLayoutSelectionMaps.set(tab.id, map);
@@ -101,6 +105,8 @@ export function linearLayoutHoverPopupEntries(
     linearLayout: LinearLayoutSelectionMap | null,
 ): LinearLayoutHoverPopupEntry[] {
     if (!hover || !linearLayout) return [];
+    // injective layouts already have one root per cell.  The popup is only
+    // needed when a many-to-one cell hides extra roots in input-propagation mode.
     if (linearLayout.injective || ctx.state.linearLayoutState.propagateOutputs) return [];
     const tensor = linearLayout.tensors.get(hover.tensorId);
     if (!tensor) return [];
@@ -143,6 +149,8 @@ export function syncLinearLayoutSelection(ctx: LinearLayoutUiContext, selection:
     if (!mapping) return;
     const nextSelection = mappedSelectionFromSource(ctx, selection, mapping);
     if (nextSelection.size === 0 || selectionsMatch(selection, nextSelection)) return;
+    // viewer selection updates emit again; this guard prevents linear-layout
+    // remapping from recursively feeding its own output back into the viewer.
     ctx.state.syncingLinearLayoutSelection = true;
     ctx.viewer.setSelectedCoords(nextSelection);
     ctx.state.syncingLinearLayoutSelection = false;

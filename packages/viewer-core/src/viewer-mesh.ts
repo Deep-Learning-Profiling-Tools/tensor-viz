@@ -25,6 +25,11 @@ import type { TensorRecord, TensorViewSpec, ViewerState, Vec3 } from './types.js
 
 const MULTI_INPUT_Z_STEP = 1.15;
 
+/** narrow rendering interface supplied by TensorViewer.
+ *
+ * keeping this context explicit makes mesh-building testable without creating
+ * a WebGL renderer, and it marks the boundary between scene state and geometry.
+ */
 type MeshViewerContext = {
     cubeGeometry: BoxGeometry;
     planeGeometry: BufferGeometry;
@@ -75,6 +80,8 @@ function populateFastMesh2D(
             && token.visible
             && token.axes.length === 1
             && token.axes[0] === index);
+    // the fast path is intentionally conservative.  custom colors, hidden
+    // coords, slices, and permutations need the generic coordinate mapping path.
     if (!isIdentityView || tensor.customColors.size !== 0 || tensor.visibleCoords || !colorArray) return false;
 
     // default 1d/2d views are affine grids, so write instance buffers directly.
@@ -173,6 +180,8 @@ function buildDimensionGuides2D(
     const group = new Group();
     const rank = shape.length;
     const families = new Map<number, number[]>();
+    // guide offsets are grouped by rendered world family so labels do not stack
+    // on top of each other when several logical axes share x or y.
     for (let axis = 0; axis < rank; axis += 1) {
         const key = axisWorldKeyForMode('2d', rank, axis, viewer.state.dimensionMappingScheme) as 0 | 1;
         const family = families.get(key) ?? [];
@@ -231,6 +240,8 @@ function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape:
         const familyPos = Math.max(0, family.indexOf(axis));
         const start = new Array(rank).fill(0);
         const end = start.slice();
+        // z-family guides need a different endpoint rule because deeper axes
+        // move away from the camera instead of across the screen.
         if (worldKey === 2) {
             family.forEach((familyAxis, index) => {
                 end[familyAxis] = index >= familyPos ? Math.max(0, shape[familyAxis] - 1) : 0;
@@ -378,6 +389,8 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
     mesh.userData.meta = { tensorId: tensor.id, instanceShape } satisfies MeshMeta;
     group.add(mesh);
     if (viewer.state.displayMode === '3d' && tensor.ghostLayers?.length) {
+        // ghost layers show extra roots for many-to-one cells.  They are only
+        // useful in 3d because 2d uses popup text instead of stacked geometry.
         const ghostMesh = new InstancedMesh(
             viewer.cubeGeometry,
             new MeshBasicMaterial({ color: 0xffffff, vertexColors: true, toneMapped: false }),
@@ -426,6 +439,8 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
             const fittedTensorNameScale2D = nameWidth > 0
                 ? Math.min(tensorNameScale2D, (outlineExtent2D.x * 0.95) / nameWidth)
                 : tensorNameScale2D;
+            // account for guide levels before placing tensor names or long labels
+            // overlap dimension guides in dense high-rank views.
             const guideClearance = showDimensionGuides
                 ? guideStartOffset2D
                     + Math.max(0, topGuideCount - 1) * guideLevelStep2D
@@ -484,6 +499,8 @@ export function updateSliceMesh(viewer: MeshViewerContext, tensor: TensorRecord,
     const anchorViewCoord = tensor.view.viewShape.length === 0 ? [] : new Array(tensor.view.viewShape.length).fill(0);
     const previousAnchor = mapViewCoordToLayoutCoord(anchorViewCoord, previousView, viewer.state.collapseHiddenAxes);
     const nextAnchor = viewer.mapViewCoordToLayoutCoord(anchorViewCoord, tensor.view);
+    // slice-only edits keep the same instance count, so move the mesh by the
+    // anchor delta instead of rebuilding every instance and label.
     if (viewer.state.displayMode === '2d') {
         const previousPosition = displayPositionForCoord2D(previousAnchor, previousShape, viewer.layoutGapMultiple(), viewer.state.dimensionMappingScheme);
         const nextPosition = displayPositionForCoord2D(nextAnchor, shape, viewer.layoutGapMultiple(), viewer.state.dimensionMappingScheme);

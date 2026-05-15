@@ -127,6 +127,8 @@ function bindPresetInput(
         syncPresetControls(ctx, input.id);
     });
     input?.addEventListener('blur', () => {
+        // blur is the commit point for typed text.  Normalizing here lets users
+        // type partial values without immediately clearing their in-progress input.
         ctx.state.linearLayoutState.presetSelection = normalizeComposeLayoutPresetSelection(
             ctx.state.linearLayoutState.presetSelection,
         );
@@ -166,6 +168,8 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
     const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
     if (activeInputId === null && renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection, presetOptions)) {
+        // field visibility depends on selected facets, so re-render only when the
+        // field set changes; otherwise update inputs in place to preserve focus.
         renderLinearLayoutPresetWidget(ctx);
         return;
     }
@@ -239,6 +243,7 @@ function invalidPresetFieldOptions(field: string, validOptions: string[]): strin
     return allOptions.filter((option) => !validOptions.includes(option));
 }
 
+/** choose an option and keep as many compatible existing fields as possible. */
 function presetSelectionForOption(
     selection: ComposeLayoutPresetSelection,
     field: string,
@@ -253,6 +258,8 @@ function presetSelectionForOption(
     }
     const next = cloneComposeLayoutPresetSelection(undefined);
     next[field] = value;
+    // invalid options are shown intentionally: selecting one starts a new valid
+    // path and copies over only fields that still match some preset.
     composeLayoutPresetFields().forEach(({ key }) => {
         if (key === field) return;
         const candidate = selection[key];
@@ -263,6 +270,8 @@ function presetSelectionForOption(
         })) next[key] = candidate;
     });
     const visibleKeys = new Set(visiblePresetFields(next, composeLayoutPresetOptions(next)).map(({ key }) => key));
+    // hidden fields must be cleared or they can silently block preset matching
+    // after an instruction switch such as mma -> swizzle.
     composeLayoutPresetFields().forEach(({ key }) => {
         if (!visibleKeys.has(key)) next[key] = '';
     });
@@ -295,6 +304,8 @@ function visiblePresetFields(
     selection: ComposeLayoutPresetSelection,
     options: ComposeLayoutPresetOptions,
 ): ComposeLayoutPresetField[] {
+    // required fields always show.  optional fields appear once their dependency
+    // path is active and the filtered catalog has values for them.
     return composeLayoutPresetFields().filter((field) => field.required
         || Boolean(selection[field.key])
         || (field.dependsOn.every((key) => Boolean(selection[key])) && presetFieldOptions(options, field.key).length > 0));
@@ -352,6 +363,8 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
     };
     document.addEventListener('pointerdown', outsideClickHandler, true);
     clearPresetOutsideClickHandler = () => {
+        // the widget can be re-rendered often while typing, so remove the old
+        // capture listener before installing a replacement to avoid duplicate closes.
         document.removeEventListener('pointerdown', outsideClickHandler, true);
     };
     loadPreset?.addEventListener('click', async () => {
