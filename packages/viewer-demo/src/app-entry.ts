@@ -73,6 +73,7 @@ import {
     type LinearLayoutUiState,
 } from './linear-layout-ui.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
+import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
 import './styles.css';
 import { linearLayoutPropagateOutputsInfo } from './widgets/linear-layout-color-widget.js';
 
@@ -191,17 +192,6 @@ type CommandAction = {
     label: string;
     shortcut: string;
     keywords: string;
-};
-
-type ControlSpec = {
-    id: string;
-    label: string;
-    description: string;
-    shortcut: string;
-    active: boolean;
-    disabled?: boolean;
-    content: string;
-    onClick: () => void | Promise<void>;
 };
 
 type SidebarWidgetId =
@@ -658,7 +648,7 @@ function widgetIcon(widgetId: SidebarWidgetId): string {
               </svg>
             `;
         case 'selection':
-            return iconSelection();
+            return controlIcons.selection;
         case 'advanced-settings':
             return `
               <svg viewBox="0 0 24 24">
@@ -1001,92 +991,6 @@ async function closeCurrentTab(): Promise<void> {
     if (activeTabId) await closeTab(activeTabId);
 }
 
-function iconSelection(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 5h3v3H5zM16 5h3v3h-3zM5 16h3v3H5zM16 16h3v3h-3z" />
-        <path d="M9.5 6.5h5M9.5 17.5h5M6.5 9.5v5M17.5 9.5v5" stroke-dasharray="2.2 2.2" />
-      </svg>
-    `;
-}
-
-function iconRotate(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 4.8A7.2 7.2 0 1 1 4.8 12" />
-        <path d="M4.8 9.6l1.92 3.6H2.88z" fill="currentColor" stroke="none" />
-      </svg>
-    `;
-}
-
-function iconDimensionLines(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="7,7 7,4 17,4 17,7" stroke="#ef4444" />
-        <polyline points="7,7 4,7 4,17 7,17" stroke="#22c55e" />
-        <rect x="7" y="7" width="10" height="10" />
-      </svg>
-    `;
-}
-
-function iconTensorNames(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 6h14" />
-        <path d="M12 6v12" />
-        <path d="M8 18h8" />
-      </svg>
-    `;
-}
-
-function iconGaps(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="4" y="6" width="4" height="12" />
-        <rect x="10" y="6" width="4" height="12" />
-        <rect x="16" y="6" width="4" height="12" />
-      </svg>
-    `;
-}
-
-function iconContiguousMapping(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="4,5.5 20,5.5 4,10.5 20,10.5 4,15.5 20,15.5 4,20.5 20,20.5" />
-      </svg>
-    `;
-}
-
-function iconZOrderMapping(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="4,4 9,4 4,9 9,9 15,4 20,4 15,9 20,9 4,15 9,15 4,20 9,20 15,15 20,15 15,20 20,20" />
-      </svg>
-    `;
-}
-
-function iconPropagateOutputs(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="3" y="2" width="6" height="6" />
-        <rect x="3" y="16" width="6" height="6" />
-        <rect x="15" y="9" width="6" height="6" />
-        <line x1="18" y1="9" x2="12.655" y2="6.624" />
-        <polygon points="9,5 13,3 13,7" fill="currentColor" stroke="none" transform="rotate(23.96 9 5)" />
-        <line x1="18" y1="15" x2="12.655" y2="17.376" />
-        <polygon points="9,19 13,17 13,21" fill="currentColor" stroke="none" transform="rotate(-23.96 9 19)" />
-      </svg>
-    `;
-}
-
-function iconPan(): string {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M8 13v-7.5a1.5 1.5 0 0 1 3 0v6.5M11 5.5v-2a1.5 1.5 0 1 1 3 0v8.5M14 5.5a1.5 1.5 0 0 1 3 0v6.5M17 7.5a1.5 1.5 0 0 1 3 0v8.5a6 6 0 0 1-6 6h-2h.208a6 6 0 0 1-5.012-2.7a69.74 69.74 0 0 1-.196-.3c-.312-.479-1.407-2.388-3.286-5.728a1.5 1.5 0 0 1 .536-2.022a1.867 1.867 0 0 1 2.28.28l1.47 1.47" />
-      </svg>
-    `;
-}
-
 function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
     const canRotate = snapshot.displayMode === '3d';
@@ -1103,7 +1007,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Left click and drag to move the viewport without changing the tensor data.',
             shortcut: 'W',
             active: interactionMode === 'pan',
-            content: iconPan(),
+            content: controlIcons.pan,
             onClick: () => { viewer.setInteractionMode('pan'); },
         },
         {
@@ -1115,7 +1019,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'S',
             active: interactionMode === 'select',
             disabled: !canSelect,
-            content: iconSelection(),
+            content: controlIcons.selection,
             onClick: () => { viewer.setInteractionMode('select'); },
         },
         {
@@ -1127,7 +1031,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'R',
             active: interactionMode === 'rotate',
             disabled: !canRotate,
-            content: iconRotate(),
+            content: controlIcons.rotate,
             onClick: () => { viewer.setInteractionMode('rotate'); },
         },
         {
@@ -1157,7 +1061,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'N/A',
             active: linearLayoutUiState.linearLayoutState.propagateOutputs,
             disabled: !linearLayoutActive,
-            content: iconPropagateOutputs(),
+            content: controlIcons.propagateOutputs,
             onClick: async () => {
                 await toggleLinearLayoutPropagateOutputs(linearLayoutUi);
             },
@@ -1168,7 +1072,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Toggle dimension guide lines to show axis extents and family orientation in the current layout.',
             shortcut: 'Ctrl+D',
             active: snapshot.showDimensionLines,
-            content: iconDimensionLines(),
+            content: controlIcons.dimensionLines,
             onClick: () => { viewer.toggleDimensionLines(); },
         },
         {
@@ -1177,7 +1081,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Toggle tensor name labels above each rendered tensor in the current layout.',
             shortcut: 'Ctrl+N',
             active: snapshot.showTensorNames ?? true,
-            content: iconTensorNames(),
+            content: controlIcons.tensorNames,
             onClick: () => { viewer.toggleTensorNames(); },
         },
         {
@@ -1186,7 +1090,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Toggle spacing inside higher-level tensor blocks so grouped dimensions appear either separated or packed.',
             shortcut: 'Ctrl+G',
             active: snapshot.displayGaps ?? false,
-            content: iconGaps(),
+            content: controlIcons.gaps,
             onClick: () => { viewer.toggleDisplayGaps(); },
         },
         {
@@ -1195,7 +1099,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Use contiguous axis-family mapping so neighboring cells follow one continuous zig-zag traversal.',
             shortcut: 'Ctrl+M',
             active: snapshot.dimensionMappingScheme === 'contiguous',
-            content: iconContiguousMapping(),
+            content: controlIcons.contiguousMapping,
             onClick: () => { viewer.setDimensionMappingScheme('contiguous'); },
         },
         {
@@ -1204,48 +1108,11 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             description: 'Use z-order axis-family mapping so traversal breaks into smaller interleaved zig-zag groups.',
             shortcut: 'Ctrl+M',
             active: snapshot.dimensionMappingScheme === 'z-order',
-            content: iconZOrderMapping(),
+            content: controlIcons.zOrderMapping,
             onClick: () => { viewer.setDimensionMappingScheme('z-order'); },
         },
     ];
-    controlDock.replaceChildren(...controls.map((control, index) => {
-        const buttonClass = `control-button${control.active ? ' active' : ''}${control.disabled ? ' disabled' : ''}`;
-        if (index === 3 || index === 6 || index === 8 || index === 9) {
-            const fragment = document.createDocumentFragment();
-            const divider = document.createElement('div');
-            divider.className = 'control-dock-divider';
-            fragment.appendChild(divider);
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = buttonClass;
-            button.dataset.tooltipLabel = control.label;
-            button.dataset.tooltipDescription = control.description;
-            button.dataset.tooltipShortcut = control.shortcut;
-            button.innerHTML = control.content;
-            button.disabled = Boolean(control.disabled);
-            button.setAttribute('aria-label', control.label);
-            button.addEventListener('click', async () => {
-                if (control.disabled) return;
-                await control.onClick();
-            });
-            fragment.appendChild(button);
-            return fragment;
-        }
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = buttonClass;
-        button.dataset.tooltipLabel = control.label;
-        button.dataset.tooltipDescription = control.description;
-        button.dataset.tooltipShortcut = control.shortcut;
-        button.innerHTML = control.content;
-        button.disabled = Boolean(control.disabled);
-        button.setAttribute('aria-label', control.label);
-        button.addEventListener('click', async () => {
-            if (control.disabled) return;
-            await control.onClick();
-        });
-        return button;
-    }));
+    renderControlDockControls(controlDock, controls);
 }
 
 async function loadTab(tabId: string): Promise<void> {
