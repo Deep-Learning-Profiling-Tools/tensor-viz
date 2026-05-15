@@ -10,21 +10,24 @@ function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): st
     return JSON.stringify([...contiguousBases, ...crossBases]);
 }
 
-export const SWIZZLE_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = [
+const SWIZZLE_DTYPES = [
     ['b8', 7],
     ['b16', 6],
     ['b32', 5],
     ['b64', 4],
     ['b128', 3],
-].flatMap(([dtype, leadingVectors]) => ([
+] as const;
+
+export const SWIZZLE_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = SWIZZLE_DTYPES.flatMap(([dtype, leadingVectors]) => ([
     {
         name: `swizzle_128B_MN_major_${dtype}`,
-        gpuArch: 'sm_90a',
-        instruction: 'swizzle',
-        matrixSize: '128B',
-        dtype,
-        operand: '',
-        major: 'MN-major',
+        facets: {
+            gpuArch: 'sm_90a',
+            instruction: 'swizzle',
+            matrixSize: '128B',
+            dtype,
+            major: 'MN-major',
+        },
         comments: ['bX means each element is X bits wide.'],
         signature: '[O] -> [M, K]',
         rows: [['O', swizzleBases(leadingVectors, 'MN-major')]],
@@ -32,12 +35,13 @@ export const SWIZZLE_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = [
     },
     {
         name: `swizzle_128B_K_major_${dtype}`,
-        gpuArch: 'sm_90a',
-        instruction: 'swizzle',
-        matrixSize: '128B',
-        dtype,
-        operand: '',
-        major: 'K-major',
+        facets: {
+            gpuArch: 'sm_90a',
+            instruction: 'swizzle',
+            matrixSize: '128B',
+            dtype,
+            major: 'K-major',
+        },
         comments: ['bX means each element is X bits wide.'],
         signature: '[O] -> [M, K]',
         rows: [['O', swizzleBases(leadingVectors, 'K-major')]],

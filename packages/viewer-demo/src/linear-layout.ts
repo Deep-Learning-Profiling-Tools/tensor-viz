@@ -6,12 +6,12 @@ import {
     type TensorViewSnapshot,
     type ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
-import { LDMATRIX_PRESET_DEFINITIONS } from './linear-layout-presets/ldmatrix.js';
-import { MMA_PRESET_DEFINITIONS } from './linear-layout-presets/mma.js';
-import { STMATRIX_PRESET_DEFINITIONS } from './linear-layout-presets/stmatrix.js';
-import { SWIZZLE_PRESET_DEFINITIONS } from './linear-layout-presets/swizzle.js';
-import type { ComposeLayoutPresetDefinition } from './linear-layout-presets/types.js';
-import { WGMMA_PRESET_DEFINITIONS } from './linear-layout-presets/wgmma.js';
+import { COMPOSE_LAYOUT_PRESET_FAMILIES, PRESET_GPU_ARCHS } from './linear-layout-presets/index.js';
+import type {
+    ComposeLayoutPresetDefinition,
+    ComposeLayoutPresetFacetValue,
+    ComposeLayoutPresetFieldDefinition,
+} from './linear-layout-presets/types.js';
 
 export type ComposeChannel = 'H' | 'S' | 'L';
 export type ComposeMappingValue = string | 'none';
@@ -27,18 +27,16 @@ export type ComposeLayoutState = {
     ranges: Record<ComposeChannel, [string, string]>;
 };
 
-export type ComposeLayoutPresetSelection = {
-    gpuArch: string;
-    instruction: string;
-    matrixSize: string;
-    dtype: string;
-    operand: string;
-    trans: string;
-    major: string;
+export type ComposeLayoutPresetSelection = Record<string, string>;
+
+export type ComposeLayoutPresetField = Required<Omit<ComposeLayoutPresetFieldDefinition, 'values'>> & {
+    id: string;
+    values: string[];
 };
 
 export type ComposeLayoutPreset = {
     title: string;
+    facets: Record<string, string[]>;
     gpuArchs: string[];
     instruction: string;
     matrixSize: string;
@@ -49,7 +47,7 @@ export type ComposeLayoutPreset = {
     state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName'>;
 };
 
-export type ComposeLayoutPresetOptions = {
+export type ComposeLayoutPresetOptions = Record<string, string[]> & {
     gpuArchs: string[];
     instructions: string[];
     matrixSizes: string[];
@@ -170,32 +168,6 @@ const DEFAULT_EMPTY_SPEC_TEXT = [
     'R: [[1,0],[2,0]]',
 ].join('\n');
 
-const EMPTY_PRESET_SELECTION: ComposeLayoutPresetSelection = {
-    gpuArch: '',
-    instruction: '',
-    matrixSize: '',
-    dtype: '',
-    operand: '',
-    trans: '',
-    major: '',
-};
-
-const PRESET_GPU_ARCHS = [
-    'sm_70',
-    'sm_75',
-    'sm_80',
-    'sm_90',
-    'sm_90a',
-    'sm_100',
-    'sm_100a',
-    'sm_100f',
-    'sm_110',
-    'sm_110a',
-    'sm_110f',
-    'sm_120',
-    'sm_120a',
-    'sm_120f',
-] as const;
 const GPU_ARCHS_SM70_PLUS = [...PRESET_GPU_ARCHS];
 const GPU_ARCHS_SM75_PLUS = ['sm_75', 'sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
 const GPU_ARCHS_SM80_PLUS = ['sm_80', 'sm_90', 'sm_90a', 'sm_100', 'sm_100a', 'sm_100f', 'sm_110', 'sm_110a', 'sm_110f', 'sm_120', 'sm_120a', 'sm_120f'];
@@ -251,8 +223,72 @@ const BAKED_EXAMPLE_DEFINITIONS = [
 ] as const;
 // sync-linear-layout-examples:end
 
+const LEGACY_PRESET_FIELD_KEYS = ['gpuArch', 'instruction', 'matrixSize', 'dtype', 'operand', 'trans', 'major'] as const;
+
+const PRESET_FIELD_OPTION_ALIASES = {
+    gpuArch: 'gpuArchs',
+    instruction: 'instructions',
+    matrixSize: 'matrixSizes',
+    dtype: 'dtypes',
+    operand: 'operands',
+    trans: 'transes',
+    major: 'majors',
+} as const;
+
+const PRESET_DEFINITIONS = COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.presets);
+
+const COMPOSE_LAYOUT_PRESET_FIELDS = mergedPresetFields([
+    ...COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.fields ?? []),
+    ...PRESET_DEFINITIONS.flatMap((definition) => (
+        Object.keys(definition.facets ?? {}).map((key) => inferredPresetFieldDefinition(key))
+    )),
+]);
+
 function layoutSpecText(signature: string, rows: string[]): string {
     return [signature, ...rows].join('\n');
+}
+
+function mergedPresetFields(definitions: readonly ComposeLayoutPresetFieldDefinition[]): ComposeLayoutPresetField[] {
+    const fields = new Map<string, ComposeLayoutPresetField>();
+    definitions.forEach((definition) => {
+        fields.set(definition.key, normalizePresetFieldDefinition(definition, fields.get(definition.key)));
+    });
+    return Array.from(fields.values()).sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
+}
+
+function normalizePresetFieldDefinition(
+    definition: ComposeLayoutPresetFieldDefinition,
+    current?: ComposeLayoutPresetField,
+): ComposeLayoutPresetField {
+    const values = [...new Set([...(current?.values ?? []), ...(definition.values ?? [])])];
+    const dependsOn = [...new Set([...(current?.dependsOn ?? []), ...(definition.dependsOn ?? [])])];
+    return {
+        key: definition.key,
+        id: current?.id ?? `linear-layout-preset-${kebabPresetFieldKey(definition.key)}`,
+        label: current?.label ?? definition.label,
+        placeholder: current?.placeholder ?? definition.placeholder,
+        order: Math.min(current?.order ?? definition.order, definition.order),
+        required: Boolean(current?.required || definition.required),
+        dependsOn,
+        values,
+    };
+}
+
+function inferredPresetFieldDefinition(key: string): ComposeLayoutPresetFieldDefinition {
+    const label = key
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    return {
+        key,
+        label,
+        placeholder: `Type ${label.toLowerCase()}`,
+        order: 100,
+    };
+}
+
+function kebabPresetFieldKey(key: string): string {
+    return key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
 }
 
 function presetOperationText(specsText: string): string {
@@ -262,29 +298,32 @@ function presetOperationText(specsText: string): string {
 }
 
 function presetGpuArchs(definition: ComposeLayoutPresetDefinition): string[] {
-    if (definition.instruction === 'ldmatrix') return definition.dtype === 'b16' ? GPU_ARCHS_SM75_PLUS : GPU_ARCHS_SM100_PLUS;
-    if (definition.instruction === 'stmatrix') return definition.dtype === 'b16' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM100_PLUS;
-    if (definition.instruction === 'swizzle') return GPU_ARCHS_SWIZZLE;
-    if (definition.instruction === 'wgmma') return GPU_ARCHS_WGMMA;
-    if (definition.instruction !== 'mma') return [definition.gpuArch];
-    if (definition.matrixSize === 'm8n8k4') return definition.dtype === 'f64' ? GPU_ARCHS_SM80_PLUS : GPU_ARCHS_SM70_PLUS;
-    if (definition.matrixSize === 'm8n8k16' || definition.matrixSize === 'm8n8k32' || definition.matrixSize === 'm8n8k128') return GPU_ARCHS_SM75_PLUS;
-    if (definition.matrixSize === 'm16n8k4') return definition.dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
-    if (definition.matrixSize === 'm16n8k8') {
-        if (definition.dtype === 'b16') return GPU_ARCHS_SM75_PLUS;
-        return definition.dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    const instruction = definition.instruction ?? '';
+    const matrixSize = definition.matrixSize ?? '';
+    const dtype = definition.dtype ?? '';
+    if (instruction === 'ldmatrix') return dtype === 'b16' ? GPU_ARCHS_SM75_PLUS : GPU_ARCHS_SM100_PLUS;
+    if (instruction === 'stmatrix') return dtype === 'b16' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM100_PLUS;
+    if (instruction === 'swizzle') return GPU_ARCHS_SWIZZLE;
+    if (instruction === 'wgmma') return GPU_ARCHS_WGMMA;
+    if (instruction !== 'mma') return definition.gpuArch ? [definition.gpuArch] : [];
+    if (matrixSize === 'm8n8k4') return dtype === 'f64' ? GPU_ARCHS_SM80_PLUS : GPU_ARCHS_SM70_PLUS;
+    if (matrixSize === 'm8n8k16' || matrixSize === 'm8n8k32' || matrixSize === 'm8n8k128') return GPU_ARCHS_SM75_PLUS;
+    if (matrixSize === 'm16n8k4') return dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
+    if (matrixSize === 'm16n8k8') {
+        if (dtype === 'b16') return GPU_ARCHS_SM75_PLUS;
+        return dtype === 'f64' ? GPU_ARCHS_SM90_PLUS : GPU_ARCHS_SM80_PLUS;
     }
-    if (definition.matrixSize === 'm16n8k16') {
-        if (definition.dtype === 'f64') return GPU_ARCHS_SM90_PLUS;
+    if (matrixSize === 'm16n8k16') {
+        if (dtype === 'f64') return GPU_ARCHS_SM90_PLUS;
         return GPU_ARCHS_SM80_PLUS;
     }
-    if (definition.matrixSize === 'm16n8k32') {
-        if (definition.dtype === 'f16') return GPU_ARCHS_SM120_ONLY;
+    if (matrixSize === 'm16n8k32') {
+        if (dtype === 'f16') return GPU_ARCHS_SM120_ONLY;
         return GPU_ARCHS_SM80_PLUS;
     }
-    if (definition.matrixSize === 'm16n8k64') return GPU_ARCHS_SM80_PLUS;
-    if (definition.matrixSize === 'm16n8k128' || definition.matrixSize === 'm16n8k256') return GPU_ARCHS_SM80_PLUS;
-    return [definition.gpuArch];
+    if (matrixSize === 'm16n8k64') return GPU_ARCHS_SM80_PLUS;
+    if (matrixSize === 'm16n8k128' || matrixSize === 'm16n8k256') return GPU_ARCHS_SM80_PLUS;
+    return definition.gpuArch ? [definition.gpuArch] : [];
 }
 
 function axisComment(label: string, signature: { inputs: string[]; outputs: string[] }): string {
@@ -320,21 +359,51 @@ function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): s
     ].join('\n');
 }
 
+function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Record<string, string[]> {
+    return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [
+        field.key,
+        presetDefinitionFacetValues(definition, field.key),
+    ]));
+}
+
+function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, key: string): string[] {
+    const facet = definition.facets?.[key];
+    if (facet !== undefined) return normalizePresetFacetValue(facet);
+    if (key === 'gpuArch' && definition.gpuArch) return presetGpuArchs(definition);
+    if (isLegacyPresetFieldKey(key)) return normalizePresetFacetValue(definition[key] ?? '');
+    return [];
+}
+
+function normalizePresetFacetValue(value: ComposeLayoutPresetFacetValue): string[] {
+    const values = Array.isArray(value) ? value : [value];
+    return values.map((entry) => String(entry)).filter(Boolean);
+}
+
+function isLegacyPresetFieldKey(key: string): key is typeof LEGACY_PRESET_FIELD_KEYS[number] {
+    return LEGACY_PRESET_FIELD_KEYS.includes(key as typeof LEGACY_PRESET_FIELD_KEYS[number]);
+}
+
+function presetFacetScalar(facets: Record<string, string[]>, key: string): string {
+    return facets[key]?.[0] ?? '';
+}
+
 function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): ComposeLayoutPreset {
     const inputName = definition.inputName ?? 'Hardware Layout';
-    const gpuArchs = presetGpuArchs(definition);
+    const facets = presetDefinitionFacets(definition);
+    const gpuArchs = facets.gpuArch ?? [];
     if ('specsText' in definition) {
         const specsText = annotatedLayoutSpecsText(definition.specsText, definition.comments);
         const operationText = presetOperationText(specsText);
         return {
             title: definition.title ?? operationText,
+            facets,
             gpuArchs,
-            instruction: definition.instruction,
-            matrixSize: definition.matrixSize,
-            dtype: definition.dtype,
-            operand: definition.operand,
-            trans: definition.trans ?? '',
-            major: definition.major ?? '',
+            instruction: presetFacetScalar(facets, 'instruction'),
+            matrixSize: presetFacetScalar(facets, 'matrixSize'),
+            dtype: presetFacetScalar(facets, 'dtype'),
+            operand: presetFacetScalar(facets, 'operand'),
+            trans: presetFacetScalar(facets, 'trans'),
+            major: presetFacetScalar(facets, 'major'),
             state: { specsText, operationText, inputName },
         };
     }
@@ -344,13 +413,14 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
     );
     return {
         title: definition.title ?? definition.name,
+        facets,
         gpuArchs,
-        instruction: definition.instruction,
-        matrixSize: definition.matrixSize,
-        dtype: definition.dtype,
-        operand: definition.operand,
-        trans: definition.trans ?? '',
-        major: definition.major ?? '',
+        instruction: presetFacetScalar(facets, 'instruction'),
+        matrixSize: presetFacetScalar(facets, 'matrixSize'),
+        dtype: presetFacetScalar(facets, 'dtype'),
+        operand: presetFacetScalar(facets, 'operand'),
+        trans: presetFacetScalar(facets, 'trans'),
+        major: presetFacetScalar(facets, 'major'),
         state: {
             specsText,
             operationText: definition.name,
@@ -358,14 +428,6 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
         },
     };
 }
-
-const PRESET_DEFINITIONS = [
-    ...MMA_PRESET_DEFINITIONS,
-    ...SWIZZLE_PRESET_DEFINITIONS,
-    ...LDMATRIX_PRESET_DEFINITIONS,
-    ...STMATRIX_PRESET_DEFINITIONS,
-    ...WGMMA_PRESET_DEFINITIONS,
-] satisfies ComposeLayoutPresetDefinition[];
 
 const COMPOSE_LAYOUT_PRESET_CATALOG = PRESET_DEFINITIONS.map((definition) => composeLayoutPreset(definition));
 
@@ -507,39 +569,39 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
 }
 
 export function emptyComposeLayoutPresetSelection(): ComposeLayoutPresetSelection {
-    return { ...EMPTY_PRESET_SELECTION };
+    return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [field.key, '']));
 }
 
 export function cloneComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
-    const legacySelection = selection as (ComposeLayoutPresetSelection & { category?: string }) | undefined;
-    return {
-        gpuArch: selection?.gpuArch ?? '',
-        instruction: selection?.instruction ?? legacySelection?.category ?? '',
-        matrixSize: selection?.matrixSize ?? '',
-        dtype: selection?.dtype ?? '',
-        operand: selection?.operand ?? '',
-        trans: selection?.trans ?? '',
-        major: selection?.major ?? '',
-    };
+    const record = selection as (Record<string, unknown> & { category?: unknown }) | undefined;
+    const cloned = emptyComposeLayoutPresetSelection();
+    COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
+        const value = record?.[field.key];
+        cloned[field.key] = typeof value === 'string' ? value : '';
+    });
+    if (!cloned.instruction && typeof record?.category === 'string') cloned.instruction = record.category;
+    return cloned;
 }
 
 export function isComposeLayoutPresetSelection(value: unknown): value is ComposeLayoutPresetSelection {
     if (!value || typeof value !== 'object') return false;
-    const record = value as ComposeLayoutPresetSelection & { category?: string };
-    return typeof record.gpuArch === 'string'
-        && (typeof record.instruction === 'string' || typeof record.category === 'string')
-        && typeof record.matrixSize === 'string'
-        && typeof record.dtype === 'string'
-        && typeof record.operand === 'string'
-        && (record.trans === undefined || typeof record.trans === 'string')
-        && (record.major === undefined || typeof record.major === 'string');
+    return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string');
+}
+
+export function composeLayoutPresetFields(): ComposeLayoutPresetField[] {
+    return COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => ({
+        ...field,
+        dependsOn: [...field.dependsOn],
+        values: [...field.values],
+    }));
 }
 
 export function composeLayoutPresets(): ComposeLayoutPreset[] {
     return composeLayoutPresetCatalog().map((preset) => ({
         ...preset,
+        facets: Object.fromEntries(Object.entries(preset.facets).map(([key, values]) => [key, [...values]])),
         gpuArchs: [...preset.gpuArchs],
         state: { ...preset.state },
     }));
@@ -552,15 +614,11 @@ export function matchedComposeLayoutPresetSelection(
     const preset = composeLayoutPresetCatalog().find((entry) => canonicalLayoutSpecsText(entry.state.specsText) === canonicalSpecsText
         && entry.state.operationText === state.operationText
         && entry.state.inputName === state.inputName);
-    return preset ? {
-        gpuArch: preset.gpuArchs[0] ?? '',
-        instruction: preset.instruction,
-        matrixSize: preset.matrixSize,
-        dtype: preset.dtype,
-        operand: preset.operand,
-        trans: preset.trans,
-        major: preset.major,
-    } : emptyComposeLayoutPresetSelection();
+    if (!preset) return emptyComposeLayoutPresetSelection();
+    return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [
+        field.key,
+        preset.facets[field.key]?.[0] ?? '',
+    ]));
 }
 
 export function composeLayoutPresetOptions(
@@ -568,135 +626,52 @@ export function composeLayoutPresetOptions(
 ): ComposeLayoutPresetOptions {
     const current = cloneComposeLayoutPresetSelection(selection);
     const presets = composeLayoutPresetCatalog();
-    const gpuArchs = uniquePresetGpuArchs(filteredPresets(presets, {
-        instruction: current.instruction,
-        matrixSize: current.matrixSize,
-        dtype: current.dtype,
-        operand: current.operand,
-        trans: current.trans,
-        major: current.major,
-    }));
-    const instructions = uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        matrixSize: current.matrixSize,
-        dtype: current.dtype,
-        operand: current.operand,
-        trans: current.trans,
-        major: current.major,
-    }), 'instruction');
-    const matrixSizes = uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        instruction: current.instruction,
-        dtype: current.dtype,
-        operand: current.operand,
-        trans: current.trans,
-        major: current.major,
-    }), 'matrixSize');
-    const dtypes = uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        instruction: current.instruction,
-        matrixSize: current.matrixSize,
-        operand: current.operand,
-        trans: current.trans,
-        major: current.major,
-    }), 'dtype');
-    const operands = uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        instruction: current.instruction,
-        matrixSize: current.matrixSize,
-        dtype: current.dtype,
-        trans: current.trans,
-        major: current.major,
-    }), 'operand').filter(Boolean);
-    const transes = uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        instruction: current.instruction,
-        matrixSize: current.matrixSize,
-        dtype: current.dtype,
-        operand: current.operand,
-        major: current.major,
-    }), 'trans').filter(Boolean);
-    const majors = uniquePresetField(filteredPresets(presets, {
-        gpuArch: current.gpuArch,
-        instruction: current.instruction,
-        matrixSize: current.matrixSize,
-        dtype: current.dtype,
-        operand: current.operand,
-        trans: current.trans,
-    }), 'major').filter(Boolean);
-    return { gpuArchs, instructions, matrixSizes, dtypes, operands, transes, majors };
+    const options: ComposeLayoutPresetOptions = {
+        gpuArchs: [],
+        instructions: [],
+        matrixSizes: [],
+        dtypes: [],
+        operands: [],
+        transes: [],
+        majors: [],
+    };
+    COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
+        const values = uniquePresetFacetValues(filteredPresets(presets, withoutPresetField(current, field.key)), field);
+        options[field.key] = values;
+        const alias = PRESET_FIELD_OPTION_ALIASES[field.key as keyof typeof PRESET_FIELD_OPTION_ALIASES];
+        if (alias) options[alias] = values;
+    });
+    return options;
 }
 
 export function normalizeComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
     const current = cloneComposeLayoutPresetSelection(selection);
-    const options = composeLayoutPresetOptions(current);
-    const gpuArch = normalizedPresetField(current.gpuArch, options.gpuArchs);
-    const instruction = normalizedPresetField(current.instruction, composeLayoutPresetOptions({
-        ...current,
-        gpuArch,
-    }).instructions);
-    const matrixSize = normalizedPresetField(current.matrixSize, composeLayoutPresetOptions({
-        ...current,
-        gpuArch,
-        instruction,
-    }).matrixSizes);
-    const dtype = normalizedPresetField(current.dtype, composeLayoutPresetOptions({
-        ...current,
-        gpuArch,
-        instruction,
-        matrixSize,
-    }).dtypes);
-    const operand = normalizedPresetField(current.operand, composeLayoutPresetOptions({
-        ...current,
-        gpuArch,
-        instruction,
-        matrixSize,
-        dtype,
-    }).operands);
-    const trans = normalizedPresetField(current.trans, composeLayoutPresetOptions({
-        ...current,
-        gpuArch,
-        instruction,
-        matrixSize,
-        dtype,
-        operand,
-    }).transes);
-    const major = normalizedPresetField(current.major, composeLayoutPresetOptions({
-        ...current,
-        gpuArch,
-        instruction,
-        matrixSize,
-        dtype,
-        operand,
-        trans,
-    }).majors);
-    return { gpuArch, instruction, matrixSize, dtype, operand, trans, major };
+    const normalized = { ...current };
+    COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
+        normalized[field.key] = normalizedPresetField(current[field.key] ?? '', composeLayoutPresetOptions(normalized)[field.key] ?? []);
+    });
+    return normalized;
 }
 
 export function composeLayoutPresetForSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPreset | null {
     const current = cloneComposeLayoutPresetSelection(selection);
-    return composeLayoutPresetCatalog().find((preset) => preset.gpuArchs.includes(current.gpuArch)
-        && preset.instruction === current.instruction
-        && preset.matrixSize === current.matrixSize
-        && preset.dtype === current.dtype
-        && preset.operand === current.operand
-        && preset.trans === current.trans
-        && preset.major === current.major) ?? null;
+    const matches = filteredPresets(composeLayoutPresetCatalog(), current).filter((preset) => (
+        COMPOSE_LAYOUT_PRESET_FIELDS.every((field) => presetFieldIsComplete(preset, current, field.key))
+    ));
+    return matches.length === 1 ? matches[0]! : null;
 }
 
 function filteredPresets(
     presets: ComposeLayoutPreset[],
-    filters: Partial<Record<keyof ComposeLayoutPresetSelection, string>>,
+    filters: ComposeLayoutPresetSelection,
 ): ComposeLayoutPreset[] {
     return presets.filter((preset) => Object.entries(filters).every(([key, value]) => {
         if (!value) return true;
-        return key === 'gpuArch'
-            ? preset.gpuArchs.includes(value)
-            : preset[key as keyof ComposeLayoutPresetSelection] === value;
+        return preset.facets[key]?.includes(value) ?? false;
     }));
 }
 
@@ -705,15 +680,26 @@ function normalizedPresetField(value: string, options: string[]): string {
     return options.length === 1 ? options[0] ?? '' : '';
 }
 
-function uniquePresetField<K extends keyof ComposeLayoutPresetSelection>(
-    presets: ComposeLayoutPreset[],
-    key: K,
-): ComposeLayoutPresetSelection[K][] {
-    return Array.from(new Set(presets.map((preset) => preset[key])));
+function withoutPresetField(selection: ComposeLayoutPresetSelection, key: string): ComposeLayoutPresetSelection {
+    return Object.fromEntries(Object.entries(selection).map(([fieldKey, value]) => [fieldKey, fieldKey === key ? '' : value]));
 }
 
-function uniquePresetGpuArchs(presets: ComposeLayoutPreset[]): string[] {
-    return PRESET_GPU_ARCHS.filter((gpuArch) => presets.some((preset) => preset.gpuArchs.includes(gpuArch)));
+function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeLayoutPresetField): string[] {
+    const values = new Set(presets.flatMap((preset) => preset.facets[field.key] ?? []));
+    return [
+        ...field.values.filter((value) => values.has(value)),
+        ...Array.from(values).filter((value) => !field.values.includes(value)),
+    ];
+}
+
+function presetFieldIsComplete(
+    preset: ComposeLayoutPreset,
+    selection: ComposeLayoutPresetSelection,
+    key: string,
+): boolean {
+    const values = preset.facets[key] ?? [];
+    const selected = selection[key] ?? '';
+    return values.length === 0 ? selected === '' : values.includes(selected);
 }
 
 function canonicalLayoutSpecsText(specsText: string): string {

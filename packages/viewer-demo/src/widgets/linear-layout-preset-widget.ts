@@ -1,94 +1,31 @@
 import { escapeInfo, infoButton } from '../app-format.js';
 import {
     cloneComposeLayoutPresetSelection,
+    composeLayoutPresetFields,
     composeLayoutPresets,
     composeLayoutPresetForSelection,
     composeLayoutPresetOptions,
     normalizeComposeLayoutPresetSelection,
+    type ComposeLayoutPresetField,
+    type ComposeLayoutPresetOptions,
+    type ComposeLayoutPresetSelection,
 } from '../linear-layout.js';
 import type { LinearLayoutUiContext } from '../linear-layout-state.js';
 import { applyLinearLayoutSpec } from './linear-layout-widget-actions.js';
 
 let clearPresetOutsideClickHandler: (() => void) | null = null;
 
-type PresetFieldKey = 'gpuArch' | 'instruction' | 'matrixSize' | 'dtype' | 'operand' | 'trans' | 'major';
-
-const PRESET_FIELDS: Array<{
-    key: PresetFieldKey;
-    id: string;
-    label: string;
-    placeholder: string;
-    valuesId: string;
-    valuesLabel: string;
-}> = [
-    {
-        key: 'gpuArch',
-        id: 'linear-layout-preset-gpu-arch',
-        label: 'GPU Arch',
-        placeholder: 'Type GPU arch',
-        valuesId: 'linear-layout-preset-values-gpu-arch',
-        valuesLabel: 'GPU Arch',
-    },
-    {
-        key: 'instruction',
-        id: 'linear-layout-preset-instruction',
-        label: 'Instruction',
-        placeholder: 'Type instruction',
-        valuesId: 'linear-layout-preset-values-instruction',
-        valuesLabel: 'Instruction',
-    },
-    {
-        key: 'matrixSize',
-        id: 'linear-layout-preset-matrix-size',
-        label: 'Matrix Size',
-        placeholder: 'Type matrix size',
-        valuesId: 'linear-layout-preset-values-matrix-size',
-        valuesLabel: 'Matrix Size',
-    },
-    {
-        key: 'dtype',
-        id: 'linear-layout-preset-dtype',
-        label: 'DType',
-        placeholder: 'Type dtype',
-        valuesId: 'linear-layout-preset-values-dtype',
-        valuesLabel: 'DType',
-    },
-    {
-        key: 'operand',
-        id: 'linear-layout-preset-operand',
-        label: 'Operand',
-        placeholder: 'Type operand',
-        valuesId: 'linear-layout-preset-values-operand',
-        valuesLabel: 'Operand',
-    },
-    {
-        key: 'trans',
-        id: 'linear-layout-preset-trans',
-        label: 'Transpose',
-        placeholder: 'Type transpose',
-        valuesId: 'linear-layout-preset-values-trans',
-        valuesLabel: 'Transpose',
-    },
-    {
-        key: 'major',
-        id: 'linear-layout-preset-major',
-        label: 'Major',
-        placeholder: 'Type major',
-        valuesId: 'linear-layout-preset-values-major',
-        valuesLabel: 'Major',
-    },
-];
-
 function linearLayoutPresetHelpHtml(): string {
+    const instructions = composeLayoutPresetOptions(undefined).instruction.join(', ');
     return `
       <details class="usage-guide">
         <summary>How do I use this?</summary>
         <div class="usage-guide-body">
           <div class="usage-guide-step">
-            <span>Load a PTX layout by typing into text fields and selecting values from the dropdowns. Once the text <strong>No preset matches the current selection yet.</strong> is replaced with <strong>Selected preset: &lt;preset&gt;</strong>, click <strong>Load Preset</strong> to visualize the specified layout.</span>
+            <span>Load a preset layout by typing into text fields and selecting values from the dropdowns. Once the text <strong>No preset matches the current selection yet.</strong> is replaced with <strong>Selected preset: &lt;preset&gt;</strong>, click <strong>Load Preset</strong> to visualize the specified layout.</span>
           </div>
           <div class="usage-guide-step">
-            <span>Currently, <strong>mma</strong>, <strong>ldmatrix</strong>, <strong>stmatrix</strong>, <strong>swizzle</strong>, and <strong>wgmma</strong> instructions are supported.</span>
+            <span>Currently supported instructions: <strong>${escapeInfo(instructions || 'none')}</strong>.</span>
           </div>
           <div class="usage-guide-subtitle">Examples</div>
           <div class="usage-guide-examples">
@@ -134,11 +71,11 @@ Operand: D</code>
 }
 
 function presetSearchField(
-    field: typeof PRESET_FIELDS[number],
+    field: ComposeLayoutPresetField,
     value: string,
     validOptions: string[],
     invalidOptions: string[],
-    selection: Record<PresetFieldKey, string>,
+    selection: ComposeLayoutPresetSelection,
 ): string {
     const validMatches = filteredPresetOptions(validOptions, value);
     const invalidMatches = filteredPresetOptions(invalidOptions, value);
@@ -177,7 +114,7 @@ function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
 function bindPresetInput(
     ctx: LinearLayoutUiContext,
     input: HTMLInputElement | null,
-    field: PresetFieldKey,
+    field: string,
 ): void {
     input?.addEventListener('focus', () => {
         syncPresetControls(ctx, input.id);
@@ -227,20 +164,20 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
 }
 
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
-    if (activeInputId === null && renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection)) {
+    const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
+    if (activeInputId === null && renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection, presetOptions)) {
         renderLinearLayoutPresetWidget(ctx);
         return;
     }
-    const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
     const preset = composeLayoutPresetForSelection(ctx.state.linearLayoutState.presetSelection);
-    const renderedFields = PRESET_FIELDS.filter((field) => (
+    const renderedFields = composeLayoutPresetFields().filter((field) => (
         ctx.linearLayoutPresetWidget.querySelector<HTMLElement>(`[data-preset-field="${field.id}"]`) !== null
     ));
     renderedFields.forEach((field) => {
         const input = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${CSS.escape(field.id)}`);
         const list = ctx.linearLayoutPresetWidget.querySelector<HTMLElement>(`[data-preset-field="${field.id}"] .preset-option-list`);
         if (!input || !list) return;
-        if (field.id !== activeInputId) input.value = ctx.state.linearLayoutState.presetSelection[field.key];
+        if (field.id !== activeInputId) input.value = ctx.state.linearLayoutState.presetSelection[field.key] ?? '';
         const validOptions = presetFieldOptions(presetOptions, field.key);
         list.innerHTML = presetOptionsHtml(
             field.key,
@@ -255,7 +192,6 @@ function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | 
     });
     bindPresetOptions(ctx);
     setPresetDropdownVisibility(ctx.linearLayoutPresetWidget, activeInputId);
-    setPresetValuesText(ctx.linearLayoutPresetWidget, presetOptions);
     const summary = ctx.linearLayoutPresetWidget.querySelector<HTMLElement>('#linear-layout-preset-summary');
     if (summary) {
         summary.innerHTML = preset
@@ -266,9 +202,9 @@ function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | 
     if (loadPreset) loadPreset.disabled = preset === null;
 }
 
-function invalidPresetOptionInfo(field: PresetFieldKey, value: string, selection: Record<PresetFieldKey, string>): string {
+function invalidPresetOptionInfo(field: string, value: string, selection: ComposeLayoutPresetSelection): string {
     const nextSelection = presetSelectionForOption(selection, field, value, true);
-    const clearedFields = PRESET_FIELDS
+    const clearedFields = composeLayoutPresetFields()
         .filter(({ key }) => key !== field && selection[key] && !nextSelection[key])
         .map(({ label }) => label);
     if (clearedFields.length === 0) {
@@ -278,11 +214,11 @@ function invalidPresetOptionInfo(field: PresetFieldKey, value: string, selection
 }
 
 function presetOptionsHtml(
-    field: PresetFieldKey,
+    field: string,
     inputId: string,
     validOptions: string[],
     invalidOptions: string[],
-    selection: Record<PresetFieldKey, string>,
+    selection: ComposeLayoutPresetSelection,
 ): string {
     if (validOptions.length === 0 && invalidOptions.length === 0) return '<span class="mapping-empty">no matches</span>';
     return [
@@ -298,22 +234,14 @@ function presetOptionsHtml(
     ].join('');
 }
 
-function invalidPresetFieldOptions(field: PresetFieldKey, validOptions: string[]): string[] {
+function invalidPresetFieldOptions(field: string, validOptions: string[]): string[] {
     const allOptions = presetFieldOptions(composeLayoutPresetOptions(undefined), field);
     return allOptions.filter((option) => !validOptions.includes(option));
 }
 
 function presetSelectionForOption(
-    selection: {
-        gpuArch: string;
-        instruction: string;
-        matrixSize: string;
-        dtype: string;
-        operand: string;
-        trans: string;
-        major: string;
-    },
-    field: PresetFieldKey,
+    selection: ComposeLayoutPresetSelection,
+    field: string,
     value: string,
     invalid: boolean,
 ) {
@@ -323,17 +251,9 @@ function presetSelectionForOption(
             [field]: value,
         });
     }
-    const next = {
-        gpuArch: '',
-        instruction: '',
-        matrixSize: '',
-        dtype: '',
-        operand: '',
-        trans: '',
-        major: '',
-    };
+    const next = cloneComposeLayoutPresetSelection(undefined);
     next[field] = value;
-    PRESET_FIELDS.forEach(({ key }) => {
+    composeLayoutPresetFields().forEach(({ key }) => {
         if (key === field) return;
         const candidate = selection[key];
         if (!candidate) return;
@@ -342,18 +262,18 @@ function presetSelectionForOption(
             [key]: candidate,
         })) next[key] = candidate;
     });
-    const visibleKeys = new Set(visiblePresetFields(next).map(({ key }) => key));
-    PRESET_FIELDS.forEach(({ key }) => {
+    const visibleKeys = new Set(visiblePresetFields(next, composeLayoutPresetOptions(next)).map(({ key }) => key));
+    composeLayoutPresetFields().forEach(({ key }) => {
         if (!visibleKeys.has(key)) next[key] = '';
     });
     return normalizeComposeLayoutPresetSelection(next);
 }
 
-function presetMatches(filters: Partial<Record<PresetFieldKey, string>>): boolean {
-    return composeLayoutPresets().some((preset) => PRESET_FIELDS.every(({ key }) => {
+function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
+    return composeLayoutPresets().some((preset) => Object.keys(filters).every((key) => {
         const value = filters[key];
         if (!value) return true;
-        return key === 'gpuArch' ? preset.gpuArchs.includes(value) : preset[key] === value;
+        return preset.facets[key]?.includes(value) ?? false;
     }));
 }
 
@@ -363,63 +283,25 @@ function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | 
     });
 }
 
-function setPresetValuesText(
-    root: HTMLElement,
-    options: {
-        gpuArchs: string[];
-        instructions: string[];
-        matrixSizes: string[];
-        dtypes: string[];
-        operands: string[];
-        transes: string[];
-        majors: string[];
-    },
-): void {
-    PRESET_FIELDS.forEach((field) => {
-        const element = root.querySelector<HTMLElement>(`#${field.valuesId}`);
-        if (element) {
-            element.textContent = `${field.valuesLabel}: ${presetFieldOptions(options, field.key).join(', ') || 'none'}`;
-        }
-    });
+function presetFieldOptions(options: ComposeLayoutPresetOptions, field: string): string[] {
+    return options[field] ?? [];
 }
 
-function presetFieldOptions(
-    options: {
-        gpuArchs: string[];
-        instructions: string[];
-        matrixSizes: string[];
-        dtypes: string[];
-        operands: string[];
-        transes: string[];
-        majors: string[];
-    },
-    field: PresetFieldKey,
-): string[] {
-    if (field === 'gpuArch') return options.gpuArchs;
-    if (field === 'instruction') return options.instructions;
-    if (field === 'matrixSize') return options.matrixSizes;
-    if (field === 'dtype') return options.dtypes;
-    if (field === 'operand') return options.operands;
-    if (field === 'trans') return options.transes;
-    return options.majors;
+function presetFieldForInputId(inputId: string): string | null {
+    return composeLayoutPresetFields().find((field) => field.id === inputId)?.key ?? null;
 }
 
-function presetFieldForInputId(inputId: string): PresetFieldKey | null {
-    return PRESET_FIELDS.find((field) => field.id === inputId)?.key ?? null;
+function visiblePresetFields(
+    selection: ComposeLayoutPresetSelection,
+    options: ComposeLayoutPresetOptions,
+): ComposeLayoutPresetField[] {
+    return composeLayoutPresetFields().filter((field) => field.required
+        || Boolean(selection[field.key])
+        || (field.dependsOn.every((key) => Boolean(selection[key])) && presetFieldOptions(options, field.key).length > 0));
 }
 
-function visiblePresetFields(selection: { instruction: string }): typeof PRESET_FIELDS {
-    const instruction = selection.instruction;
-    return PRESET_FIELDS.filter((field) => {
-        if (field.key === 'operand') return instruction === 'mma' || instruction === 'wgmma';
-        if (field.key === 'trans') return instruction === 'ldmatrix' || instruction === 'stmatrix';
-        if (field.key === 'major') return instruction === 'swizzle';
-        return true;
-    });
-}
-
-function visiblePresetFieldIds(selection: { instruction: string }): string {
-    return visiblePresetFields(selection).map((field) => field.id).join(',');
+function visiblePresetFieldIds(selection: ComposeLayoutPresetSelection, options: ComposeLayoutPresetOptions): string {
+    return visiblePresetFields(selection, options).map((field) => field.id).join(',');
 }
 
 function renderedPresetFieldIds(root: HTMLElement): string {
@@ -439,9 +321,9 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
         <div class="widget-body">
         ${linearLayoutPresetHelpHtml()}
         <div class="preset-stack">
-          ${visiblePresetFields(presetSelection).map((field) => presetSearchField(
+          ${visiblePresetFields(presetSelection, presetOptions).map((field) => presetSearchField(
             field,
-            presetSelection[field.key],
+            presetSelection[field.key] ?? '',
             presetFieldOptions(presetOptions, field.key),
             invalidPresetFieldOptions(field.key, presetFieldOptions(presetOptions, field.key)),
             presetSelection,
@@ -458,7 +340,7 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
     `;
     const loadPreset = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>('#linear-layout-load-preset');
     const clearPreset = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>('#linear-layout-clear-preset');
-    PRESET_FIELDS.forEach((field) => {
+    composeLayoutPresetFields().forEach((field) => {
         bindPresetInput(ctx, ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${field.id}`), field.key);
     });
     bindPresetOptions(ctx);

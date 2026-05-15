@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     autoColorLayoutState,
     buildComposeRuntime,
+    composeLayoutPresetFields,
     composeLayoutPresetForSelection,
     composeLayoutPresetOptions,
     composeLayoutStateFromLegacySpec,
@@ -152,7 +153,7 @@ describe('compose layout helpers', () => {
     });
 
     it('filters preset dropdown options by the current selection path', () => {
-        expect(composeLayoutPresetOptions({
+        const sm80Options = composeLayoutPresetOptions({
             gpuArch: 'sm_80',
             instruction: '',
             matrixSize: '',
@@ -160,9 +161,11 @@ describe('compose layout helpers', () => {
             operand: '',
             trans: '',
             major: '',
-        })).toMatchObject({
+        });
+        expect(sm80Options).toMatchObject({
             instructions: ['mma', 'ldmatrix'],
         });
+        expect(sm80Options.instruction).toEqual(['mma', 'ldmatrix']);
         expect(composeLayoutPresetOptions({
             gpuArch: '',
             instruction: '',
@@ -255,6 +258,19 @@ describe('compose layout helpers', () => {
             majors: ['MN-major', 'K-major'],
         });
 
+    });
+
+    it('exposes preset selector fields from catalog metadata', () => {
+        expect(composeLayoutPresetFields().map(({ key }) => key)).toEqual([
+            'gpuArch',
+            'instruction',
+            'matrixSize',
+            'dtype',
+            'operand',
+            'trans',
+            'major',
+        ]);
+        expect(composeLayoutPresetFields().find(({ key }) => key === 'operand')?.dependsOn).toEqual(['instruction']);
     });
 
     it('matches presets across every supported architecture in the family list', () => {
