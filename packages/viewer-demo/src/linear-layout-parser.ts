@@ -1,3 +1,4 @@
+/** parsed form of one named linear-layout basis block. */
 export type NamedLayoutSpec = {
     name: string;
     inputs: string[];
@@ -5,6 +6,11 @@ export type NamedLayoutSpec = {
     bases: number[][][];
 };
 
+/** parse the editor notation used in the layout specs textarea.
+ *
+ * Keeping this as the only specs parser prevents notation changes from
+ * spreading into preset matching, legacy migration, and runtime evaluation.
+ */
 export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     const lines = text.replace(/\r\n/g, '\n').split('\n');
     const specs: NamedLayoutSpec[] = [];
@@ -54,10 +60,12 @@ export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     return specs;
 }
 
+/** remove layout comments before syntax parsing. */
 export function stripLayoutComment(line: string): string {
     return line.replace(/#.*$/, '');
 }
 
+/** parse one `<name>: [inputs] -> [outputs]` signature line. */
 export function parseSignature(line: string): { name: string; inputs: string[]; outputs: string[] } {
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[(.*)\]\s*->\s*\[(.*)\]\s*$/);
     if (!match) {
@@ -73,6 +81,7 @@ export function parseSignature(line: string): { name: string; inputs: string[]; 
     return { name, inputs, outputs };
 }
 
+/** format parsed specs back into the canonical notation used for preset matching. */
 export function formatSpecsText(specs: NamedLayoutSpec[]): string {
     return specs.map((spec) => [
         `${spec.name}: [${spec.inputs.join(',')}] -> [${spec.outputs.join(',')}]`,

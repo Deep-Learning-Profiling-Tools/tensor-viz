@@ -292,6 +292,11 @@ function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape:
     return group;
 }
 
+/** build the three.js group for one tensor record.
+ *
+ * rendering changes should start here when they affect per-cell geometry,
+ * labels, outlines, or guides; viewer.ts owns orchestration and event state.
+ */
 export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord): Group {
     const group = new Group();
     const instanceShape = viewer.instanceShape(tensor.view);
@@ -457,6 +462,7 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
     return group;
 }
 
+/** update only colors/positions when a slice value changes without changing shape. */
 export function updateSliceMesh(viewer: MeshViewerContext, tensor: TensorRecord, previousView: TensorViewSpec): boolean {
     if (previousView.canonical !== tensor.view.canonical) return false;
     if (!previousView.hiddenIndices.some((value, index) => value !== tensor.view.hiddenIndices[index])) return false;

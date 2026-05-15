@@ -1,3 +1,4 @@
+/** declarative action rendered as one button in the vertical control dock. */
 export type ControlSpec = {
     id: string;
     label: string;
@@ -11,6 +12,7 @@ export type ControlSpec = {
 
 const DIVIDER_BEFORE_IDS = new Set(['2d', 'dim-lines', 'gaps', 'mapping-contiguous']);
 
+/** shared dock/widget icons so controls can move without duplicating svg markup. */
 export const controlIcons = {
     selection: `
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -73,6 +75,7 @@ export const controlIcons = {
     `,
 } as const;
 
+/** render controls from data so new controls do not need to edit DOM assembly. */
 export function renderControlDockControls(controlDock: HTMLElement, controls: ControlSpec[]): void {
     controlDock.replaceChildren(...controls.map((control) => {
         const button = controlButton(control);

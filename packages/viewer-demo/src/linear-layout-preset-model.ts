@@ -13,17 +13,20 @@ import {
 
 export type ComposeLayoutPresetSelection = Record<string, string>;
 
+/** normalized field metadata consumed directly by the preset widget. */
 export type ComposeLayoutPresetField = Required<Omit<ComposeLayoutPresetFieldDefinition, 'values'>> & {
     id: string;
     values: string[];
 };
 
+/** editor state inserted when a preset selection resolves to one layout. */
 export type ComposeLayoutPresetState = {
     specsText: string;
     operationText: string;
     inputName: string;
 };
 
+/** normalized preset with compatibility aliases for older widget call sites. */
 export type ComposeLayoutPreset = {
     title: string;
     facets: Record<string, string[]>;
@@ -37,6 +40,7 @@ export type ComposeLayoutPreset = {
     state: ComposeLayoutPresetState;
 };
 
+/** options keyed by field name plus legacy plural aliases. */
 export type ComposeLayoutPresetOptions = Record<string, string[]> & {
     gpuArchs: string[];
     instructions: string[];
@@ -70,10 +74,12 @@ const COMPOSE_LAYOUT_PRESET_FIELDS = mergedPresetFields([
 
 const COMPOSE_LAYOUT_PRESET_CATALOG = PRESET_DEFINITIONS.map((definition) => composeLayoutPreset(definition));
 
+/** build an empty selection that includes every registered field key. */
 export function emptyComposeLayoutPresetSelection(): ComposeLayoutPresetSelection {
     return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [field.key, '']));
 }
 
+/** clone external selection data while dropping unknown/non-string values. */
 export function cloneComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
@@ -87,11 +93,13 @@ export function cloneComposeLayoutPresetSelection(
     return cloned;
 }
 
+/** validate persisted preset selection state before it is copied into the editor. */
 export function isComposeLayoutPresetSelection(value: unknown): value is ComposeLayoutPresetSelection {
     if (!value || typeof value !== 'object') return false;
     return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string');
 }
 
+/** return field metadata in render order. */
 export function composeLayoutPresetFields(): ComposeLayoutPresetField[] {
     return COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => ({
         ...field,
@@ -100,10 +108,12 @@ export function composeLayoutPresetFields(): ComposeLayoutPresetField[] {
     }));
 }
 
+/** return the internal catalog for invariant tests and model-level matching. */
 export function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
     return COMPOSE_LAYOUT_PRESET_CATALOG;
 }
 
+/** return a cloned catalog for UI code that may derive temporary state from presets. */
 export function composeLayoutPresets(): ComposeLayoutPreset[] {
     return composeLayoutPresetCatalog().map((preset) => ({
         ...preset,
@@ -113,6 +123,7 @@ export function composeLayoutPresets(): ComposeLayoutPreset[] {
     }));
 }
 
+/** infer the selector values for an editor state that exactly matches a preset. */
 export function matchedComposeLayoutPresetSelection(
     state: ComposeLayoutPresetState,
 ): ComposeLayoutPresetSelection {
@@ -127,6 +138,7 @@ export function matchedComposeLayoutPresetSelection(
     ]));
 }
 
+/** compute the valid dropdown/text options after applying the current selection. */
 export function composeLayoutPresetOptions(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetOptions {
@@ -150,6 +162,7 @@ export function composeLayoutPresetOptions(
     return options;
 }
 
+/** clear invalid field values and autofill singleton options. */
 export function normalizeComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
@@ -161,6 +174,7 @@ export function normalizeComposeLayoutPresetSelection(
     return normalized;
 }
 
+/** resolve a fully specified selection to exactly one preset. */
 export function composeLayoutPresetForSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPreset | null {
