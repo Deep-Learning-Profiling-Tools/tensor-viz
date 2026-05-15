@@ -50,15 +50,15 @@ export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: 
 export function inspectorCoordEntries(
     _ctx: LinearLayoutUiContext,
     hover: ReturnType<TensorViewer['getHover']>,
-    hoveredStatus: ReturnType<TensorViewer['getTensorStatus']>,
+    hoveredStatus: ReturnType<TensorViewer['getTensorStatus']> | null,
     linearLayout: LinearLayoutSelectionMap | null,
 ): InspectorCoordEntry[] {
     if (!hover) return [];
     if (!linearLayout) {
         return [{
             title: hover.tensorName,
-            labels: hoveredStatus?.axisLabels ?? [],
-            shape: hoveredStatus?.shape ?? [],
+            labels: hoveredStatus?.axisLabels.slice() ?? [],
+            shape: hoveredStatus?.shape.slice() ?? [],
             coord: hover.tensorCoord,
             hovered: true,
         }];

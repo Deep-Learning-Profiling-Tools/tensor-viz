@@ -18,7 +18,6 @@ export type AppShellRefs = {
     commandPaletteBackdrop: HTMLDivElement;
     commandPaletteInput: HTMLInputElement;
     commandPaletteList: HTMLDivElement;
-    fileInput: HTMLInputElement;
 };
 
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
@@ -119,7 +118,6 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
           <div class="command-palette-list" id="command-palette-list"></div>
         </div>
       </div>
-      <input class="hidden" id="file-input" type="file" accept=".npy" />
     `;
 
     return {
@@ -142,6 +140,5 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         commandPaletteBackdrop: requireElement(app, '#command-palette-backdrop', 'command palette backdrop'),
         commandPaletteInput: requireElement(app, '#command-palette-input', 'command palette input'),
         commandPaletteList: requireElement(app, '#command-palette-list', 'command palette list'),
-        fileInput: requireElement(app, '#file-input', 'file input'),
     };
 }

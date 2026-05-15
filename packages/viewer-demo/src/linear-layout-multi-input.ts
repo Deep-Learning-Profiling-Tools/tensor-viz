@@ -223,7 +223,7 @@ function intersectRootIndexes(sets: Iterable<Set<number>>, rootCount: number): S
     let intersection: Set<number> | null = null;
     for (const set of sets) {
         intersection = intersection
-            ? new Set(Array.from(intersection).filter((rootIndex) => set.has(rootIndex)))
+            ? new Set(Array.from<number>(intersection).filter((rootIndex) => set.has(rootIndex)))
             : new Set(set);
     }
     if (intersection) return intersection;

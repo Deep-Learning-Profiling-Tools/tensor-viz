@@ -26,6 +26,8 @@ import {
 import {
     composeLayoutStateFromLegacySpec,
     createComposeLayoutDocument,
+    isComposeLayoutMeta,
+    type ComposeLayoutMeta,
 } from './linear-layout.js';
 import {
     applyLinearLayoutCellText,
@@ -98,7 +100,6 @@ const {
     commandPaletteBackdrop,
     commandPaletteInput,
     commandPaletteList,
-    fileInput,
 } = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
@@ -480,7 +481,8 @@ function filteredCommandActions(): CommandAction[] {
 }
 
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
-    const linearLayoutActive = Boolean(activeTab() && isLinearLayoutTab(activeTab()!));
+    const currentTab = activeTab();
+    const linearLayoutActive = Boolean(currentTab && isLinearLayoutTab(currentTab));
     return widgetOrder.filter((widgetId) => (
         (widgetId === 'linear-layout-preset' && linearLayoutActive)
         || (widgetId === 'linear-layout' && linearLayoutActive)
@@ -1089,7 +1091,11 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
     const canRotate = snapshot.displayMode === '3d';
     const interactionMode = snapshot.interactionMode ?? viewer.getInteractionMode();
-    const linearLayoutActive = Boolean(activeTab() && isLinearLayoutTab(activeTab()!));
+    const currentTab = activeTab();
+    const linearLayoutActive = Boolean(currentTab && isLinearLayoutTab(currentTab));
+    const linearLayoutInjective = currentTab && isLinearLayoutTab(currentTab)
+        ? (composeLayoutMetaForTab(currentTab)?.injective ?? true)
+        : true;
     const controls: ControlSpec[] = [
         {
             id: 'pan',
@@ -1098,7 +1104,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'W',
             active: interactionMode === 'pan',
             content: iconPan(),
-            onClick: () => viewer.setInteractionMode('pan'),
+            onClick: () => { viewer.setInteractionMode('pan'); },
         },
         {
             id: 'select',
@@ -1110,7 +1116,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             active: interactionMode === 'select',
             disabled: !canSelect,
             content: iconSelection(),
-            onClick: () => viewer.setInteractionMode('select'),
+            onClick: () => { viewer.setInteractionMode('select'); },
         },
         {
             id: 'rotate',
@@ -1122,7 +1128,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             active: interactionMode === 'rotate',
             disabled: !canRotate,
             content: iconRotate(),
-            onClick: () => viewer.setInteractionMode('rotate'),
+            onClick: () => { viewer.setInteractionMode('rotate'); },
         },
         {
             id: '2d',
@@ -1131,7 +1137,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+2',
             active: snapshot.displayMode === '2d',
             content: '<span class="control-button-text" aria-hidden="true">2D</span>',
-            onClick: () => viewer.setDisplayMode('2d'),
+            onClick: () => { viewer.setDisplayMode('2d'); },
         },
         {
             id: '3d',
@@ -1140,13 +1146,13 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+3',
             active: snapshot.displayMode === '3d',
             content: '<span class="control-button-text" aria-hidden="true">3D</span>',
-            onClick: () => viewer.setDisplayMode('3d'),
+            onClick: () => { viewer.setDisplayMode('3d'); },
         },
         {
             id: 'propagate-outputs',
             label: 'Propagate Outputs',
             description: linearLayoutActive
-                ? linearLayoutPropagateOutputsInfo(snapshot.injective)
+                ? linearLayoutPropagateOutputsInfo(linearLayoutInjective)
                 : 'Propagate Outputs is available for linear-layout tabs.',
             shortcut: 'N/A',
             active: linearLayoutUiState.linearLayoutState.propagateOutputs,
@@ -1163,7 +1169,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+D',
             active: snapshot.showDimensionLines,
             content: iconDimensionLines(),
-            onClick: () => viewer.toggleDimensionLines(),
+            onClick: () => { viewer.toggleDimensionLines(); },
         },
         {
             id: 'tensor-names',
@@ -1172,7 +1178,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+N',
             active: snapshot.showTensorNames ?? true,
             content: iconTensorNames(),
-            onClick: () => viewer.toggleTensorNames(),
+            onClick: () => { viewer.toggleTensorNames(); },
         },
         {
             id: 'gaps',
@@ -1181,7 +1187,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+G',
             active: snapshot.displayGaps ?? false,
             content: iconGaps(),
-            onClick: () => viewer.toggleDisplayGaps(),
+            onClick: () => { viewer.toggleDisplayGaps(); },
         },
         {
             id: 'mapping-contiguous',
@@ -1190,7 +1196,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+M',
             active: snapshot.dimensionMappingScheme === 'contiguous',
             content: iconContiguousMapping(),
-            onClick: () => viewer.setDimensionMappingScheme('contiguous'),
+            onClick: () => { viewer.setDimensionMappingScheme('contiguous'); },
         },
         {
             id: 'mapping-z-order',
@@ -1199,7 +1205,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             shortcut: 'Ctrl+M',
             active: snapshot.dimensionMappingScheme === 'z-order',
             content: iconZOrderMapping(),
-            onClick: () => viewer.setDimensionMappingScheme('z-order'),
+            onClick: () => { viewer.setDimensionMappingScheme('z-order'); },
         },
     ];
     controlDock.replaceChildren(...controls.map((control, index) => {
@@ -2175,18 +2181,6 @@ function seedDemoTensor(): void {
     viewer.addTensor(shape, data, 'Sample');
 }
 
-async function openLocalFile(file: File): Promise<void> {
-    sessionTabs = [];
-    activeTabId = null;
-    linearLayoutUiState.linearLayoutStates.clear();
-    linearLayoutUiState.linearLayoutCellTextStates.clear();
-    linearLayoutUiState.linearLayoutMultiInputStates.clear();
-    linearLayoutUiState.linearLayoutTensorViewsStates.clear();
-    linearLayoutUiState.linearLayoutSelectionMaps.clear();
-    renderTabStrip();
-    await viewer.openFile(file);
-}
-
 function downloadSvg(filename: string, svg: string): void {
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -2218,9 +2212,6 @@ async function runAction(action: string): Promise<void> {
     switch (action) {
         case 'command-palette':
             openCommandPalette();
-            return;
-        case 'open':
-            fileInput.click();
             return;
         case 'save-svg':
             downloadSvg(svgFilename(), await currentSvgDocument());
@@ -2293,14 +2284,6 @@ document.querySelectorAll<HTMLButtonElement>('.menu-list button').forEach((butto
     });
 });
 
-fileInput.addEventListener('change', async () => {
-    const [file] = Array.from(fileInput.files ?? []);
-    if (!file) return;
-    logUi('file:input', file.name);
-    await openLocalFile(file);
-    fileInput.value = '';
-});
-
 window.addEventListener('keydown', async (event) => {
     const target = event.target as HTMLElement | null;
     const isEditing = Boolean(target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
@@ -2313,10 +2296,7 @@ window.addEventListener('keydown', async (event) => {
     if (isPaletteInput && !event.ctrlKey && !event.metaKey && !event.altKey) return;
     if (isEditing && !isPaletteInput && !(event.ctrlKey && event.key.toLowerCase() === 's')) return;
 
-    if (event.ctrlKey && event.key.toLowerCase() === 'o') {
-        event.preventDefault();
-        await runAction('open');
-    } else if (event.ctrlKey && event.key.toLowerCase() === 's') {
+    if (event.ctrlKey && event.key.toLowerCase() === 's') {
         event.preventDefault();
         await runAction('save-svg');
     } else if (event.ctrlKey && event.key === '2') {

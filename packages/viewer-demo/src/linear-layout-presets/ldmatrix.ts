@@ -1,6 +1,6 @@
 import type { ComposeLayoutPresetDefinition, MatrixTransferLayoutDefinition } from './types.js';
 
-export const MATRIX_TRANSFER_LAYOUTS = [
+export const MATRIX_TRANSFER_LAYOUTS: MatrixTransferLayoutDefinition[] = [
     {
         name: 'ldmatrix_m8n8_x1_b16',
         gpuArch: 'sm_75',
@@ -100,10 +100,10 @@ export const MATRIX_TRANSFER_LAYOUTS = [
             no: [['R', '[[4,0],[8,0],[16,0],[0,1],[0,2]]'], ['C', '[[0,0],[0,0],[1,0],[2,0]]']],
         },
     },
-] satisfies MatrixTransferLayoutDefinition[];
+];
 
 export const LDMATRIX_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = MATRIX_TRANSFER_LAYOUTS.flatMap((layout) => (
-    ['no', 'yes']
+    (['no', 'yes'] as const)
         .filter((trans): trans is 'no' | 'yes' => Boolean(layout.rowsByTrans[trans]))
         .map((trans) => ({
             gpuArch: layout.gpuArch,

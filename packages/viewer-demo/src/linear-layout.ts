@@ -235,7 +235,7 @@ const PRESET_FIELD_OPTION_ALIASES = {
     major: 'majors',
 } as const;
 
-const PRESET_DEFINITIONS = COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.presets);
+const PRESET_DEFINITIONS: readonly ComposeLayoutPresetDefinition[] = COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.presets);
 
 const COMPOSE_LAYOUT_PRESET_FIELDS = mergedPresetFields([
     ...COMPOSE_LAYOUT_PRESET_FAMILIES.flatMap((family) => family.fields ?? []),
@@ -525,7 +525,7 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
 
 export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta {
     if (!value || typeof value !== 'object') return false;
-    const record = value as ComposeLayoutMeta;
+    const record = value as Record<string, unknown>;
     return (record.version === 1 || record.version === 3)
         && typeof record.specsText === 'string'
         && typeof record.operationText === 'string'
@@ -937,7 +937,7 @@ export function createComposeLayoutDocument(
                 axisLabels: tensor.axisLabels,
                 view: tensorViews?.[tensor.id]
                     ? {
-                        view: tensorViews[tensor.id]!.view,
+                        editor: tensorViews[tensor.id]!.editor,
                         hiddenIndices: tensorViews[tensor.id]!.hiddenIndices.slice(),
                     }
                     : undefined,
@@ -1265,7 +1265,7 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
         expandInputColumns(outer.matrix, outer.inputBitCounts, bridgeBitCounts),
         expandOutputRows(inner.matrix, inner.outputBitCounts, bridgeBitCounts),
     );
-    const layout = {
+    const layout: EvaluatedLayout = {
         kind: 'apply',
         exprText,
         codeRef: exprText,
@@ -1311,7 +1311,7 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
             rightOutputBitOffsets,
         ),
     );
-    const layout = {
+    const layout: EvaluatedLayout = {
         kind: 'product',
         exprText,
         codeRef: exprText,

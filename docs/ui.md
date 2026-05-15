@@ -151,8 +151,7 @@ Press `?` to open the command palette.
 
 Useful shortcuts:
 
-- `Ctrl+O`: open tensor
-- `Ctrl+S`: save tensor
+- `Ctrl+S`: save SVG
 - `Ctrl+2`: switch to 2D
 - `Ctrl+3`: switch to 3D
 - `Ctrl+H`: toggle heatmap

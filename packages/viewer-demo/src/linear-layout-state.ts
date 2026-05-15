@@ -159,7 +159,7 @@ export function isLinearLayoutMultiInputState(value: unknown): value is LinearLa
 export function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViewsState): LinearLayoutTensorViewsState {
     return Object.fromEntries(Object.entries(state).map(([tensorId, view]) => [
         tensorId,
-        { view: view.view, hiddenIndices: view.hiddenIndices.slice() },
+        { editor: view.editor, hiddenIndices: view.hiddenIndices.slice() },
     ]));
 }
 
@@ -171,7 +171,7 @@ export function isLinearLayoutCellTextState(value: unknown): value is LinearLayo
 export function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTensorViewsState {
     return Object.fromEntries(snapshot.tensors.map((tensor) => [
         tensor.id,
-        { view: tensor.view.view, hiddenIndices: tensor.view.hiddenIndices.slice() },
+        { editor: tensor.view.editor, hiddenIndices: tensor.view.hiddenIndices.slice() },
     ]));
 }
 

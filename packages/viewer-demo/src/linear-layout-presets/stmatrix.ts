@@ -2,7 +2,7 @@ import { MATRIX_TRANSFER_LAYOUTS } from './ldmatrix.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
 export const STMATRIX_PRESET_DEFINITIONS: ComposeLayoutPresetDefinition[] = MATRIX_TRANSFER_LAYOUTS.flatMap((layout) => (
-    ['no', 'yes']
+    (['no', 'yes'] as const)
         .filter((trans): trans is 'no' | 'yes' => Boolean(layout.rowsByTrans[trans]))
         .map((trans) => ({
             gpuArch: layout.gpuArch === 'sm_75' ? 'sm_90' : layout.gpuArch,

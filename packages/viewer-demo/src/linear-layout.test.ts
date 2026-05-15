@@ -11,6 +11,7 @@ import {
     matchedComposeLayoutPresetSelection,
     normalizeComposeLayoutPresetSelection,
     propagationLabels,
+    type ComposeLayoutState,
 } from './linear-layout.js';
 import {
     coordsForRootIndexes,
@@ -27,18 +28,19 @@ const DEFAULT_RANGES = {
     L: ['1', '0.2'],
 } as const;
 
-function composeState(specsText: string, operationText: string) {
+function composeState(specsText: string, operationText: string): ComposeLayoutState {
     return {
         specsText,
         operationText,
         inputName: 'Input Space',
+        presetSelection: matchedComposeLayoutPresetSelection({ specsText, operationText, inputName: 'Input Space' }),
         visibleTensors: {},
         propagateOutputs: false,
         mapping: { H: 'none', S: 'none', L: 'none' } as const,
         ranges: {
-            H: [...DEFAULT_RANGES.H],
-            S: [...DEFAULT_RANGES.S],
-            L: [...DEFAULT_RANGES.L],
+            H: [DEFAULT_RANGES.H[0], DEFAULT_RANGES.H[1]],
+            S: [DEFAULT_RANGES.S[0], DEFAULT_RANGES.S[1]],
+            L: [DEFAULT_RANGES.L[0], DEFAULT_RANGES.L[1]],
         },
     };
 }
