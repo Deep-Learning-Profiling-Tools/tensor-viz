@@ -13,8 +13,10 @@ export type MountedDemoApp = {
 
 function safeIframeSrc(src: string): string {
     const value = src.trim();
-    if (/^(?:javascript|data|vbscript):/i.test(value)) throw new Error(`Unsafe iframe src ${src}.`);
-    return src;
+    const base = document.baseURI || globalThis.location?.href || 'http://localhost/';
+    const protocol = new URL(value, base).protocol;
+    if (protocol !== 'http:' && protocol !== 'https:') throw new Error(`Unsafe iframe src ${src}.`);
+    return value;
 }
 
 /** Mount the full demo page as an embeddable iframe-backed widget. */
