@@ -5,13 +5,45 @@
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/layout.js",
+    "dist/layout.d.ts",
+    "dist/session.js",
+    "dist/session.d.ts",
+    "dist/typed-array.js",
+    "dist/typed-array.d.ts",
+    "dist/types.js",
+    "dist/types.d.ts",
+    "dist/validation.js",
+    "dist/validation.d.ts",
+    "dist/view.js",
+    "dist/view.d.ts",
+    "dist/viewer.js",
+    "dist/viewer.d.ts",
+    "dist/viewer-config.js",
+    "dist/viewer-config.d.ts",
+    "dist/viewer-graphics.js",
+    "dist/viewer-graphics.d.ts",
+    "dist/viewer-mesh.js",
+    "dist/viewer-mesh.d.ts",
+    "dist/viewer-utils.js",
+    "dist/viewer-utils.d.ts"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "test": "vitest run"
   },
   "dependencies": {
-    "three": "^0.181.1",
-    "troika-three-text": "^0.52.4"
+    "three": "^0.181.1"
   },
   "devDependencies": {
     "@types/three": "^0.181.0",
