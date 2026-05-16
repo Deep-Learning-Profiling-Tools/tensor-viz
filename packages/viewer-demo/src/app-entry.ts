@@ -69,6 +69,7 @@ let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 const MIN_VIEWPORT_WIDTH = 280;
 const DATA_FILE_PATTERN = /^(?:tabs\/[a-z0-9_-]+\/)?tensors\/[a-z0-9_-]+\.bin$/i;
 const TENSOR_CONTENT_TYPE = 'application/octet-stream';
+const sessionToken = new URLSearchParams(window.location.search).get('token');
 
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
@@ -1469,6 +1470,12 @@ function safeDataFile(dataFile: string): string {
     return dataFile;
 }
 
+function apiUrl(path: string): string {
+    const url = new URL(path, window.location.href);
+    if (sessionToken) url.searchParams.set('token', sessionToken);
+    return `${url.pathname}${url.search}`;
+}
+
 async function boundedArrayBuffer(response: Response, expectedBytes: number): Promise<ArrayBuffer> {
     const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
     if (contentType !== TENSOR_CONTENT_TYPE) throw new Error(`Unexpected tensor content type ${contentType ?? 'unknown'}.`);
@@ -1509,7 +1516,7 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
     for (const tensor of tensors.filter((entry) => entry.dataFile)) {
         const dataFile = safeDataFile(tensor.dataFile ?? '');
         const expectedBytes = expectedTensorByteLength(tensor.dtype, tensor.shape);
-        const response = await fetch(`/api/${dataFile}`, { cache: 'no-store' });
+        const response = await fetch(apiUrl(`/api/${dataFile}`), { cache: 'no-store' });
         if (!response.ok) throw new Error(`Missing tensor payload ${dataFile}.`);
         entries.push([tensor.id, createTypedArray(tensor.dtype, await boundedArrayBuffer(response, expectedBytes))]);
     }
@@ -1531,7 +1538,7 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
 }
 
 async function tryLoadSession(): Promise<boolean> {
-    const response = await fetch('/api/session.json', { cache: 'no-store' });
+    const response = await fetch(apiUrl('/api/session.json'), { cache: 'no-store' });
     if (!response.ok) return false;
     const manifest = await response.json() as SessionBundleManifest;
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);

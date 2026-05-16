@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import ipaddress
+import secrets
 import threading
 import webbrowser
 from dataclasses import dataclass
@@ -10,7 +12,7 @@ from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Sequence
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .bundle import SessionData, Tab, TensorInput, TensorLabels, create_session_data
 
@@ -21,6 +23,28 @@ def _static_root() -> Path:
         return packaged
     repo_root = Path(__file__).resolve().parents[4]
     return repo_root / "packages" / "viewer-demo" / "dist"
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return whether a bind host is local-only."""
+
+    if host.lower() == "localhost":
+        return True
+    with contextlib.suppress(ValueError):
+        return ipaddress.ip_address(host).is_loopback
+    return False
+
+
+def _host_header_allowed(header: str | None, host: str, port: int) -> bool:
+    """Return whether a local request used an expected Host header."""
+
+    if not header:
+        return False
+    allowed = {host.lower()}
+    if _is_loopback_host(host):
+        allowed.update({"127.0.0.1", "localhost", "::1", "[::1]"})
+    values = allowed | {f"{entry}:{port}" for entry in allowed}
+    return header.lower() in values
 
 
 @dataclass
@@ -64,6 +88,7 @@ def viz(
     host: str = "127.0.0.1",
     port: int = 0,
     keep_alive: bool = True,
+    allow_remote: bool = False,
 ) -> ViewerSession:
     """Launch the standalone viewer for tensors or tabs.
 
@@ -92,6 +117,9 @@ def viz(
     keep_alive:
         Keep the server thread non-daemon so short scripts stay alive after
         calling :func:`viz`.
+    allow_remote:
+        Permit binding to non-loopback interfaces. Remote sessions require the
+        per-session token in the viewer URL before API bytes are served.
 
     Examples
     --------
@@ -124,8 +152,14 @@ def viz(
     >>> session.close()
     """
 
+    if not allow_remote and not _is_loopback_host(host):
+        raise ValueError(
+            "Refusing to bind tensor-viz to a non-loopback host without allow_remote=True."
+        )
     session_data = session_data or create_session_data(tensor, name=name, labels=labels)
     static_root = _static_root()
+    static_root_resolved = static_root.resolve()
+    api_token = secrets.token_urlsafe(24)
     if not static_root.exists():
         raise FileNotFoundError(
             "Viewer demo assets are missing. Build the frontend with `npm run build` first."
@@ -137,31 +171,59 @@ def viz(
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(static_root), **kwargs)
 
+        def end_headers(self) -> None:
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            super().end_headers()
+
+        def list_directory(self, _path: str) -> None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return None
+
+        def _authorized_api_request(self) -> bool:
+            if not allow_remote and not _host_header_allowed(
+                self.headers.get("Host"),
+                host,
+                self.server.server_port,
+            ):
+                return False
+            return parse_qs(urlparse(self.path).query).get("token") == [api_token]
+
+        def _send_api_bytes(self, content_type: str, payload: bytes) -> None:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.end_headers()
+            self.wfile.write(payload)
+
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
+            if path.startswith("/api/") and not self._authorized_api_request():
+                self.send_error(HTTPStatus.FORBIDDEN)
+                return
             if path == "/api/session.json":
-                self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(session_data.manifest_bytes)))
-                self.end_headers()
-                self.wfile.write(session_data.manifest_bytes)
+                self._send_api_bytes(
+                    "application/json; charset=utf-8",
+                    session_data.manifest_bytes,
+                )
                 return
 
             if path.startswith("/api/"):
                 data_path = path.removeprefix("/api/")
                 payload = session_data.tensor_bytes.get(data_path)
                 if payload is not None:
-                    self.send_response(HTTPStatus.OK)
-                    self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Length", str(len(payload)))
-                    self.end_headers()
-                    self.wfile.write(payload)
+                    self._send_api_bytes("application/octet-stream", payload)
                     return
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
-            target = static_root / path.lstrip("/")
-            if path == "/" or not target.exists():
+            target = (static_root / path.lstrip("/")).resolve()
+            if not target.is_relative_to(static_root_resolved):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if path == "/" or not target.is_file():
                 self.path = "/index.html"
             return super().do_GET()
 
@@ -173,7 +235,7 @@ def viz(
     # `tensor_viz.viz(tensor)` script does not exit before the browser loads.
     thread = threading.Thread(target=server.serve_forever, daemon=not keep_alive)
     thread.start()
-    url = f"http://{host}:{server.server_port}"
+    url = f"http://{host}:{server.server_port}/?token={api_token}"
     if open_browser:
         with contextlib.suppress(Exception):
             webbrowser.open(url)
