@@ -4,6 +4,8 @@ export type AppShellRefs = {
     tabStrip: HTMLDivElement;
     controlDock: HTMLDivElement;
     sidebarSplitter: HTMLDivElement;
+    sidebar: HTMLElement;
+    widgets: Record<string, HTMLElement>;
     linearLayoutPresetWidget: HTMLElement;
     linearLayoutWidget: HTMLElement;
     linearLayoutVisibleTensorsWidget: HTMLElement;
@@ -19,6 +21,23 @@ export type AppShellRefs = {
     commandPaletteInput: HTMLInputElement;
     commandPaletteList: HTMLDivElement;
 };
+
+export type AppShellWidgetSlot = {
+    id: string;
+    beforeHeader?: boolean;
+};
+
+const DEFAULT_WIDGET_SLOTS: AppShellWidgetSlot[] = [
+    { id: 'linear-layout-preset', beforeHeader: true },
+    { id: 'linear-layout', beforeHeader: true },
+    { id: 'linear-layout-visible-tensors', beforeHeader: true },
+    { id: 'linear-layout-color', beforeHeader: true },
+    { id: 'cell-text', beforeHeader: true },
+    { id: 'tensor-view' },
+    { id: 'inspector' },
+    { id: 'selection' },
+    { id: 'advanced-settings' },
+];
 
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
     const element = root.querySelector<T>(selector);
@@ -54,7 +73,13 @@ export function renderWebglUnavailable(app: HTMLDivElement): void {
     `;
 }
 
-export function mountAppShell(app: HTMLDivElement): AppShellRefs {
+function widgetSlotHtml(slot: AppShellWidgetSlot): string {
+    return `<section class="widget" id="${slot.id}-widget" data-widget-id="${slot.id}"></section>`;
+}
+
+export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[] = DEFAULT_WIDGET_SLOTS): AppShellRefs {
+    const primaryWidgets = widgetSlots.filter((slot) => slot.beforeHeader).map(widgetSlotHtml).join('\n');
+    const sidebarWidgets = widgetSlots.filter((slot) => !slot.beforeHeader).map(widgetSlotHtml).join('\n');
     app.innerHTML = `
       <div class="ribbon">
         <div class="menu">
@@ -100,16 +125,9 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
       </main>
       <div class="sidebar-splitter" id="sidebar-splitter" role="separator" aria-orientation="vertical" aria-label="Resize widgets sidebar"></div>
       <aside class="sidebar" id="sidebar">
-        <section class="widget" id="linear-layout-preset-widget"></section>
-        <section class="widget" id="linear-layout-widget"></section>
-        <section class="widget" id="linear-layout-visible-tensors-widget"></section>
-        <section class="widget" id="linear-layout-color-widget"></section>
-        <section class="widget" id="cell-text-widget"></section>
+        ${primaryWidgets}
         <div class="sidebar-header">Widgets</div>
-        <section class="widget" id="tensor-view-widget"></section>
-        <section class="widget" id="inspector-widget"></section>
-        <section class="widget" id="selection-widget"></section>
-        <section class="widget" id="advanced-settings-widget"></section>
+        ${sidebarWidgets}
       </aside>
       <div class="command-palette hidden" id="command-palette">
         <div class="command-palette-backdrop" id="command-palette-backdrop"></div>
@@ -119,6 +137,10 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         </div>
       </div>
     `;
+    const widgets = Object.fromEntries(widgetSlots.map((slot) => [
+        slot.id,
+        requireElement<HTMLElement>(app, `[data-widget-id="${slot.id}"]`, `${slot.id} widget`),
+    ]));
 
     return {
         app,
@@ -126,16 +148,18 @@ export function mountAppShell(app: HTMLDivElement): AppShellRefs {
         tabStrip: requireElement(app, '#tab-strip', 'tab strip'),
         controlDock: requireElement(app, '#control-dock', 'control dock'),
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
-        linearLayoutPresetWidget: requireElement(app, '#linear-layout-preset-widget', 'linear layout preset widget'),
-        linearLayoutWidget: requireElement(app, '#linear-layout-widget', 'linear layout widget'),
-        linearLayoutVisibleTensorsWidget: requireElement(app, '#linear-layout-visible-tensors-widget', 'linear layout visible tensors widget'),
-        cellTextWidget: requireElement(app, '#cell-text-widget', 'cell text widget'),
-        linearLayoutColorWidget: requireElement(app, '#linear-layout-color-widget', 'linear layout color widget'),
+        sidebar: requireElement(app, '#sidebar', 'sidebar'),
+        widgets,
+        linearLayoutPresetWidget: widgets['linear-layout-preset']!,
+        linearLayoutWidget: widgets['linear-layout']!,
+        linearLayoutVisibleTensorsWidget: widgets['linear-layout-visible-tensors']!,
+        cellTextWidget: widgets['cell-text']!,
+        linearLayoutColorWidget: widgets['linear-layout-color']!,
         sidebarHeader: requireElement(app, '.sidebar-header', 'sidebar header'),
-        tensorViewWidget: requireElement(app, '#tensor-view-widget', 'tensor view widget'),
-        inspectorWidget: requireElement(app, '#inspector-widget', 'inspector widget'),
-        selectionWidget: requireElement(app, '#selection-widget', 'selection widget'),
-        advancedSettingsWidget: requireElement(app, '#advanced-settings-widget', 'advanced settings widget'),
+        tensorViewWidget: widgets['tensor-view']!,
+        inspectorWidget: widgets.inspector!,
+        selectionWidget: widgets.selection!,
+        advancedSettingsWidget: widgets['advanced-settings']!,
         commandPalette: requireElement(app, '#command-palette', 'command palette'),
         commandPaletteBackdrop: requireElement(app, '#command-palette-backdrop', 'command palette backdrop'),
         commandPaletteInput: requireElement(app, '#command-palette-input', 'command palette input'),
