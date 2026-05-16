@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mountDemoApp } from './embed.js';
 
 type FakeElement = {
+    attributes: Record<string, string>;
     className: string;
     parentElement: FakeContainer | null;
+    referrerPolicy?: string;
     style: Record<string, string>;
     title?: string;
     src?: string;
+    setAttribute: (name: string, value: string) => void;
 };
 
 type FakeContainer = {
@@ -40,8 +43,12 @@ function installDocumentStub(): void {
             createElement(tagName: string): FakeElement {
                 if (tagName !== 'iframe') throw new Error(`Unexpected tag ${tagName}.`);
                 return {
+                    attributes: {},
                     className: '',
                     parentElement: null,
+                    setAttribute(name: string, value: string): void {
+                        this.attributes[name] = value;
+                    },
                     style: {},
                 };
             },
@@ -64,17 +71,27 @@ describe('mountDemoApp', () => {
             className: 'demo-frame',
         });
 
+        const iframe = mounted.iframe as unknown as FakeElement;
         expect(container.children).toHaveLength(1);
-        expect(mounted.iframe.src).toBe('/viewer');
-        expect(mounted.iframe.title).toBe('tensor-viz demo');
-        expect(mounted.iframe.className).toBe('demo-frame');
-        expect(mounted.iframe.style.width).toBe('100%');
-        expect(mounted.iframe.style.height).toBe('100%');
-        expect(mounted.iframe.style.border).toBe('0');
-        expect(mounted.iframe.style.display).toBe('block');
+        expect(iframe.src).toBe('/viewer');
+        expect(iframe.title).toBe('tensor-viz demo');
+        expect(iframe.className).toBe('demo-frame');
+        expect(iframe.referrerPolicy).toBe('no-referrer');
+        expect(iframe.attributes.sandbox).toBe('allow-downloads allow-same-origin allow-scripts');
+        expect(iframe.style.width).toBe('100%');
+        expect(iframe.style.height).toBe('100%');
+        expect(iframe.style.border).toBe('0');
+        expect(iframe.style.display).toBe('block');
 
         mounted.destroy();
 
         expect(container.children).toHaveLength(0);
+    });
+
+    it('rejects script-like iframe sources', () => {
+        installDocumentStub();
+        expect(() => mountDemoApp(createContainer() as unknown as HTMLElement, {
+            src: 'javascript:alert(1)',
+        })).toThrow(/Unsafe iframe src/);
     });
 });

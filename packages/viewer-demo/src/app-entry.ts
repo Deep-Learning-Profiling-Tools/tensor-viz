@@ -4,6 +4,7 @@ import {
     parseTensorView,
     serializeTensorViewEditor,
     TensorViewer,
+    expectedTensorByteLength,
     product,
     type BundleManifest,
     type DimensionMappingScheme,
@@ -13,8 +14,10 @@ import {
     type SessionBundleManifest,
     type TensorViewEditor,
     type ViewerSnapshot,
+    VIEWER_LIMITS,
 } from '@tensor-viz/viewer-core';
 import {
+    escapeHtml,
     formatAxisValues,
     formatRangeValue,
     infoButton,
@@ -64,6 +67,8 @@ let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 
 const MIN_VIEWPORT_WIDTH = 280;
+const DATA_FILE_PATTERN = /^(?:tabs\/[a-z0-9_-]+\/)?tensors\/[a-z0-9_-]+\.bin$/i;
+const TENSOR_CONTENT_TYPE = 'application/octet-stream';
 
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
@@ -344,7 +349,11 @@ function renderCommandPalette(): void {
         button.type = 'button';
         button.className = 'command-palette-item';
         if (index === commandPaletteIndex) button.classList.add('active');
-        button.innerHTML = `<span>${entry.label}</span><span>${entry.shortcut}</span>`;
+        const label = document.createElement('span');
+        label.textContent = entry.label;
+        const shortcut = document.createElement('span');
+        shortcut.textContent = entry.shortcut;
+        button.append(label, shortcut);
         button.addEventListener('click', async () => {
             await runAction(entry.action);
         });
@@ -401,18 +410,22 @@ function normalizedTensorViewSnapshot(
     ...views: Array<ViewerSnapshot['tensors'][number]['view'] | undefined>
 ): ViewerSnapshot['tensors'][number]['view'] {
     for (const view of [...views, { editor: defaultTensorViewEditor(tensor.shape, tensor.axisLabels), hiddenIndices: [] }]) {
-        if (!view) continue;
-        const parsed = parseTensorView(
-            tensor.shape,
-            serializeTensorViewEditor(view.editor),
-            view.hiddenIndices,
-            tensor.axisLabels,
-        );
-        if (parsed.ok) {
-            return {
-                editor: parsed.spec.editor,
-                hiddenIndices: parsed.spec.hiddenIndices.slice(),
-            };
+        if (!view?.editor) continue;
+        try {
+            const parsed = parseTensorView(
+                tensor.shape,
+                serializeTensorViewEditor(view.editor),
+                view.hiddenIndices,
+                tensor.axisLabels,
+            );
+            if (parsed.ok) {
+                return {
+                    editor: parsed.spec.editor,
+                    hiddenIndices: parsed.spec.hiddenIndices.slice(),
+                };
+            }
+        } catch {
+            continue;
         }
     }
     throw new Error('Tensor view editor state is invalid.');
@@ -1013,9 +1026,9 @@ function buildStep4Editor(
 }
 
 function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly string[]): string {
-    const shapeText = shape.join(', ');
-    const reversedRangeText = shape.map((_dim, index) => shape.length - index - 1).join(', ');
-    const labeledShapeText = shape.map((size, index) => `${axisLabels[index] ?? `A${index}`}=${size}`).join(', ');
+    const shapeText = escapeHtml(shape.join(', '));
+    const reversedRangeText = escapeHtml(shape.map((_dim, index) => shape.length - index - 1).join(', '));
+    const labeledShapeText = escapeHtml(shape.map((size, index) => `${axisLabels[index] ?? `A${index}`}=${size}`).join(', '));
     return `
       <details class="usage-guide">
         <summary>How do I use this?</summary>
@@ -1116,12 +1129,12 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const editor = model.viewEditor;
     if (!editor) return;
     const tensorOptions = model.tensors.map((tensor) => `
-      <option value="${tensor.id}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${tensor.name || tensor.id}</option>
+      <option value="${escapeHtml(tensor.id)}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${escapeHtml(tensor.name || tensor.id)}</option>
     `).join('');
     const sliceContent = model.viewTokens.map((token) => (
         token.kind === 'singleton'
             ? `<span class="dim-chip dim-chip-singleton">1</span>`
-            : `<button class="dim-chip interactive-chip${token.sliced ? ' dim-chip-sliced dim-chip-active' : ''}" data-slice-token="${token.key}" type="button">${token.token}<span>=${token.size}</span></button>`
+            : `<button class="dim-chip interactive-chip${token.sliced ? ' dim-chip-sliced dim-chip-active' : ''}" data-slice-token="${escapeHtml(token.key)}" type="button">${escapeHtml(token.token)}<span>=${token.size}</span></button>`
     )).join('');
     const defaultLabeledShape = model.handle.shape.map((size, index) => `${model.handle!.axisLabels[index] ?? `A${index}`}=${size}`).join(', ');
     tensorViewWidget.innerHTML = `
@@ -1134,13 +1147,13 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         <div class="permute-slice-step">
           ${labelWithInfo('Tensor View', 'Edit the full tensor expression directly. Standard view, permute, and non-none indexing semantics apply.', 'tensor-view-input')}
           ${tensorViewHelpHtml(model.handle.shape, model.handle.axisLabels).replace('<details class="usage-guide">', `<details class="usage-guide"${tensorViewHelpOpen ? ' open' : ''}>`)}
-          <textarea id="tensor-view-input" rows="3" placeholder="tensor">${model.preview}</textarea>
+          <textarea id="tensor-view-input" rows="3" placeholder="tensor">${escapeHtml(model.preview)}</textarea>
         </div>
         <div class="permute-slice-step">
           <div class="label-row"><span class="meta-label">Slice Dims</span>${infoButton('Convenience utility for inspecting different slices. Click a dimension to toggle between showing one/all elements at a time. If showing one element of a dimension, drag its slider to change the displayed index.')}</div>
           <div class="dim-chip-row dim-chip-row-compact" id="slice-dims">${sliceContent}</div>
         </div>
-        ${error ? `<div class="error-box">${error}</div>` : ''}
+        ${error ? `<div class="error-box">${escapeHtml(error)}</div>` : ''}
         ${model.sliceTokens.length === 0 ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
         <div class="permute-slice-actions">
           <button class="reset-view-button interactive-chip" id="reset-view-button" type="button" title="Change tensor view to default view (original shape + dimension labels + no permutations)">Reset View</button>
@@ -1160,9 +1173,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         viewer.setActiveTensor(select.value);
     });
     tensorViewInput?.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter') return;
-            tensorViewInput.blur();
-        });
+        if (event.key !== 'Enter') return;
+        tensorViewInput.blur();
+    });
     tensorViewInput?.addEventListener('change', () => {
         logUi('tensor-view:change', { tensorId: model.handle!.id, value: tensorViewInput.value });
         try {
@@ -1206,7 +1219,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         row.className = 'slider-row';
         const sliderId = `slice-${token.key.replace(/[^a-z0-9_-]/gi, '-')}`;
         row.innerHTML = `
-          <label for="${sliderId}">${token.token}</label>
+          <label for="${sliderId}">${escapeHtml(token.token)}</label>
           <input id="${sliderId}" type="range" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
           <input id="${sliderId}-number" type="number" min="0" max="${Math.max(0, token.size - 1)}" value="${token.value}" />
         `;
@@ -1343,7 +1356,7 @@ function renderColorbarWidget(snapshot: ViewerSnapshot): void {
     const scaleMode = snapshot.logScale ? '<div class="colorbar-mode">Log Scale</div>' : '<div class="colorbar-mode">Linear Scale</div>';
     const sections = model.colorRanges.map((range) => `
       <div class="colorbar-section">
-        <div class="colorbar-title">${range.name || range.id}</div>
+        <div class="colorbar-title">${escapeHtml(range.name || range.id)}</div>
         <div class="colorbar"></div>
         <div class="colorbar-labels">
           <span>${formatRangeValue(range.min)}</span>
@@ -1449,17 +1462,57 @@ function render(snapshot: ViewerSnapshot): void {
     renderColorbarWidget(snapshot);
 }
 
+function safeDataFile(dataFile: string): string {
+    if (!DATA_FILE_PATTERN.test(dataFile) || dataFile.includes('..')) {
+        throw new Error(`Unsafe tensor payload path ${dataFile}.`);
+    }
+    return dataFile;
+}
+
+async function boundedArrayBuffer(response: Response, expectedBytes: number): Promise<ArrayBuffer> {
+    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+    if (contentType !== TENSOR_CONTENT_TYPE) throw new Error(`Unexpected tensor content type ${contentType ?? 'unknown'}.`);
+    const contentLength = response.headers.get('content-length');
+    if (contentLength !== null && Number(contentLength) !== expectedBytes) {
+        throw new Error(`Tensor payload byte length ${contentLength} does not match expected ${expectedBytes}.`);
+    }
+    if (!response.body) {
+        const buffer = await response.arrayBuffer();
+        if (buffer.byteLength !== expectedBytes) {
+            throw new Error(`Tensor payload byte length ${buffer.byteLength} does not match expected ${expectedBytes}.`);
+        }
+        return buffer;
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > expectedBytes) throw new Error(`Tensor payload exceeded expected ${expectedBytes} bytes.`);
+        chunks.push(value);
+    }
+    if (received !== expectedBytes) throw new Error(`Tensor payload byte length ${received} does not match expected ${expectedBytes}.`);
+    const bytes = new Uint8Array(received);
+    let offset = 0;
+    chunks.forEach((chunk) => {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    });
+    return bytes.buffer;
+}
+
 /** loads one tab's raw tensor payloads from the local python session server. */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
-    const entries = await Promise.all(tensors
-        .filter((tensor) => tensor.dataFile)
-        .map(async (tensor) => {
-            const dataFile = tensor.dataFile;
-            if (!dataFile) throw new Error(`Session tensor ${tensor.id} has no data file.`);
-            const response = await fetch(`/api/${dataFile}`, { cache: 'no-store' });
-            if (!response.ok) throw new Error(`Missing tensor payload ${dataFile}.`);
-            return [tensor.id, createTypedArray(tensor.dtype, await response.arrayBuffer())] as const;
-        }));
+    const entries: Array<readonly [string, NumericArray]> = [];
+    for (const tensor of tensors.filter((entry) => entry.dataFile)) {
+        const dataFile = safeDataFile(tensor.dataFile ?? '');
+        const expectedBytes = expectedTensorByteLength(tensor.dtype, tensor.shape);
+        const response = await fetch(`/api/${dataFile}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Missing tensor payload ${dataFile}.`);
+        entries.push([tensor.id, createTypedArray(tensor.dtype, await boundedArrayBuffer(response, expectedBytes))]);
+    }
     return new Map(entries);
 }
 
@@ -1482,7 +1535,15 @@ async function tryLoadSession(): Promise<boolean> {
     if (!response.ok) return false;
     const manifest = await response.json() as SessionBundleManifest;
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
-    sessionTabs = await Promise.all(manifest.tabs.map((tab) => loadSessionTab(tab)));
+    if (!Array.isArray(manifest.tabs)) throw new Error('Session tabs must be an array.');
+    if (manifest.tabs.length > VIEWER_LIMITS.maxTabs) throw new Error('Session has too many tabs.');
+    const loadedTabs: LoadedBundleDocument[] = [];
+    for (const tab of manifest.tabs) {
+        if (!Array.isArray(tab.tensors)) throw new Error('Session tab tensors must be an array.');
+        if (tab.tensors.length > VIEWER_LIMITS.maxTensors) throw new Error('Session tab has too many tensors.');
+        loadedTabs.push(await loadSessionTab(tab));
+    }
+    sessionTabs = loadedTabs;
     activeTabId = sessionTabs[0]?.id ?? null;
     if (activeTabId) await loadTab(activeTabId);
     return true;

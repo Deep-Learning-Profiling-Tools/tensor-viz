@@ -8,7 +8,7 @@ export function selectionEnabled(snapshot: ViewerSnapshot): boolean {
     return snapshot.displayMode === '2d' && (snapshot.dimensionMappingScheme ?? 'z-order') === 'contiguous';
 }
 
-function escapeInfo(text: string): string {
+export function escapeHtml(text: string): string {
     return text
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
@@ -17,7 +17,7 @@ function escapeInfo(text: string): string {
 }
 
 export function infoButton(text: string): string {
-    const escaped = escapeInfo(text);
+    const escaped = escapeHtml(text);
     return `<button class="info-button" type="button" tabindex="-1" aria-label="${escaped}" data-info="${escaped}">i</button>`;
 }
 
@@ -43,7 +43,7 @@ function axisColor(displayMode: '2d' | '3d', rank: number, axis: number, scheme:
 }
 
 function axisSpan(content: string, color: string): string {
-    return `<span class="axis-value-segment" style="--axis-color: ${color};">${escapeInfo(content)}</span>`;
+    return `<span class="axis-value-segment" style="--axis-color: ${color};">${escapeHtml(content)}</span>`;
 }
 
 export function formatAxisValues(values: readonly (number | string)[], displayMode: '2d' | '3d', scheme: DimensionMappingScheme): string {
