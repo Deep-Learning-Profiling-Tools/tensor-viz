@@ -12,7 +12,7 @@ from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Sequence
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .bundle import SessionData, Tab, TensorInput, TensorLabels, create_session_data
 
@@ -178,6 +178,18 @@ def viz(
             self.send_header("Cache-Control", "no-store, max-age=0")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; base-uri 'none'; object-src 'none'; "
+                "script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; connect-src 'self'; "
+                "worker-src 'self' blob:",
+            )
+            self.send_header(
+                "Permissions-Policy",
+                "camera=(), geolocation=(), microphone=()",
+            )
             super().end_headers()
 
         def list_directory(self, _path: str) -> None:
@@ -239,7 +251,7 @@ def viz(
     # `tensor_viz.viz(tensor)` script does not exit before the browser loads.
     thread = threading.Thread(target=server.serve_forever, daemon=not keep_alive)
     thread.start()
-    url = f"http://{host}:{server.server_port}/?token={api_token}"
+    url = f"http://{host}:{server.server_port}/#token={quote(api_token)}"
     if open_browser:
         with contextlib.suppress(Exception):
             webbrowser.open(url)

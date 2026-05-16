@@ -16,7 +16,7 @@ import tensor_viz
 
 def _session_api_url(session: tensor_viz.ViewerSession, path: str) -> str:
     parsed = urlparse(session.url)
-    token = parse_qs(parsed.query)["token"][0]
+    token = parse_qs(parsed.query or parsed.fragment)["token"][0]
     return urlunparse((parsed.scheme, parsed.netloc, path, "", urlencode({"token": token}), ""))
 
 
@@ -35,10 +35,14 @@ class DocsExamplesTest(unittest.TestCase):
                         keep_alive=False,
                     )
                     self.assertTrue(session.url.startswith("http://127.0.0.1:"))
+                    self.assertIn("#token=", session.url)
+                    self.assertNotIn("?token=", session.url)
                     with urlopen(_session_api_url(session, "/api/session.json")) as response:
                         payload = json.load(response)
                         self.assertEqual(response.headers["Cache-Control"], "no-store, max-age=0")
                         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+                        self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
+                        self.assertIn("connect-src 'self'", response.headers["Content-Security-Policy"])
                 self.assertEqual(payload["tabs"][0]["tensors"][0]["shape"], [4, 4])
             finally:
                 if session is not None:
@@ -86,6 +90,11 @@ class DocsExamplesTest(unittest.TestCase):
 
         self.assertEqual([tensor["name"] for tensor in tensors], ["activations", "weights"])
         self.assertEqual(tensors[0]["axisLabels"], ["C", "H", "W"])
+        self.assertEqual(tensors[0]["view"]["editor"]["version"], 2)
+        self.assertEqual(
+            tensors[0]["view"]["editor"]["viewTensorInput"],
+            "[C=32, H=64, W=64]",
+        )
         self.assertTrue(tensors[0]["placeholderData"])
         self.assertNotIn("dataFile", tensors[0])
         self.assertEqual(tensors[1]["axisLabels"], ["O", "I", "K0", "K1"])
@@ -168,6 +177,10 @@ class DocsExamplesTest(unittest.TestCase):
                 self.assertEqual(
                     served["tabs"][0]["tensors"][0]["axisLabels"],
                     ["C", "H", "W"],
+                )
+                self.assertEqual(
+                    served["tabs"][0]["viewer"]["tensors"][0]["view"]["editor"]["version"],
+                    2,
                 )
             finally:
                 if session is not None:

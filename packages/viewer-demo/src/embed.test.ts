@@ -90,8 +90,11 @@ describe('mountDemoApp', () => {
 
     it('rejects script-like iframe sources', () => {
         installDocumentStub();
-        expect(() => mountDemoApp(createContainer() as unknown as HTMLElement, {
-            src: 'javascript:alert(1)',
-        })).toThrow(/Unsafe iframe src/);
+        ['javascript:alert(1)', '\u0000javascript:alert(1)', 'data:text/html,<script></script>']
+            .forEach((src) => {
+                expect(() => mountDemoApp(createContainer() as unknown as HTMLElement, {
+                    src,
+                })).toThrow(/Unsafe iframe src/);
+            });
     });
 });

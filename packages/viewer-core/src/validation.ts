@@ -20,6 +20,11 @@ export const VIEWER_LIMITS = {
     maxEditorEntries: 512,
     maxColorInstructions: 256,
     maxCustomColorEntries: 1_000_000,
+    maxAbsWorldCoordinate: 1_000_000,
+    minCameraZoom: 1e-9,
+    maxCameraZoom: 1_000_000,
+    minDimensionBlockGapMultiple: 1,
+    maxDimensionBlockGapMultiple: 100,
 } as const;
 
 const DTYPE_BYTES = {
@@ -64,6 +69,12 @@ function finiteNumber(value: unknown, label: string): number {
 function finiteInteger(value: unknown, label: string): number {
     const number = finiteNumber(value, label);
     if (!Number.isInteger(number)) throw new Error(`${label} must be an integer.`);
+    return number;
+}
+
+function boundedFiniteNumber(value: unknown, label: string, min: number, max: number): number {
+    const number = finiteNumber(value, label);
+    if (number < min || number > max) throw new Error(`${label} is out of range.`);
     return number;
 }
 
@@ -113,10 +124,34 @@ function validateVec3(value: unknown, label: string): Vec3 {
     const tuple = assertArray(value, label, 3);
     if (tuple.length !== 3) throw new Error(`${label} must have three values.`);
     return [
-        finiteNumber(tuple[0], `${label}[0]`),
-        finiteNumber(tuple[1], `${label}[1]`),
-        finiteNumber(tuple[2], `${label}[2]`),
+        boundedFiniteNumber(
+            tuple[0],
+            `${label}[0]`,
+            -VIEWER_LIMITS.maxAbsWorldCoordinate,
+            VIEWER_LIMITS.maxAbsWorldCoordinate,
+        ),
+        boundedFiniteNumber(
+            tuple[1],
+            `${label}[1]`,
+            -VIEWER_LIMITS.maxAbsWorldCoordinate,
+            VIEWER_LIMITS.maxAbsWorldCoordinate,
+        ),
+        boundedFiniteNumber(
+            tuple[2],
+            `${label}[2]`,
+            -VIEWER_LIMITS.maxAbsWorldCoordinate,
+            VIEWER_LIMITS.maxAbsWorldCoordinate,
+        ),
     ];
+}
+
+function assertUniqueIds<T extends { id: string }>(entries: T[], label: string): T[] {
+    const seen = new Set<string>();
+    entries.forEach((entry) => {
+        if (seen.has(entry.id)) throw new Error(`${label} contains duplicate id ${entry.id}.`);
+        seen.add(entry.id);
+    });
+    return entries;
 }
 
 function validateColorTuple(value: unknown, label: string): number[] {
@@ -210,6 +245,7 @@ export function validateColorInstructions(value: unknown, shape: readonly number
 
 export function normalizeTensorViewEditor(value: unknown, label = 'view.editor'): TensorViewEditor {
     const editor = assertObject(value, label);
+    if (editor.version !== 2) throw new Error(`${label}.version is unsupported.`);
     const viewTensorInput = boundedString(editor.viewTensorInput, `${label}.viewTensorInput`, VIEWER_LIMITS.maxEditorInputLength);
     const finalViewInput = editor.finalViewInput === undefined
         ? undefined
@@ -318,7 +354,7 @@ function validateViewerTensorSnapshot(
     };
 }
 
-function validateViewerSnapshot(value: unknown, tensors: BundleManifest['tensors']): ViewerSnapshot {
+function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest['tensors']): ViewerSnapshot {
     const snapshot = assertObject(value, 'viewer');
     const displayMode = snapshot.displayMode;
     if (!DISPLAY_MODES.has(String(displayMode))) throw new Error('viewer.displayMode is invalid.');
@@ -331,7 +367,18 @@ function validateViewerSnapshot(value: unknown, tensors: BundleManifest['tensors
         throw new Error('viewer.dimensionMappingScheme is invalid.');
     }
     const camera = assertObject(snapshot.camera, 'viewer.camera');
-    const tensorById = new Map(tensors.map((tensor) => [tensor.id, tensor]));
+    const tensorById = new Map(manifestTensors.map((tensor) => [tensor.id, tensor]));
+    const viewerTensors = assertUniqueIds(
+        assertArray(snapshot.tensors, 'viewer.tensors', VIEWER_LIMITS.maxTensors)
+            .map((entry, index) => validateViewerTensorSnapshot(entry, tensorById, `viewer.tensors[${index}]`)),
+        'viewer.tensors',
+    );
+    const activeTensorId = snapshot.activeTensorId === null
+        ? null
+        : boundedString(snapshot.activeTensorId, 'viewer.activeTensorId');
+    if (activeTensorId !== null && !tensorById.has(activeTensorId)) {
+        throw new Error('viewer.activeTensorId does not match a tensor manifest.');
+    }
     return {
         version: 1,
         displayMode: displayMode as '2d' | '3d',
@@ -339,7 +386,12 @@ function validateViewerSnapshot(value: unknown, tensors: BundleManifest['tensors
         heatmap: Boolean(snapshot.heatmap),
         dimensionBlockGapMultiple: snapshot.dimensionBlockGapMultiple === undefined
             ? undefined
-            : finiteNumber(snapshot.dimensionBlockGapMultiple, 'viewer.dimensionBlockGapMultiple'),
+            : boundedFiniteNumber(
+                snapshot.dimensionBlockGapMultiple,
+                'viewer.dimensionBlockGapMultiple',
+                VIEWER_LIMITS.minDimensionBlockGapMultiple,
+                VIEWER_LIMITS.maxDimensionBlockGapMultiple,
+            ),
         displayGaps: snapshot.displayGaps === undefined ? undefined : Boolean(snapshot.displayGaps),
         logScale: snapshot.logScale === undefined ? undefined : Boolean(snapshot.logScale),
         collapseHiddenAxes: snapshot.collapseHiddenAxes === undefined ? undefined : Boolean(snapshot.collapseHiddenAxes),
@@ -354,21 +406,26 @@ function validateViewerSnapshot(value: unknown, tensors: BundleManifest['tensors
             position: validateVec3(camera.position, 'viewer.camera.position'),
             target: validateVec3(camera.target, 'viewer.camera.target'),
             rotation: validateVec3(camera.rotation, 'viewer.camera.rotation'),
-            zoom: finiteNumber(camera.zoom, 'viewer.camera.zoom'),
+            zoom: boundedFiniteNumber(
+                camera.zoom,
+                'viewer.camera.zoom',
+                VIEWER_LIMITS.minCameraZoom,
+                VIEWER_LIMITS.maxCameraZoom,
+            ),
         },
-        tensors: assertArray(snapshot.tensors, 'viewer.tensors', VIEWER_LIMITS.maxTensors)
-            .map((entry, index) => validateViewerTensorSnapshot(entry, tensorById, `viewer.tensors[${index}]`)),
-        activeTensorId: snapshot.activeTensorId === null
-            ? null
-            : boundedString(snapshot.activeTensorId, 'viewer.activeTensorId'),
+        tensors: viewerTensors,
+        activeTensorId,
     };
 }
 
 export function validateBundleManifest(value: unknown): BundleManifest {
     const manifest = assertObject(value, 'manifest');
     if (manifest.version !== 1) throw new Error(`Unsupported bundle version ${String(manifest.version)}.`);
-    const tensors = assertArray(manifest.tensors, 'manifest.tensors', VIEWER_LIMITS.maxTensors)
-        .map((tensor, index) => validateTensorManifest(tensor, `manifest.tensors[${index}]`));
+    const tensors = assertUniqueIds(
+        assertArray(manifest.tensors, 'manifest.tensors', VIEWER_LIMITS.maxTensors)
+            .map((tensor, index) => validateTensorManifest(tensor, `manifest.tensors[${index}]`)),
+        'manifest.tensors',
+    );
     return {
         version: 1,
         viewer: validateViewerSnapshot(manifest.viewer, tensors),
@@ -379,12 +436,14 @@ export function validateBundleManifest(value: unknown): BundleManifest {
 export function validateSessionBundleManifest(value: unknown): SessionBundleManifest {
     const manifest = assertObject(value, 'session');
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${String(manifest.version)}.`);
-    return {
-        version: 1,
-        tabs: assertArray(manifest.tabs, 'session.tabs', VIEWER_LIMITS.maxTabs).map((tab, index) => {
+    const tabs = assertUniqueIds(
+        assertArray(manifest.tabs, 'session.tabs', VIEWER_LIMITS.maxTabs).map((tab, index) => {
             const entry = assertObject(tab, `session.tabs[${index}]`);
-            const tensors = assertArray(entry.tensors, `session.tabs[${index}].tensors`, VIEWER_LIMITS.maxTensors)
-                .map((tensor, tensorIndex) => validateTensorManifest(tensor, `session.tabs[${index}].tensors[${tensorIndex}]`));
+            const tensors = assertUniqueIds(
+                assertArray(entry.tensors, `session.tabs[${index}].tensors`, VIEWER_LIMITS.maxTensors)
+                    .map((tensor, tensorIndex) => validateTensorManifest(tensor, `session.tabs[${index}].tensors[${tensorIndex}]`)),
+                `session.tabs[${index}].tensors`,
+            );
             return {
                 id: boundedString(entry.id, `session.tabs[${index}].id`),
                 title: boundedString(entry.title, `session.tabs[${index}].title`),
@@ -392,5 +451,10 @@ export function validateSessionBundleManifest(value: unknown): SessionBundleMani
                 tensors,
             };
         }),
+        'session.tabs',
+    );
+    return {
+        version: 1,
+        tabs,
     };
 }

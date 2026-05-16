@@ -58,15 +58,15 @@ def demo_session_data() -> None:
 
     shape = (3, 4)
     base = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
-    blue_rgba = [0, 90, 255, 255]
+    blue_rgb = [0, 90, 255]
     blue_hs = [240, 1]
     highlights = {(0, 1), (1, 2), (2, 0)}
 
-    dense_rgba = [
+    dense_rgb = [
         value
         for row in range(shape[0])
         for col in range(shape[1])
-        for value in (blue_rgba if (row, col) in highlights else [144, 164, 174, 255])
+        for value in (blue_rgb if (row, col) in highlights else [144, 164, 174])
     ]
     dense_hs = [
         value
@@ -85,23 +85,23 @@ def demo_session_data() -> None:
     session_data = create_session_data(
         tensors,
         color_instructions={
-            "tensor-1": [{"mode": "rgba", "kind": "dense", "values": dense_rgba}],
+            "tensor-1": [{"mode": "rgb", "kind": "dense", "values": dense_rgb}],
             "tensor-2": [
                 {
-                    "mode": "rgba",
+                    "mode": "rgb",
                     "kind": "coords",
                     "coords": [list(coord) for coord in sorted(highlights)],
-                    "color": blue_rgba,
+                    "color": blue_rgb,
                 }
             ],
             "tensor-3": [
                 {
-                    "mode": "rgba",
+                    "mode": "rgb",
                     "kind": "region",
                     "base": [0, 0],
                     "shape": [3, 2],
                     "jumps": [1, 2],
-                    "color": blue_rgba,
+                    "color": blue_rgb,
                 }
             ],
             "tensor-4": [{"mode": "hs", "kind": "dense", "values": dense_hs}],
