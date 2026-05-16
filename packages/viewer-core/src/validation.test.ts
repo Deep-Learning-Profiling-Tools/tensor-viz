@@ -44,6 +44,52 @@ describe('runtime validation', () => {
         expect(() => validateBundleManifest(manifest)).toThrow(/exceeds tensor bounds/);
     });
 
+    it('rejects manifest values that can destabilize layout math', () => {
+        const manifest = createBundleManifest({
+            tensors: [{ name: 'small', dtype: 'float32', shape: [2, 2] }],
+        });
+        expect(() => validateBundleManifest({
+            ...manifest,
+            viewer: {
+                ...manifest.viewer,
+                dimensionBlockGapMultiple: VIEWER_LIMITS.maxDimensionBlockGapMultiple + 1,
+            },
+        })).toThrow(/dimensionBlockGapMultiple.*out of range/);
+        expect(() => validateBundleManifest({
+            ...manifest,
+            viewer: {
+                ...manifest.viewer,
+                camera: {
+                    ...manifest.viewer.camera,
+                    zoom: VIEWER_LIMITS.maxCameraZoom + 1,
+                },
+            },
+        })).toThrow(/camera\.zoom.*out of range/);
+        expect(() => validateBundleManifest({
+            ...manifest,
+            tensors: [{
+                ...manifest.tensors[0],
+                offset: [VIEWER_LIMITS.maxAbsWorldCoordinate + 1, 0, 0],
+            }],
+        })).toThrow(/offset\[0\].*out of range/);
+    });
+
+    it('rejects duplicate ids before snapshot application', () => {
+        const manifest = createBundleManifest({
+            tensors: [
+                { name: 'a', dtype: 'float32', shape: [2] },
+                { name: 'b', dtype: 'float32', shape: [2] },
+            ],
+        });
+        expect(() => validateBundleManifest({
+            ...manifest,
+            tensors: [
+                manifest.tensors[0],
+                { ...manifest.tensors[1], id: manifest.tensors[0]!.id },
+            ],
+        })).toThrow(/duplicate id/);
+    });
+
     it('rejects oversized serialized editor state before normalization work', () => {
         const editor = {
             version: 2,
