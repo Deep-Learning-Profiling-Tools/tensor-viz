@@ -155,7 +155,10 @@ function linearLayoutWidgetIcon(widgetId: string): string {
 }
 
 function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
-    const active = (ctx: DemoExtensionContext): boolean => Boolean(isLinearLayoutTab(ctx.getActiveTab() as LoadedBundleDocument));
+    const active = (ctx: DemoExtensionContext): boolean => {
+        const tab = ctx.getActiveTab();
+        return Boolean(tab && isLinearLayoutTab(tab));
+    };
     return [
         {
             id: 'linear-layout-preset',
