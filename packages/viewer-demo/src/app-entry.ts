@@ -69,7 +69,15 @@ let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 const MIN_VIEWPORT_WIDTH = 280;
 const DATA_FILE_PATTERN = /^(?:tabs\/[a-z0-9_-]+\/)?tensors\/[a-z0-9_-]+\.bin$/i;
 const TENSOR_CONTENT_TYPE = 'application/octet-stream';
-const sessionToken = new URLSearchParams(window.location.search).get('token');
+const SESSION_MANIFEST_CONTENT_TYPE = 'application/json';
+const SESSION_MANIFEST_MAX_BYTES = 8 * 1024 * 1024;
+
+function sessionApiToken(): string | null {
+    return new URLSearchParams(window.location.search).get('token')
+        ?? new URLSearchParams(window.location.hash.slice(1)).get('token');
+}
+
+const sessionToken = sessionApiToken();
 
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
@@ -1476,17 +1484,35 @@ function apiUrl(path: string): string {
     return `${url.pathname}${url.search}`;
 }
 
-async function boundedArrayBuffer(response: Response, expectedBytes: number): Promise<ArrayBuffer> {
+async function boundedArrayBuffer(
+    response: Response,
+    options: {
+        contentType: string;
+        label: string;
+        maxBytes: number;
+        expectedBytes?: number;
+    },
+): Promise<ArrayBuffer> {
     const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
-    if (contentType !== TENSOR_CONTENT_TYPE) throw new Error(`Unexpected tensor content type ${contentType ?? 'unknown'}.`);
+    if (contentType !== options.contentType) throw new Error(`Unexpected ${options.label} content type ${contentType ?? 'unknown'}.`);
     const contentLength = response.headers.get('content-length');
-    if (contentLength !== null && Number(contentLength) !== expectedBytes) {
-        throw new Error(`Tensor payload byte length ${contentLength} does not match expected ${expectedBytes}.`);
+    const limit = options.expectedBytes ?? options.maxBytes;
+    if (contentLength !== null) {
+        const declaredLength = Number(contentLength);
+        if (options.expectedBytes !== undefined && declaredLength !== options.expectedBytes) {
+            throw new Error(`${options.label} byte length ${contentLength} does not match expected ${options.expectedBytes}.`);
+        }
+        if (!Number.isFinite(declaredLength) || declaredLength < 0 || declaredLength > limit) {
+            throw new Error(`${options.label} byte length ${contentLength} exceeds ${limit}.`);
+        }
     }
     if (!response.body) {
         const buffer = await response.arrayBuffer();
-        if (buffer.byteLength !== expectedBytes) {
-            throw new Error(`Tensor payload byte length ${buffer.byteLength} does not match expected ${expectedBytes}.`);
+        if (options.expectedBytes !== undefined && buffer.byteLength !== options.expectedBytes) {
+            throw new Error(`${options.label} byte length ${buffer.byteLength} does not match expected ${options.expectedBytes}.`);
+        }
+        if (buffer.byteLength > limit) {
+            throw new Error(`${options.label} exceeded ${limit} bytes.`);
         }
         return buffer;
     }
@@ -1497,10 +1523,12 @@ async function boundedArrayBuffer(response: Response, expectedBytes: number): Pr
         const { done, value } = await reader.read();
         if (done) break;
         received += value.byteLength;
-        if (received > expectedBytes) throw new Error(`Tensor payload exceeded expected ${expectedBytes} bytes.`);
+        if (received > limit) throw new Error(`${options.label} exceeded ${limit} bytes.`);
         chunks.push(value);
     }
-    if (received !== expectedBytes) throw new Error(`Tensor payload byte length ${received} does not match expected ${expectedBytes}.`);
+    if (options.expectedBytes !== undefined && received !== options.expectedBytes) {
+        throw new Error(`${options.label} byte length ${received} does not match expected ${options.expectedBytes}.`);
+    }
     const bytes = new Uint8Array(received);
     let offset = 0;
     chunks.forEach((chunk) => {
@@ -1518,7 +1546,12 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
         const expectedBytes = expectedTensorByteLength(tensor.dtype, tensor.shape);
         const response = await fetch(apiUrl(`/api/${dataFile}`), { cache: 'no-store' });
         if (!response.ok) throw new Error(`Missing tensor payload ${dataFile}.`);
-        entries.push([tensor.id, createTypedArray(tensor.dtype, await boundedArrayBuffer(response, expectedBytes))]);
+        entries.push([tensor.id, createTypedArray(tensor.dtype, await boundedArrayBuffer(response, {
+            contentType: TENSOR_CONTENT_TYPE,
+            expectedBytes,
+            label: 'Tensor payload',
+            maxBytes: expectedBytes,
+        }))]);
     }
     return new Map(entries);
 }
@@ -1540,7 +1573,11 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
 async function tryLoadSession(): Promise<boolean> {
     const response = await fetch(apiUrl('/api/session.json'), { cache: 'no-store' });
     if (!response.ok) return false;
-    const manifest = await response.json() as SessionBundleManifest;
+    const manifest = JSON.parse(new TextDecoder().decode(await boundedArrayBuffer(response, {
+        contentType: SESSION_MANIFEST_CONTENT_TYPE,
+        label: 'Session manifest',
+        maxBytes: SESSION_MANIFEST_MAX_BYTES,
+    }))) as SessionBundleManifest;
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
     if (!Array.isArray(manifest.tabs)) throw new Error('Session tabs must be an array.');
     if (manifest.tabs.length > VIEWER_LIMITS.maxTabs) throw new Error('Session has too many tabs.');
