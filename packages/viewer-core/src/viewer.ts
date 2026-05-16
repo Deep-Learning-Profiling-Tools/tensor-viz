@@ -107,6 +107,12 @@ import type {
     ViewerSnapshot,
     ViewerState,
 } from './types.js';
+import {
+    validateBundleManifest,
+    validateColorInstructions,
+    validateTensorPayload,
+    validateTensorShape,
+} from './validation.js';
 export type { ViewerOptions } from './viewer-config.js';
 
 const SELECTION_TINT_ALPHA = 0.4;
@@ -1982,7 +1988,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
         const tensor = this.requireTensor(tensorId);
         tensor.customColors.clear();
-        instructions.forEach((instruction) => {
+        validateColorInstructions(instructions, tensor.shape)?.forEach((instruction) => {
             if (instruction.kind === 'dense') {
                 this.applyColors(tensor, new Float32Array(instruction.values));
                 return;
@@ -2230,9 +2236,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
 
     /** Replace or clear one tensor's dense payload while keeping its metadata stable. */
     private assignTensorData(tensor: TensorRecord, data: NumericArray | null, dtype: DType = tensor.dtype): void {
-        if (data && product(tensor.shape) !== data.length) {
-            throw new Error(`Tensor data length ${data.length} does not match shape ${tensor.shape.join('x')}.`);
-        }
+        if (data) validateTensorPayload(dtype, tensor.shape, data.byteLength);
         tensor.dtype = dtype;
         tensor.data = data;
         tensor.hasData = data !== null;
@@ -2274,7 +2278,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             emit?: boolean;
         } = {},
     ): TensorHandle {
-        const normalizedShape = shape.map((dim) => Math.max(1, Math.floor(dim)));
+        const normalizedShape = validateTensorShape(shape);
         const parsed = parseTensorView(
             normalizedShape,
             serializeTensorViewEditor(defaultTensorViewEditor(normalizedShape, options.axisLabels)),
@@ -2628,7 +2632,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
 
     /** Set the multiplicative gap growth between higher-level dimension blocks. */
     public setDimensionBlockGapMultiple(value: number): number {
-        const nextValue = Number.isFinite(value) ? Math.max(1, value) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
+        const nextValue = Number.isFinite(value) ? Math.max(1, Math.min(100, value)) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
         if (nextValue === this.state.dimensionBlockGapMultiple) return nextValue;
         this.state.dimensionBlockGapMultiple = nextValue;
         logEvent('display:dimension-block-gap-multiple', nextValue);
@@ -2976,13 +2980,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
 
     /** Load a manifest plus decoded tensor buffers into the viewer. */
     public loadBundleData(manifest: BundleManifest, tensors: Map<string, NumericArray>): void {
-        const shouldFitCamera = this.shouldAutoFitSnapshot(manifest.viewer);
+        const safeManifest = validateBundleManifest(manifest);
+        const shouldFitCamera = this.shouldAutoFitSnapshot(safeManifest.viewer);
         this.resetLoadedState();
-        this.state.dimensionBlockGapMultiple = manifest.viewer.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
-        this.state.displayGaps = manifest.viewer.displayGaps ?? false;
-        this.state.collapseHiddenAxes = manifest.viewer.collapseHiddenAxes ?? manifest.viewer.showSlicesInSamePlace ?? false;
-        this.state.dimensionMappingScheme = manifest.viewer.dimensionMappingScheme ?? 'z-order';
-        manifest.tensors.forEach((entry) => {
+        this.state.dimensionBlockGapMultiple = safeManifest.viewer.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
+        this.state.displayGaps = safeManifest.viewer.displayGaps ?? false;
+        this.state.collapseHiddenAxes = safeManifest.viewer.collapseHiddenAxes ?? safeManifest.viewer.showSlicesInSamePlace ?? false;
+        this.state.dimensionMappingScheme = safeManifest.viewer.dimensionMappingScheme ?? 'z-order';
+        safeManifest.tensors.forEach((entry) => {
             const data = tensors.get(entry.id) ?? null;
             if (!data && !entry.placeholderData) {
                 throw new Error(`Session tensor ${entry.id} is missing bytes.`);
@@ -2993,7 +2998,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 offset: entry.offset,
                 dtype: entry.dtype,
                 axisLabels: entry.axisLabels,
-                displayMode: manifest.viewer.displayMode,
+                displayMode: safeManifest.viewer.displayMode,
                 rebuild: false,
                 emit: false,
             });
@@ -3001,7 +3006,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             tensor.markerCoords = entry.markerCoords ? new Set(entry.markerCoords.map((coord) => coordKey(coord))) : null;
             if (entry.colorInstructions?.length) this.applyColorInstructions(entry.id, entry.colorInstructions);
         });
-        this.applySnapshot(manifest.viewer);
+        this.applySnapshot(safeManifest.viewer);
         this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
     }
 

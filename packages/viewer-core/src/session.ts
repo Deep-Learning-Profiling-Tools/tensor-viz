@@ -9,6 +9,7 @@ import type {
     Vec3,
     ViewerSnapshot,
 } from './types.js';
+import { validateTensorShape } from './validation.js';
 
 /** Input spec for one tensor entry in a bundle/session manifest. */
 export type SessionTensorSpec = {
@@ -83,12 +84,13 @@ function tensorView(shape: number[], axisLabels: string[] | undefined, view?: Te
 export function createBundleManifest(spec: BundleDocumentSpec): BundleManifest {
     const tensors = spec.tensors.map((tensor, index) => {
         const id = tensor.id ?? `tensor-${index + 1}`;
-        const view = tensorView(tensor.shape, tensor.axisLabels, tensor.view);
+        const shape = validateTensorShape(tensor.shape);
+        const view = tensorView(shape, tensor.axisLabels, tensor.view);
         return {
             id,
             name: tensor.name,
             dtype: tensor.dtype,
-            shape: tensor.shape,
+            shape,
             axisLabels: tensor.axisLabels,
             byteOrder: 'little' as const,
             dataFile: tensor.dataFile,

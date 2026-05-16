@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import urlopen
 
 import numpy as np
@@ -12,11 +14,18 @@ import numpy as np
 import tensor_viz
 
 
+def _session_api_url(session: tensor_viz.ViewerSession, path: str) -> str:
+    parsed = urlparse(session.url)
+    token = parse_qs(parsed.query)["token"][0]
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", urlencode({"token": token}), ""))
+
+
 class DocsExamplesTest(unittest.TestCase):
     def test_readme_quick_start_session_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             static_root = Path(tmpdir)
             (static_root / "index.html").write_text("<!doctype html><title>tensor-viz</title>")
+            (static_root / "assets").mkdir()
             session = None
             try:
                 with patch("tensor_viz.server._static_root", return_value=static_root):
@@ -26,9 +35,40 @@ class DocsExamplesTest(unittest.TestCase):
                         keep_alive=False,
                     )
                     self.assertTrue(session.url.startswith("http://127.0.0.1:"))
-                    with urlopen(f"{session.url}/api/session.json") as response:
+                    with urlopen(_session_api_url(session, "/api/session.json")) as response:
                         payload = json.load(response)
+                        self.assertEqual(response.headers["Cache-Control"], "no-store, max-age=0")
+                        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
                 self.assertEqual(payload["tabs"][0]["tensors"][0]["shape"], [4, 4])
+            finally:
+                if session is not None:
+                    session.close()
+
+    def test_server_rejects_missing_token_and_remote_bind_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            static_root = Path(tmpdir)
+            (static_root / "index.html").write_text("<!doctype html><title>tensor-viz</title>")
+            session = None
+            try:
+                with patch("tensor_viz.server._static_root", return_value=static_root):
+                    with self.assertRaisesRegex(ValueError, "non-loopback"):
+                        tensor_viz.viz(
+                            np.random.randn(1),
+                            host="0.0.0.0",
+                            open_browser=False,
+                            keep_alive=False,
+                        )
+                    session = tensor_viz.viz(
+                        np.random.randn(1),
+                        open_browser=False,
+                        keep_alive=False,
+                    )
+                    parsed = urlparse(session.url)
+                    with self.assertRaises(HTTPError) as raised:
+                        urlopen(urlunparse((parsed.scheme, parsed.netloc, "/api/session.json", "", "", "")))
+                    self.assertEqual(raised.exception.code, 403)
+                    with urlopen(urlunparse((parsed.scheme, parsed.netloc, "/assets/", "", "", ""))) as response:
+                        self.assertIn("tensor-viz", response.read().decode("utf-8"))
             finally:
                 if session is not None:
                     session.close()
@@ -123,7 +163,7 @@ class DocsExamplesTest(unittest.TestCase):
                         open_browser=False,
                         keep_alive=False,
                     )
-                    with urlopen(f"{session.url}/api/session.json") as response:
+                    with urlopen(_session_api_url(session, "/api/session.json")) as response:
                         served = json.load(response)
                 self.assertEqual(
                     served["tabs"][0]["tensors"][0]["axisLabels"],

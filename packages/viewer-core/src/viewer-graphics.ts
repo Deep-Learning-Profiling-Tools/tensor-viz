@@ -13,6 +13,7 @@ import {
 } from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import helvetikerBoldFont from 'three/examples/fonts/helvetiker_bold.typeface.json';
+import { VIEWER_LIMITS } from './validation.js';
 
 const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
 
@@ -40,7 +41,8 @@ export function initializeVertexColors(geometry: BufferGeometry): void {
 
 export function createTextLabel(text: string, color = '#334155'): Group {
     // use shape text instead of troika so brave/linux stays on the same path as the working line geometry.
-    const shapes = LABEL_FONT.generateShapes(text, 1.1);
+    const boundedText = text.length > VIEWER_LIMITS.maxTextLength ? `${text.slice(0, VIEWER_LIMITS.maxTextLength)}...` : text;
+    const shapes = LABEL_FONT.generateShapes(boundedText, 1.1);
     const frontGeometry = new ShapeGeometry(shapes);
     frontGeometry.center();
     const front = new Mesh(frontGeometry, new MeshBasicMaterial({ color, depthTest: false, depthWrite: false, side: DoubleSide }));

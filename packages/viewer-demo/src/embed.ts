@@ -11,12 +11,20 @@ export type MountedDemoApp = {
     destroy: () => void;
 };
 
+function safeIframeSrc(src: string): string {
+    const value = src.trim();
+    if (/^(?:javascript|data|vbscript):/i.test(value)) throw new Error(`Unsafe iframe src ${src}.`);
+    return src;
+}
+
 /** Mount the full demo page as an embeddable iframe-backed widget. */
 export function mountDemoApp(container: HTMLElement, options: DemoAppOptions = {}): MountedDemoApp {
     const iframe = document.createElement('iframe');
-    iframe.src = options.src ?? '/';
+    iframe.src = safeIframeSrc(options.src ?? '/');
     iframe.title = options.title ?? 'tensor-viz';
     iframe.className = options.className ?? '';
+    iframe.referrerPolicy = 'no-referrer';
+    iframe.setAttribute('sandbox', 'allow-downloads allow-same-origin allow-scripts');
     iframe.style.width = '100%';
     iframe.style.height = '100%';
     iframe.style.border = '0';
