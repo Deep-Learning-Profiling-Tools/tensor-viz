@@ -26,59 +26,11 @@ import {
     labelWithInfo,
     selectionEnabled,
 } from './app-format.js';
-import {
-    composeLayoutStateFromLegacySpec,
-    createComposeLayoutDocument,
-    isComposeLayoutMeta,
-    type ComposeLayoutMeta,
-} from './linear-layout.js';
-import {
-    applyLinearLayoutCellText,
-    applyLinearLayoutSpec,
-    cloneLinearLayoutCellTextState,
-    cloneLinearLayoutMultiInputState,
-    cloneLinearLayoutState,
-    cloneLinearLayoutTensorViewsState,
-    composeLayoutMetaForTab,
-    defaultLinearLayoutCellTextState,
-    defaultLinearLayoutMultiInputState,
-    emptyLinearLayoutState,
-    inspectorCoordEntries,
-    isLinearLayoutCellTextState,
-    isLinearLayoutMultiInputState,
-    isLinearLayoutState,
-    isLinearLayoutTab,
-    linearLayoutHoverPopupEntries,
-    linearLayoutMultiInputModel,
-    linearLayoutSelectionMapForTab,
-    loadBakedLinearLayoutTabs,
-    loadLinearLayoutState,
-    preservedLinearLayoutTensorViews,
-    renderCellTextWidget,
-    renderLinearLayoutEditorWidgets,
-    renderLinearLayoutPresetWidget,
-    snapshotTensorViews,
-    syncLinearLayoutCellTextState,
-    syncLinearLayoutMultiInputState,
-    syncLinearLayoutSelection,
-    syncLinearLayoutSelectionPreview,
-    syncLinearLayoutState,
-    syncLinearLayoutViewFilters,
-    toggleLinearLayoutPropagateOutputs,
-    type InspectorCoordEntry,
-    type LinearLayoutCellTextState,
-    type LinearLayoutFormState,
-    type LinearLayoutMultiInputState,
-    type LinearLayoutNotice,
-    type LinearLayoutSelectionMap,
-    type LinearLayoutTensorViewsState,
-    type LinearLayoutUiContext,
-    type LinearLayoutUiState,
-} from './linear-layout-ui.js';
+import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoWidgetSpec } from './app-extension.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
+import { createLinearLayoutExtension, type LinearLayoutExtensionRuntime } from './linear-layout-extension.js';
 import './styles.css';
-import { linearLayoutPropagateOutputsInfo } from './widgets/linear-layout-color-widget.js';
 
 const app = getAppRoot();
 
@@ -90,12 +42,8 @@ const {
     tabStrip,
     controlDock,
     sidebarSplitter,
-    linearLayoutPresetWidget,
-    linearLayoutWidget,
-    linearLayoutVisibleTensorsWidget,
-    cellTextWidget,
-    linearLayoutColorWidget,
     sidebarHeader,
+    widgets,
     tensorViewWidget,
     inspectorWidget,
     selectionWidget,
@@ -107,9 +55,6 @@ const {
 } = mountAppShell(app);
 
 const viewer = new TensorViewer(viewport);
-const hoverPopup = document.createElement('div');
-hoverPopup.className = 'linear-layout-hover-popup hidden';
-viewport.appendChild(hoverPopup);
 const infoTooltip = document.createElement('div');
 infoTooltip.className = 'info-tooltip hidden';
 app.appendChild(infoTooltip);
@@ -134,8 +79,6 @@ let commandPaletteOpen = false;
 let commandPaletteIndex = 0;
 let commandPaletteMode: 'actions' | 'tabs' = 'actions';
 let appliedStartupWidgetDefaults = false;
-let lastLinearLayoutActiveTensorId: string | null = null;
-let hoverPopupPointer = { x: 16, y: 16 };
 let activeTensorViewSliderPointerId: number | null = null;
 let activeInfoTarget: HTMLElement | null = null;
 let activeControlButton: HTMLButtonElement | null = null;
@@ -164,31 +107,11 @@ type InspectorRefs = {
 };
 
 let inspectorRefs: InspectorRefs | null = null;
-const linearLayoutUiState: LinearLayoutUiState = {
-    linearLayoutState: loadLinearLayoutState(),
-    linearLayoutStates: new Map<string, LinearLayoutFormState>(),
-    linearLayoutCellTextState: defaultLinearLayoutCellTextState(),
-    linearLayoutCellTextStates: new Map<string, LinearLayoutCellTextState>(),
-    linearLayoutMultiInputState: defaultLinearLayoutMultiInputState(),
-    linearLayoutMultiInputStates: new Map<string, LinearLayoutMultiInputState>(),
-    linearLayoutTensorViewsStates: new Map<string, LinearLayoutTensorViewsState>(),
-    linearLayoutSelectionMaps: new Map<string, LinearLayoutSelectionMap>(),
-    linearLayoutNotice: null,
-    linearLayoutMatrixPreview: '',
-    showLinearLayoutMatrix: false,
-    syncingLinearLayoutSelection: false,
-};
-
-const linearLayoutUi: LinearLayoutUiContext = {
+const extensionContext: DemoExtensionContext = {
     viewer,
     viewport,
-    linearLayoutPresetWidget,
-    linearLayoutWidget,
-    linearLayoutVisibleTensorsWidget,
-    cellTextWidget,
-    linearLayoutColorWidget,
-    state: linearLayoutUiState,
-    widgetTitle: (widgetId, info) => widgetTitle(widgetId as SidebarWidgetId, info),
+    widgets,
+    widgetTitle,
     getActiveTab: () => activeTab(),
     getActiveTabId: () => activeTabId,
     getSessionTabs: () => sessionTabs,
@@ -198,71 +121,79 @@ const linearLayoutUi: LinearLayoutUiContext = {
     loadTab: async (tabId) => {
         await loadTab(tabId);
     },
-    renderLinearLayoutEditorWidgets: () => {
-        renderLinearLayoutEditorWidgets(linearLayoutUi);
+    loadTabTensors: async (tensors) => loadTabTensors(tensors),
+    render: () => {
+        render(viewer.getSnapshot());
     },
 };
 
-type CommandAction = {
-    action: string;
-    label: string;
-    shortcut: string;
-    keywords: string;
-};
+type SidebarWidgetId = string;
 
-type SidebarWidgetId =
-    | 'linear-layout'
-    | 'linear-layout-preset'
-    | 'linear-layout-visible-tensors'
-    | 'linear-layout-color'
-    | 'cell-text'
-    | 'tensor-view'
-    | 'inspector'
-    | 'selection'
-    | 'advanced-settings';
-
-const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = {
-    'linear-layout-preset': linearLayoutPresetWidget,
-    'linear-layout': linearLayoutWidget,
-    'linear-layout-visible-tensors': linearLayoutVisibleTensorsWidget,
-    'linear-layout-color': linearLayoutColorWidget,
-    'cell-text': cellTextWidget,
-    'tensor-view': tensorViewWidget,
-    inspector: inspectorWidget,
-    selection: selectionWidget,
-    'advanced-settings': advancedSettingsWidget,
-};
-
-const sidebarWidgetLabels: Record<SidebarWidgetId, string> = {
-    'linear-layout-preset': 'Preset',
-    'linear-layout': 'Linear Layout Specifications',
-    'linear-layout-visible-tensors': 'Visible Tensors',
-    'linear-layout-color': 'Cell Color/Text',
-    'cell-text': 'Cell Text',
-    'tensor-view': 'Permute/Slice',
-    inspector: 'Hover Info',
-    selection: 'Selection',
-    'advanced-settings': 'Advanced Settings',
-};
-
-let widgetOrder: SidebarWidgetId[] = [
-    'linear-layout-preset',
-    'linear-layout',
-    'linear-layout-visible-tensors',
-    'linear-layout-color',
-    'tensor-view',
-    'inspector',
-    'selection',
-    'advanced-settings',
+const coreWidgetSpecs: DemoWidgetSpec[] = [
+    {
+        id: 'tensor-view',
+        label: 'Permute/Slice',
+        icon: '<span class="widget-title-text-icon widget-title-text-icon-wide">A<sup>T</sup>[i,:]</span>',
+        defaultCollapsed: true,
+        visible: () => showTensorViewWidget,
+        render: (_ctx, snapshot) => { renderTensorViewWidget(snapshot); },
+    },
+    {
+        id: 'inspector',
+        label: 'Hover Info',
+        icon: `
+          <svg viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="5.5" />
+            <path d="M15 15l4 4" />
+          </svg>
+        `,
+        defaultCollapsed: true,
+        visible: (_ctx, snapshot) => snapshot.showInspectorPanel,
+        render: (_ctx, snapshot) => { renderInspectorWidget(snapshot); },
+    },
+    {
+        id: 'selection',
+        label: 'Selection',
+        icon: controlIcons.selection,
+        defaultCollapsed: true,
+        visible: (_ctx, snapshot) => (
+            Boolean(snapshot.showSelectionPanel)
+            && (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select'
+        ),
+        render: (_ctx, snapshot) => { renderSelectionWidget(snapshot); },
+    },
+    {
+        id: 'advanced-settings',
+        label: 'Advanced Settings',
+        icon: `
+          <svg viewBox="0 0 24 24">
+            <path d="M5 6h14M8 12h11M5 18h14" />
+            <circle cx="8" cy="6" r="1.7" fill="currentColor" stroke="none" />
+            <circle cx="13" cy="12" r="1.7" fill="currentColor" stroke="none" />
+            <circle cx="10" cy="18" r="1.7" fill="currentColor" stroke="none" />
+          </svg>
+        `,
+        defaultCollapsed: true,
+        visible: () => showAdvancedSettingsWidget,
+        render: (_ctx, snapshot) => { renderAdvancedSettingsWidget(snapshot); },
+    },
 ];
+
+const linearLayoutExtension: LinearLayoutExtensionRuntime = createLinearLayoutExtension(extensionContext);
+const extensions: DemoAppExtension[] = [linearLayoutExtension];
+const widgetSpecs = [...extensions.flatMap((extension) => extension.widgets), ...coreWidgetSpecs];
+const widgetSpecById = new Map(widgetSpecs.map((spec) => [spec.id, spec]));
+const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, widgets[spec.id]!]));
+const sidebarWidgetLabels: Record<SidebarWidgetId, string> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, spec.label]));
+const sidebarWidgetIcons: Record<SidebarWidgetId, string> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, spec.icon]));
+
+let widgetOrder: SidebarWidgetId[] = widgetSpecs.map((spec) => spec.id);
 sidebarHeader.classList.add('label-row');
 sidebarHeader.innerHTML = `<span>Widgets</span>${infoButton('Extra settings to inspect/change the visible tensor(s). Click the arrows/widget header text on each widget to expand/collapse them. Change widget position by left-clicking + dragging on the grabber by the right of each widget.')}`;
 let draggedWidgetId: SidebarWidgetId | null = null;
 let draggedWidgetSlot: number | null = null;
 let draggedWidgetPointerId: number | null = null;
-const collapsedWidgets = new Set<SidebarWidgetId>(widgetOrder);
-collapsedWidgets.delete('linear-layout');
-collapsedWidgets.delete('linear-layout-preset');
+const collapsedWidgets = new Set<SidebarWidgetId>(widgetSpecs.filter((spec) => spec.defaultCollapsed).map((spec) => spec.id));
 
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
@@ -414,7 +345,6 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
     return formatRangeValue(summary.stats[key]);
 }
 
-/** Load the persisted linear-layout JSON used by the static demo sidebar. */
 function commandActions(): CommandAction[] {
     return [
         { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
@@ -436,6 +366,7 @@ function commandActions(): CommandAction[] {
         { action: 'selection', label: 'Toggle Selection', shortcut: '', keywords: 'widgets selection panel stats highlighted cells' },
         { action: 'advanced-settings', label: 'Toggle Advanced Settings', shortcut: '', keywords: 'widgets advanced settings layout gap' },
         { action: 'view', label: 'Focus Permute/Slice Input', shortcut: '', keywords: 'focus permute slice tensor permutation slicing tensor view input field' },
+        ...extensions.flatMap((extension) => extension.commands?.(extensionContext) ?? []),
     ];
 }
 
@@ -487,22 +418,9 @@ function filteredCommandActions(): CommandAction[] {
 }
 
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
-    const currentTab = activeTab();
-    const linearLayoutActive = Boolean(currentTab && isLinearLayoutTab(currentTab));
     // widget visibility is derived from the active tab and viewer state instead
     // of unmounting widgets permanently, so drag order and collapsed state survive.
-    return widgetOrder.filter((widgetId) => (
-        (widgetId === 'linear-layout-preset' && linearLayoutActive)
-        || (widgetId === 'linear-layout' && linearLayoutActive)
-        || (widgetId === 'linear-layout-visible-tensors' && linearLayoutActive)
-        || (widgetId === 'linear-layout-color' && linearLayoutActive)
-        || (widgetId === 'tensor-view' && showTensorViewWidget)
-        || (widgetId === 'inspector' && snapshot.showInspectorPanel)
-        || (widgetId === 'selection'
-            && snapshot.showSelectionPanel
-            && (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select')
-        || (widgetId === 'advanced-settings' && showAdvancedSettingsWidget)
-    ));
+    return widgetOrder.filter((widgetId) => widgetSpecById.get(widgetId)?.visible(extensionContext, snapshot) ?? false);
 }
 
 function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
@@ -606,77 +524,7 @@ function clearSidebarDragState(): void {
 }
 
 function widgetIcon(widgetId: SidebarWidgetId): string {
-    switch (widgetId) {
-        case 'linear-layout-preset':
-            return `
-              <svg viewBox="0 0 24 24">
-                <path d="M5 7h14M5 12h14M5 17h9" />
-                <path d="M16.5 15.5l2 2 3.5-4" />
-              </svg>
-            `;
-        case 'linear-layout':
-            return `
-              <svg viewBox="0 0 24 24">
-                <rect x="4" y="4" width="16" height="16" style="fill: #ffffff; stroke: #111827; stroke-width: 1.25;" />
-                <rect x="4" y="4" width="4" height="4" style="fill: #111827; stroke: none;" />
-                <rect x="8" y="8" width="4" height="4" style="fill: #111827; stroke: none;" />
-                <rect x="4" y="12" width="4" height="4" style="fill: #111827; stroke: none;" />
-                <rect x="12" y="12" width="4" height="4" style="fill: #111827; stroke: none;" />
-                <rect x="8" y="16" width="4" height="4" style="fill: #111827; stroke: none;" />
-                <rect x="16" y="16" width="4" height="4" style="fill: #111827; stroke: none;" />
-              </svg>
-            `;
-        case 'linear-layout-visible-tensors':
-            return `
-              <svg viewBox="0 0 24 24">
-                <path d="M3 12s3.5-5 9-5 9 5 9 5-3.5 5-9 5-9-5-9-5z" />
-                <circle cx="12" cy="12" r="2.5" />
-              </svg>
-            `;
-        case 'linear-layout-color':
-            return `
-              <svg viewBox="0 0 200 200">
-                <defs>
-                  <linearGradient id="cell-color-widget-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" style="stop-color: #ff0000;" />
-                    <stop offset="20%" style="stop-color: #ffff00;" />
-                    <stop offset="50%" style="stop-color: #00ff00;" />
-                    <stop offset="75%" style="stop-color: #00ffff;" />
-                    <stop offset="100%" style="stop-color: #0000ff;" />
-                  </linearGradient>
-                </defs>
-                <rect x="10" y="10" width="180" height="180" style="fill: url(#cell-color-widget-gradient); stroke: #000000; stroke-width: 8;" />
-                <text x="100" y="145" text-anchor="middle" style="fill: #000000; stroke: none; font-family: sans-serif; font-size: 140px; font-weight: 700;">T</text>
-              </svg>
-            `;
-        case 'cell-text':
-            return `
-              <svg viewBox="0 0 24 24">
-                <rect x="2.5" y="4" width="19" height="16" style="fill: #ffffff; stroke: #111827; stroke-width: 1.5;" />
-                <text x="12" y="14.2" text-anchor="middle" dominant-baseline="middle" style="fill: #111827; stroke: none; font: 700 7px 'IBM Plex Mono', monospace;">T:0</text>
-              </svg>
-            `;
-        case 'tensor-view':
-            return '<span class="widget-title-text-icon widget-title-text-icon-wide">A<sup>T</sup>[i,:]</span>';
-        case 'inspector':
-            return `
-              <svg viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="5.5" />
-                <path d="M15 15l4 4" />
-              </svg>
-            `;
-        case 'selection':
-            return controlIcons.selection;
-        case 'advanced-settings':
-            return `
-              <svg viewBox="0 0 24 24">
-                <path d="M5 6h14M8 12h11M5 18h14" />
-                <circle cx="8" cy="6" r="1.7" fill="currentColor" stroke="none" />
-                <circle cx="13" cy="12" r="1.7" fill="currentColor" stroke="none" />
-                <circle cx="10" cy="18" r="1.7" fill="currentColor" stroke="none" />
-              </svg>
-            `;
-    }
+    return sidebarWidgetIcons[widgetId] ?? '';
 }
 
 function renderCommandPalette(): void {
@@ -820,29 +668,10 @@ function clearTabTitleEdit(): void {
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
-    const snapshot = viewer.getSnapshot() as ViewerSnapshot & {
-        composeLayoutMeta?: ComposeLayoutMeta;
-        composeLayoutState?: LinearLayoutFormState;
-        linearLayoutCellTextState?: LinearLayoutCellTextState;
-        linearLayoutMultiInputState?: LinearLayoutMultiInputState;
-        composeLayoutTensorViews?: LinearLayoutTensorViewsState;
-    };
-    if (isLinearLayoutTab(tab)) {
-        const cloned = cloneLinearLayoutState(linearLayoutUiState.linearLayoutState);
-        const clonedCellText = cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState);
-        const clonedMultiInput = cloneLinearLayoutMultiInputState(linearLayoutUiState.linearLayoutMultiInputState);
-        const tensorViews = preservedLinearLayoutTensorViews(linearLayoutUi, tab.id);
-        linearLayoutUiState.linearLayoutStates.set(tab.id, cloned);
-        linearLayoutUiState.linearLayoutCellTextStates.set(tab.id, clonedCellText);
-        linearLayoutUiState.linearLayoutMultiInputStates.set(tab.id, clonedMultiInput);
-        linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, tensorViews);
-        snapshot.composeLayoutState = cloned;
-        snapshot.linearLayoutCellTextState = clonedCellText;
-        snapshot.linearLayoutMultiInputState = clonedMultiInput;
-        snapshot.composeLayoutTensorViews = cloneLinearLayoutTensorViewsState(tensorViews);
-        const composeLayoutMeta = composeLayoutMetaForTab(tab);
-        if (composeLayoutMeta) snapshot.composeLayoutMeta = composeLayoutMeta;
-    }
+    const snapshot = viewer.getSnapshot();
+    extensions.forEach((extension) => {
+        extension.captureSnapshot?.(extensionContext, tab, snapshot);
+    });
     tab.manifest.viewer = normalizeViewerSnapshot(tab, snapshot);
 }
 
@@ -852,11 +681,9 @@ async function closeTab(tabId: string): Promise<void> {
     if (editingTab?.id === tabId) clearTabTitleEdit();
     const wasActive = activeTabId === tabId;
     if (wasActive) captureActiveTabSnapshot();
-    linearLayoutUiState.linearLayoutStates.delete(tabId);
-    linearLayoutUiState.linearLayoutCellTextStates.delete(tabId);
-    linearLayoutUiState.linearLayoutMultiInputStates.delete(tabId);
-    linearLayoutUiState.linearLayoutTensorViewsStates.delete(tabId);
-    linearLayoutUiState.linearLayoutSelectionMaps.delete(tabId);
+    extensions.forEach((extension) => {
+        extension.clearTab?.(extensionContext, tabId);
+    });
     sessionTabs.splice(index, 1);
     if (sessionTabs.length === 0) {
         activeTabId = null;
@@ -977,38 +804,21 @@ async function addNewTab(): Promise<void> {
     const id = `tab-${Date.now()}`;
     const title = nextTabTitle();
     if (!currentTab) {
-        linearLayoutUiState.linearLayoutState = emptyLinearLayoutState();
-        const document = createComposeLayoutDocument(linearLayoutUiState.linearLayoutState, viewer.getSnapshot(), title);
-        const meta = composeLayoutMetaForTab(document);
-        linearLayoutUiState.linearLayoutCellTextState = defaultLinearLayoutCellTextState(meta?.rootInputLabels ?? []);
-        linearLayoutUiState.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
-        linearLayoutUiState.linearLayoutStates.set(id, cloneLinearLayoutState(linearLayoutUiState.linearLayoutState));
-        linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(linearLayoutUiState.linearLayoutCellTextState));
-        linearLayoutUiState.linearLayoutMultiInputStates.set(id, cloneLinearLayoutMultiInputState(linearLayoutUiState.linearLayoutMultiInputState));
-        linearLayoutUiState.linearLayoutTensorViewsStates.set(id, snapshotTensorViews(document.manifest.viewer));
-        sessionTabs = [{ ...document, id, title }];
-        await loadTab(id);
+        for (const extension of extensions) {
+            const tab = await extension.createTab?.(extensionContext, id, title, viewer.getSnapshot());
+            if (!tab) continue;
+            sessionTabs = [tab];
+            await loadTab(id);
+            return;
+        }
+        seedDemoTensor();
         return;
     }
     captureActiveTabSnapshot();
     const nextTab = cloneTabDocument(currentTab, id, title);
-    const currentLinearLayoutState = linearLayoutUiState.linearLayoutStates.get(currentTab.id);
-    if (currentLinearLayoutState) {
-        linearLayoutUiState.linearLayoutStates.set(id, cloneLinearLayoutState(currentLinearLayoutState));
-    }
-    const currentCellTextState = linearLayoutUiState.linearLayoutCellTextStates.get(currentTab.id);
-    if (currentCellTextState) {
-        linearLayoutUiState.linearLayoutCellTextStates.set(id, cloneLinearLayoutCellTextState(currentCellTextState));
-    }
-    const currentMultiInputState = linearLayoutUiState.linearLayoutMultiInputStates.get(currentTab.id);
-    if (currentMultiInputState) {
-        linearLayoutUiState.linearLayoutMultiInputStates.set(id, cloneLinearLayoutMultiInputState(currentMultiInputState));
-    }
-    const currentTensorViewsState = linearLayoutUiState.linearLayoutTensorViewsStates.get(currentTab.id);
-    if (currentTensorViewsState) {
-        linearLayoutUiState.linearLayoutTensorViewsStates.set(id, cloneLinearLayoutTensorViewsState(currentTensorViewsState));
-    }
-    linearLayoutUiState.linearLayoutSelectionMaps.delete(id);
+    extensions.forEach((extension) => {
+        extension.cloneTab?.(extensionContext, currentTab.id, id);
+    });
     sessionTabs = [...sessionTabs, nextTab];
     await loadTab(id);
 }
@@ -1021,13 +831,9 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
     const canRotate = snapshot.displayMode === '3d';
     const interactionMode = snapshot.interactionMode ?? viewer.getInteractionMode();
-    const currentTab = activeTab();
-    const linearLayoutActive = Boolean(currentTab && isLinearLayoutTab(currentTab));
-    const linearLayoutInjective = currentTab && isLinearLayoutTab(currentTab)
-        ? (composeLayoutMetaForTab(currentTab)?.injective ?? true)
-        : true;
     // app-entry decides control state because it owns viewer/tab context; the
     // control-dock module only renders this declarative list.
+    const extensionControls = extensions.flatMap((extension) => extension.controls?.(extensionContext, snapshot) ?? []);
     const controls: ControlSpec[] = [
         {
             id: 'pan',
@@ -1080,20 +886,7 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
             content: '<span class="control-button-text" aria-hidden="true">3D</span>',
             onClick: () => { viewer.setDisplayMode('3d'); },
         },
-        {
-            id: 'propagate-outputs',
-            label: 'Propagate Outputs',
-            description: linearLayoutActive
-                ? linearLayoutPropagateOutputsInfo(linearLayoutInjective)
-                : 'Propagate Outputs is available for linear-layout tabs.',
-            shortcut: 'N/A',
-            active: linearLayoutUiState.linearLayoutState.propagateOutputs,
-            disabled: !linearLayoutActive,
-            content: controlIcons.propagateOutputs,
-            onClick: async () => {
-                await toggleLinearLayoutPropagateOutputs(linearLayoutUi);
-            },
-        },
+        ...extensionControls,
         {
             id: 'dim-lines',
             label: 'Dim Lines',
@@ -1165,17 +958,11 @@ async function loadTab(tabId: string): Promise<void> {
         switchingTab = false;
     }
     renderTabStrip();
-    // after the viewer owns the new tensors, sync the linear-layout widgets from
-    // tab metadata so UI state and rendered data change in one visible step.
-    syncLinearLayoutState(linearLayoutUi, tab);
-    syncLinearLayoutCellTextState(linearLayoutUi, tab);
-    syncLinearLayoutMultiInputState(linearLayoutUi, tab);
-    renderLinearLayoutPresetWidget(linearLayoutUi);
-    renderLinearLayoutEditorWidgets(linearLayoutUi);
-    renderCellTextWidget(linearLayoutUi);
-    syncLinearLayoutViewFilters(linearLayoutUi);
-    applyLinearLayoutCellText(linearLayoutUi);
-    syncLinearLayoutSelectionPreview(linearLayoutUi, new Map());
+    // extensions hydrate tab-local state after the viewer has accepted the
+    // manifest, otherwise widget state can describe tensors that were rejected.
+    extensions.forEach((extension) => {
+        extension.afterLoadTab?.(extensionContext, tab);
+    });
 }
 
 window.addEventListener('pointerup', () => {
@@ -1345,7 +1132,7 @@ function applyTensorViewEditor(
 ): void {
     try {
         viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
-        syncLinearLayoutViewFilters(linearLayoutUi);
+        linearLayoutExtension.syncViewFilters();
         viewErrors.delete(tensorId);
     } catch (error) {
         viewErrors.set(tensorId, error instanceof Error ? error.message : String(error));
@@ -1526,7 +1313,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
     const tab = activeTab();
-    const linearLayoutMeta = tab && isLinearLayoutTab(tab) ? composeLayoutMetaForTab(tab) : null;
+    const linearLayoutMeta = linearLayoutExtension.metaForTab(tab);
     if (!model.handle) {
         tensorViewWidget.innerHTML = `${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
@@ -1535,8 +1322,8 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const error = viewErrors.get(model.handle.id);
     const editor = model.viewEditor;
     if (!editor) return;
-    const selectionMap = tab && isLinearLayoutTab(tab) ? linearLayoutSelectionMapForTab(linearLayoutUi, tab) : null;
-    const multiInput = selectionMap ? linearLayoutMultiInputModel(linearLayoutUi, selectionMap) : null;
+    const selectionMap = tab && linearLayoutExtension.isTab(tab) ? linearLayoutExtension.selectionMapForTab(tab) : null;
+    const multiInput = selectionMap ? linearLayoutExtension.multiInputModel(selectionMap) : null;
     const tensorOptions = model.tensors.map((tensor) => `
       <option value="${escapeHtml(tensor.id)}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${escapeHtml(tensor.name || tensor.id)}</option>
     `).join('');
@@ -1649,7 +1436,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.key, nextValue);
-            syncLinearLayoutViewFilters(linearLayoutUi);
+            linearLayoutExtension.syncViewFilters();
             // updating the whole widget during slider drag resets the active range input,
             // so keep the drag stable and only sync the expression text in place
             syncTensorViewInput();
@@ -1690,12 +1477,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const slider = row.querySelector<HTMLInputElement>('#multi-input-slider');
         const number = row.querySelector<HTMLInputElement>('#multi-input-slider-number');
         const applyValue = (nextValue: number): void => {
-            linearLayoutUiState.linearLayoutMultiInputState[multiInput.focusedTensorId] = nextValue;
-            const activeTabId = linearLayoutUi.getActiveTabId();
-            if (activeTabId) {
-                linearLayoutUiState.linearLayoutMultiInputStates.set(activeTabId, cloneLinearLayoutMultiInputState(linearLayoutUiState.linearLayoutMultiInputState));
-            }
-            syncLinearLayoutViewFilters(linearLayoutUi);
+            linearLayoutExtension.setMultiInputValue(multiInput.focusedTensorId, nextValue);
         };
         slider?.addEventListener('pointerdown', (event) => {
             beginTensorViewSliderDrag(slider, event.pointerId);
@@ -1728,7 +1510,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
     const tab = activeTab();
-    const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
+    const linearLayoutTab = tab && linearLayoutExtension.isTab(tab) ? tab : null;
     if (!model.handle) {
         inspectorReady = false;
         inspectorRefs = null;
@@ -1757,8 +1539,6 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
-    const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutUi, linearLayoutTab) : null;
-    const coordEntries = inspectorCoordEntries(linearLayoutUi, hover, hoveredStatus, linearLayout);
     const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
         if (!coord || !shape) return '';
         return formatAxisTokens(
@@ -1774,6 +1554,8 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.coordList.classList.toggle('hidden', !hover);
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
     const coordList = inspectorWidget.querySelector<HTMLDivElement>('#inspector-coord-list');
+    const linearLayout = linearLayoutTab ? linearLayoutExtension.selectionMapForTab(linearLayoutTab) : null;
+    const coordEntries = linearLayoutExtension.inspectorCoordEntries(linearLayoutExtension.ui, hover, hoveredStatus, linearLayout);
     if (coordList) {
         coordList.innerHTML = coordEntries.map((entry) => `
             <div class="inspector-coord-item">
@@ -1789,50 +1571,6 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
         dimensionMappingScheme,
     );
     inspectorRefs.rankValue.textContent = String(hoveredStatus?.rank ?? model.handle.rank);
-}
-
-function renderLinearLayoutHoverPopup(): void {
-    const tab = activeTab();
-    const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
-    const hover = viewer.getLiveHover();
-    const linearLayout = linearLayoutTab ? linearLayoutSelectionMapForTab(linearLayoutUi, linearLayoutTab) : null;
-    const entries = linearLayoutHoverPopupEntries(linearLayoutUi, hover, linearLayout);
-    if (entries.length === 0) {
-        hoverPopup.classList.add('hidden');
-        hoverPopup.innerHTML = '';
-        return;
-    }
-    hoverPopup.innerHTML = `
-      <div class="linear-layout-hover-popup-title">Input Cells</div>
-      <div class="linear-layout-hover-popup-list">${entries.map((entry) => `
-        <div class="linear-layout-hover-popup-item">
-          <span class="linear-layout-hover-popup-swatch" style="--cell-color: ${escapeInfo(entry.color)};"></span>
-          <span class="linear-layout-hover-popup-text">${escapeInfo(entry.text).replace(/\n/g, '<br />')}</span>
-        </div>
-      `).join('')}</div>
-    `;
-    hoverPopup.classList.remove('hidden');
-    placeHoverPopup();
-}
-
-function placeHoverPopup(): void {
-    if (hoverPopup.classList.contains('hidden')) return;
-    const rect = viewport.getBoundingClientRect();
-    const width = hoverPopup.offsetWidth;
-    const height = hoverPopup.offsetHeight;
-    const maxLeft = Math.max(12, rect.width - width - 12);
-    const maxTop = Math.max(12, rect.height - height - 12);
-    hoverPopup.style.left = `${Math.min(maxLeft, hoverPopupPointer.x + 18)}px`;
-    hoverPopup.style.top = `${Math.min(maxTop, hoverPopupPointer.y + 18)}px`;
-}
-
-function updateHoverPopupPointer(event: PointerEvent): void {
-    const rect = viewport.getBoundingClientRect();
-    hoverPopupPointer = {
-        x: Math.max(12, event.clientX - rect.left),
-        y: Math.max(12, event.clientY - rect.top),
-    };
-    placeHoverPopup();
 }
 
 function renderSelectionWidget(snapshot: ViewerSnapshot): void {
@@ -1944,28 +1682,26 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 function render(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) {
         renderInspectorWidget(snapshot);
-        renderLinearLayoutHoverPopup();
+        extensions.forEach((extension) => {
+            extension.hover?.(extensionContext, snapshot);
+        });
         return;
     }
     if (!switchingTab) captureActiveTabSnapshot();
-    const tab = activeTab();
-    const activeTensorId = tab && isLinearLayoutTab(tab) ? (snapshot.activeTensorId ?? null) : null;
-    if (activeTensorId !== lastLinearLayoutActiveTensorId) {
-        lastLinearLayoutActiveTensorId = activeTensorId;
-        if (activeTensorId) {
-            syncLinearLayoutViewFilters(linearLayoutUi);
+    for (const extension of extensions) {
+        if (extension.beforeRender?.(extensionContext, snapshot)) {
             return;
         }
     }
     updateSidebar(snapshot);
     renderTabStrip();
-    renderCellTextWidget(linearLayoutUi);
     renderControlDock(snapshot);
-    renderTensorViewWidget(snapshot);
-    renderInspectorWidget(snapshot);
-    renderLinearLayoutHoverPopup();
-    renderSelectionWidget(snapshot);
-    renderAdvancedSettingsWidget(snapshot);
+    widgetSpecs.forEach((spec) => {
+        spec.render(extensionContext, snapshot);
+    });
+    extensions.forEach((extension) => {
+        extension.afterRender?.(extensionContext, snapshot);
+    });
 }
 
 function safeDataFile(dataFile: string): string {
@@ -2055,64 +1791,16 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
 
 /** loads one session tab from the raw manifest plus tensor-byte endpoints. */
 async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
-    const legacySpec = (tab.viewer as { linearLayoutSpec?: unknown }).linearLayoutSpec;
-    const storedComposeState = (tab.viewer as { composeLayoutState?: unknown }).composeLayoutState;
-    const storedTensorViews = (tab.viewer as { composeLayoutTensorViews?: unknown }).composeLayoutTensorViews;
-    const composeMeta = (tab.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
-    const storedMultiInputState = (tab.viewer as { linearLayoutMultiInputState?: unknown }).linearLayoutMultiInputState;
-    if (legacySpec) {
-        const state = isLinearLayoutState(storedComposeState)
-            ? cloneLinearLayoutState(storedComposeState)
-            : composeLayoutStateFromLegacySpec(legacySpec, tab.title);
-        const document = createComposeLayoutDocument(state, {
-            ...tab.viewer,
-            showSelectionPanel: false,
-        }, tab.title);
-        linearLayoutUiState.linearLayoutStates.set(tab.id, cloneLinearLayoutState(state));
-        if (storedTensorViews && typeof storedTensorViews === 'object') {
-            linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
-        } else {
-            linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(document.manifest.viewer));
-        }
-        if (isLinearLayoutMultiInputState(storedMultiInputState)) {
-            linearLayoutUiState.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(storedMultiInputState));
-        }
-        return {
-            ...document,
-            id: tab.id,
-            title: tab.title,
-        };
-    }
-    const isLinearLayout = isComposeLayoutMeta(composeMeta);
-    const viewerState = {
-        ...tab.viewer,
-        dimensionMappingScheme: isLinearLayout
-            ? (tab.viewer.dimensionMappingScheme ?? 'contiguous')
-            : tab.viewer.dimensionMappingScheme,
-        showSelectionPanel: false,
-    };
-    const storedLinearLayoutState = (viewerState as { composeLayoutState?: unknown }).composeLayoutState;
-    if (isLinearLayout && isLinearLayoutState(storedLinearLayoutState)) {
-        linearLayoutUiState.linearLayoutStates.set(tab.id, cloneLinearLayoutState(storedLinearLayoutState));
-    }
-    if (isLinearLayout && storedTensorViews && typeof storedTensorViews === 'object') {
-        linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, cloneLinearLayoutTensorViewsState(storedTensorViews as LinearLayoutTensorViewsState));
-    } else if (isLinearLayout) {
-        linearLayoutUiState.linearLayoutTensorViewsStates.set(tab.id, snapshotTensorViews(viewerState));
-    }
-    const storedCellTextState = (viewerState as { linearLayoutCellTextState?: unknown }).linearLayoutCellTextState;
-    if (isLinearLayout && isLinearLayoutCellTextState(storedCellTextState)) {
-        linearLayoutUiState.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(storedCellTextState));
-    }
-    if (isLinearLayout && isLinearLayoutMultiInputState(storedMultiInputState)) {
-        linearLayoutUiState.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(storedMultiInputState));
+    for (const extension of extensions) {
+        const loaded = await extension.loadSessionTab?.(extensionContext, tab);
+        if (loaded) return loaded;
     }
     return {
         id: tab.id,
         title: tab.title,
         manifest: {
             version: 1,
-            viewer: viewerState,
+            viewer: tab.viewer,
             tensors: tab.tensors,
         },
         tensors: await loadTabTensors(tab.tensors),
@@ -2132,10 +1820,9 @@ async function tryLoadSession(): Promise<boolean> {
     if (manifest.tabs.length > VIEWER_LIMITS.maxTabs) throw new Error('Session has too many tabs.');
     const initialMapping = manifest.tabs[0]?.viewer.dimensionMappingScheme;
     if (initialMapping) viewer.setDimensionMappingScheme(initialMapping);
-    // session load replaces every tab, so caches derived from old tab ids must
-    // be cleared before loadSessionTab rebuilds documents.
-    linearLayoutUiState.linearLayoutMultiInputStates.clear();
-    linearLayoutUiState.linearLayoutSelectionMaps.clear();
+    extensions.forEach((extension) => {
+        extension.beforeSessionLoad?.(extensionContext);
+    });
     let totalTensors = 0;
     let totalTensorBytes = 0;
     for (const tab of manifest.tabs) {
@@ -2164,13 +1851,13 @@ async function tryLoadSession(): Promise<boolean> {
 }
 
 function seedDemoTensor(): void {
+    sessionTabs.forEach((tab) => {
+        extensions.forEach((extension) => {
+            extension.clearTab?.(extensionContext, tab.id);
+        });
+    });
     sessionTabs = [];
     activeTabId = null;
-    linearLayoutUiState.linearLayoutStates.clear();
-    linearLayoutUiState.linearLayoutCellTextStates.clear();
-    linearLayoutUiState.linearLayoutMultiInputStates.clear();
-    linearLayoutUiState.linearLayoutTensorViewsStates.clear();
-    linearLayoutUiState.linearLayoutSelectionMaps.clear();
     const shape = [4, 4, 4];
     const data = new Float64Array(product(shape));
     for (let index = 0; index < data.length; index += 1) {
@@ -2198,6 +1885,13 @@ function svgFilename(): string {
 async function currentSvgDocument(): Promise<string> {
     if (viewer.getSnapshot().displayMode !== '2d') return viewer.exportCurrentViewSvg();
     return viewer.saveSvg().text();
+}
+
+async function loadFallbackTabs(): Promise<boolean> {
+    for (const extension of extensions) {
+        if (await extension.loadFallback?.(extensionContext)) return true;
+    }
+    return false;
 }
 
 async function runAction(action: string): Promise<void> {
@@ -2346,31 +2040,44 @@ window.addEventListener('keydown', async (event) => {
 });
 
 viewer.subscribe(render);
-viewport.addEventListener('pointermove', updateHoverPopupPointer);
+viewport.addEventListener('pointermove', (event) => {
+    extensions.forEach((extension) => {
+        extension.pointerMove?.(extensionContext, event);
+    });
+});
 viewport.addEventListener('pointerleave', () => {
-    hoverPopup.classList.add('hidden');
+    extensions.forEach((extension) => {
+        extension.pointerLeave?.(extensionContext);
+    });
 });
 viewer.subscribeHover(() => {
     const snapshot = viewer.getSnapshot();
     renderInspectorWidget(snapshot);
-    renderLinearLayoutHoverPopup();
+    extensions.forEach((extension) => {
+        extension.hover?.(extensionContext, snapshot);
+    });
 });
 viewer.subscribeSelectionPreview((selection) => {
-    syncLinearLayoutSelectionPreview(linearLayoutUi, selection);
+    extensions.forEach((extension) => {
+        extension.selectionPreview?.(extensionContext, selection);
+    });
 });
 viewer.subscribeSelection((selection) => {
     renderSelectionWidget(viewer.getSnapshot());
-    syncLinearLayoutSelection(linearLayoutUi, selection);
+    extensions.forEach((extension) => {
+        extension.selection?.(extensionContext, selection);
+    });
 });
-renderLinearLayoutPresetWidget(linearLayoutUi);
-renderLinearLayoutEditorWidgets(linearLayoutUi);
+widgetSpecs.forEach((spec) => {
+    spec.render(extensionContext, viewer.getSnapshot());
+});
 
 tryLoadSession().then(async (loaded) => {
     if (loaded) return;
-    if (await loadBakedLinearLayoutTabs(linearLayoutUi)) return;
+    if (await loadFallbackTabs()) return;
     seedDemoTensor();
 }).catch(async () => {
-    if (await loadBakedLinearLayoutTabs(linearLayoutUi)) return;
+    if (await loadFallbackTabs()) return;
     seedDemoTensor();
 });
 }
