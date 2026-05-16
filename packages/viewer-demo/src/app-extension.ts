@@ -7,6 +7,7 @@ import type {
     TensorViewer,
     ViewerSnapshot,
 } from '@tensor-viz/viewer-core';
+import type { AppShellWidgetSlot } from './app-shell.js';
 import type { ControlSpec } from './control-dock.js';
 
 export type CommandAction = {
@@ -61,4 +62,9 @@ export type DemoAppExtension = {
     hover?: (ctx: DemoExtensionContext, snapshot: ViewerSnapshot) => void;
     selectionPreview?: (ctx: DemoExtensionContext, selection: SelectionCoords) => void;
     selection?: (ctx: DemoExtensionContext, selection: SelectionCoords) => void;
+};
+
+export type DemoExtensionFactory = {
+    widgetSlots: AppShellWidgetSlot[];
+    create: (ctx: DemoExtensionContext) => DemoAppExtension;
 };

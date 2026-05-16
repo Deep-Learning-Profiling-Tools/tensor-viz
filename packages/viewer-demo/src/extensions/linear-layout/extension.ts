@@ -6,6 +6,7 @@ import type {
 import type {
     DemoAppExtension,
     DemoExtensionContext,
+    DemoExtensionFactory,
     DemoWidgetSpec,
     LoadedSessionTab,
 } from '../../app-extension.js';
@@ -463,3 +464,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
     };
     return runtime;
 }
+
+export const linearLayoutExtensionFactory = {
+    widgetSlots: LINEAR_LAYOUT_WIDGET_SLOTS,
+    create: createLinearLayoutExtension,
+} satisfies DemoExtensionFactory;

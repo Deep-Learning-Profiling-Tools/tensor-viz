@@ -29,11 +29,8 @@ import {
 import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoWidgetSpec } from './app-extension.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL, type AppShellWidgetSlot } from './app-shell.js';
 import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
-import {
-    createLinearLayoutExtension,
-    LINEAR_LAYOUT_WIDGET_SLOTS,
-    type LinearLayoutExtensionRuntime,
-} from './extensions/linear-layout/extension.js';
+import type { LinearLayoutExtensionRuntime } from './extensions/linear-layout/extension.js';
+import { DEMO_EXTENSION_FACTORIES } from './registered-extensions.js';
 import './styles.css';
 
 const app = getAppRoot();
@@ -47,6 +44,7 @@ const CORE_WIDGET_SLOTS = [
     { id: 'selection' },
     { id: 'advanced-settings' },
 ] satisfies AppShellWidgetSlot[];
+const EXTENSION_WIDGET_SLOTS = DEMO_EXTENSION_FACTORIES.flatMap((factory) => factory.widgetSlots);
 const {
     viewport,
     tabStrip,
@@ -58,7 +56,7 @@ const {
     commandPaletteBackdrop,
     commandPaletteInput,
     commandPaletteList,
-} = mountAppShell(app, [...LINEAR_LAYOUT_WIDGET_SLOTS, ...CORE_WIDGET_SLOTS]);
+} = mountAppShell(app, [...EXTENSION_WIDGET_SLOTS, ...CORE_WIDGET_SLOTS]);
 
 const viewer = new TensorViewer(viewport);
 const infoTooltip = document.createElement('div');
@@ -189,8 +187,12 @@ const coreWidgetSpecs: DemoWidgetSpec[] = [
     },
 ];
 
-const linearLayoutExtension: LinearLayoutExtensionRuntime = createLinearLayoutExtension(extensionContext);
-const extensions: DemoAppExtension[] = [linearLayoutExtension];
+const extensions: DemoAppExtension[] = DEMO_EXTENSION_FACTORIES.map((factory) => factory.create(extensionContext));
+const linearLayoutExtension = (() => {
+    const extension = extensions.find((entry): entry is LinearLayoutExtensionRuntime => entry.id === 'linear-layout');
+    if (!extension) throw new Error('Missing linear-layout extension.');
+    return extension;
+})();
 const widgetSpecs = [...extensions.flatMap((extension) => extension.widgets), ...coreWidgetSpecs];
 const widgetSpecById = new Map(widgetSpecs.map((spec) => [spec.id, spec]));
 const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, widgets[spec.id]!]));
