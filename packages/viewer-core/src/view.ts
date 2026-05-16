@@ -6,6 +6,7 @@ import type {
     ViewParseResult,
     ViewToken,
 } from './types.js';
+import { normalizeTensorViewEditor, VIEWER_LIMITS } from './validation.js';
 
 const TENSOR_VIEW_EDITOR_PREFIX = 'tv2:';
 
@@ -464,7 +465,7 @@ export function defaultTensorViewEditor(shape: number[], axisLabelsInput?: reado
 }
 
 export function serializeTensorViewEditor(editor: TensorViewEditor): string {
-    return `${TENSOR_VIEW_EDITOR_PREFIX}${encodeURIComponent(JSON.stringify(editor))}`;
+    return `${TENSOR_VIEW_EDITOR_PREFIX}${encodeURIComponent(JSON.stringify(normalizeTensorViewEditor(editor)))}`;
 }
 
 /** Map one visible view coordinate into the original dense tensor coordinate. */
@@ -643,8 +644,15 @@ export function parseTensorView(
         return { ok: true, spec: buildEditorSpec(shape, axisLabels, defaultEditor(shape, axisLabels)) };
     }
     if (input.startsWith(TENSOR_VIEW_EDITOR_PREFIX)) {
+        if (input.length > VIEWER_LIMITS.maxEditorInputLength) {
+            return { ok: false, errors: ['Tensor view editor state is too large.'] };
+        }
         try {
-            const editor = JSON.parse(decodeURIComponent(input.slice(TENSOR_VIEW_EDITOR_PREFIX.length))) as TensorViewEditor;
+            const decoded = decodeURIComponent(input.slice(TENSOR_VIEW_EDITOR_PREFIX.length));
+            if (decoded.length > VIEWER_LIMITS.maxEditorInputLength) {
+                return { ok: false, errors: ['Tensor view editor state is too large.'] };
+            }
+            const editor = normalizeTensorViewEditor(JSON.parse(decoded));
             const normalized = normalizeEditor(shape, axisLabels, editor);
             if (!normalized.ok) return normalized;
             return { ok: true, spec: buildEditorSpec(shape, axisLabels, normalized.editor) };

@@ -4,6 +4,17 @@ export type { CoordHit2D } from './layout.js';
 export { createBundleManifest, createSessionBundleManifest, createViewerSnapshot } from './session.js';
 export type { BundleDocumentSpec, SessionTabSpec, SessionTensorSpec } from './session.js';
 export {
+    dtypeByteLength,
+    expectedTensorByteLength,
+    isDType,
+    tensorElementCount,
+    validateBundleManifest,
+    validateSessionBundleManifest,
+    validateTensorPayload,
+    validateTensorShape,
+    VIEWER_LIMITS,
+} from './validation.js';
+export {
     buildTensorViewExpression,
     defaultTensorViewEditor,
     expandGroupedIndex,

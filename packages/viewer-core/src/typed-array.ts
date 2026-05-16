@@ -1,4 +1,5 @@
 import type { DType, NumericArray } from './types.js';
+import { isDType } from './validation.js';
 
 const DTYPE_TO_ARRAY = {
     float64: Float64Array,
@@ -9,6 +10,7 @@ const DTYPE_TO_ARRAY = {
 
 /** Construct the viewer's typed-array wrapper for one dtype and raw buffer. */
 export function createTypedArray(dtype: DType, buffer: ArrayBuffer): NumericArray {
+    if (!isDType(dtype)) throw new Error(`Unsupported dtype ${String(dtype)}.`);
     const ctor = DTYPE_TO_ARRAY[dtype];
     return new ctor(buffer);
 }
