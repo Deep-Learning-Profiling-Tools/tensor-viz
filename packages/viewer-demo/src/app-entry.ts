@@ -71,6 +71,8 @@ const DATA_FILE_PATTERN = /^(?:tabs\/[a-z0-9_-]+\/)?tensors\/[a-z0-9_-]+\.bin$/i
 const TENSOR_CONTENT_TYPE = 'application/octet-stream';
 const SESSION_MANIFEST_CONTENT_TYPE = 'application/json';
 const SESSION_MANIFEST_MAX_BYTES = 8 * 1024 * 1024;
+const SESSION_MAX_TENSORS = VIEWER_LIMITS.maxTensors;
+const SESSION_MAX_TENSOR_BYTES = VIEWER_LIMITS.maxPayloadBytes;
 
 function sessionApiToken(): string | null {
     return new URLSearchParams(window.location.search).get('token')
@@ -1581,10 +1583,24 @@ async function tryLoadSession(): Promise<boolean> {
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${manifest.version}.`);
     if (!Array.isArray(manifest.tabs)) throw new Error('Session tabs must be an array.');
     if (manifest.tabs.length > VIEWER_LIMITS.maxTabs) throw new Error('Session has too many tabs.');
-    const loadedTabs: LoadedBundleDocument[] = [];
+    let totalTensors = 0;
+    let totalTensorBytes = 0;
     for (const tab of manifest.tabs) {
         if (!Array.isArray(tab.tensors)) throw new Error('Session tab tensors must be an array.');
-        if (tab.tensors.length > VIEWER_LIMITS.maxTensors) throw new Error('Session tab has too many tensors.');
+        totalTensors += tab.tensors.length;
+        if (tab.tensors.length > VIEWER_LIMITS.maxTensors || totalTensors > SESSION_MAX_TENSORS) {
+            throw new Error('Session has too many tensors.');
+        }
+        for (const tensor of tab.tensors.filter((entry) => entry.dataFile)) {
+            safeDataFile(tensor.dataFile ?? '');
+            totalTensorBytes += expectedTensorByteLength(tensor.dtype, tensor.shape);
+            if (totalTensorBytes > SESSION_MAX_TENSOR_BYTES) {
+                throw new Error('Session tensor payloads are too large.');
+            }
+        }
+    }
+    const loadedTabs: LoadedBundleDocument[] = [];
+    for (const tab of manifest.tabs) {
         loadedTabs.push(await loadSessionTab(tab));
     }
     sessionTabs = loadedTabs;
