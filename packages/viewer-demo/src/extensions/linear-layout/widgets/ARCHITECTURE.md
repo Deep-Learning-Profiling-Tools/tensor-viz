@@ -14,6 +14,6 @@ The split here follows the shape of the UI the user sees:
 
 When changing sidebar UI, start with the widget that owns the visible control. Keep event binding, rendering, and widget-specific DOM queries in that file. Move code into `linear-layout-widget-shared.ts` only after two or more widgets genuinely use the same behavior.
 
-Preset selector changes should usually happen in `linear-layout-presets/` instead of `linear-layout-preset-widget.ts`. The preset widget renders the field metadata and options exposed by the catalog; it should not learn instruction-family rules such as `mma`, `swizzle`, or `mfma`.
+Preset selector changes should usually happen in `presets/` instead of `linear-layout-preset-widget.ts`. The preset widget renders the field metadata and options exposed by the catalog; it should not learn instruction-family rules such as `mma`, `swizzle`, or `mfma`.
 
 After changing widget behavior, add or update tests through the model functions where possible. For DOM-only behavior that is not covered today, keep the implementation small and verify with `npm run test --workspace @tensor-viz/viewer-demo` plus `npm run build`.

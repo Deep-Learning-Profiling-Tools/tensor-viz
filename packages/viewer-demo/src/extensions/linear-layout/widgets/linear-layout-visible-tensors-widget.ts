@@ -1,4 +1,4 @@
-import { escapeInfo } from '../app-format.js';
+import { escapeInfo } from '../../../app-format.js';
 import { composeLayoutMetaForTab, type LinearLayoutUiContext } from '../linear-layout-state.js';
 import { applyLinearLayoutSpec } from './linear-layout-widget-actions.js';
 import { VISIBLE_TENSORS_ERROR, activeLinearLayoutTab } from './linear-layout-widget-shared.js';

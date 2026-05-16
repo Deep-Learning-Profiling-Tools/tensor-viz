@@ -1,4 +1,4 @@
-import { escapeInfo, infoButton, labelWithInfo } from '../app-format.js';
+import { escapeInfo, infoButton, labelWithInfo } from '../../../app-format.js';
 import { autoColorLayoutState } from '../linear-layout.js';
 import {
     cloneLinearLayoutCellTextState,

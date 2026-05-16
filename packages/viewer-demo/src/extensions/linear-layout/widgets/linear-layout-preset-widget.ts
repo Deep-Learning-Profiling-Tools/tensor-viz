@@ -1,4 +1,4 @@
-import { escapeInfo, infoButton } from '../app-format.js';
+import { escapeInfo, infoButton } from '../../../app-format.js';
 import {
     cloneComposeLayoutPresetSelection,
     composeLayoutPresetFields,

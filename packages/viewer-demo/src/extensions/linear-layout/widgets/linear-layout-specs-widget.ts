@@ -1,4 +1,4 @@
-import { escapeInfo, labelWithInfo } from '../app-format.js';
+import { escapeInfo, labelWithInfo } from '../../../app-format.js';
 import {
     bakedComposeLayoutExamples,
     buildComposeRuntime,

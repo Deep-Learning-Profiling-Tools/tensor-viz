@@ -160,7 +160,16 @@ def main() -> None:
 
     repo_root = Path(__file__).resolve().parents[2]
     source_path = repo_root / "demo_linear_layout.py"
-    target_path = repo_root / "tensor-viz" / "packages" / "viewer-demo" / "src" / "linear-layout.ts"
+    target_path = (
+        repo_root
+        / "tensor-viz"
+        / "packages"
+        / "viewer-demo"
+        / "src"
+        / "extensions"
+        / "linear-layout"
+        / "linear-layout.ts"
+    )
     layouts = parse_demo_layouts(source_path)
     target_text = target_path.read_text()
     pattern = re.compile(rf"{re.escape(SYNC_START)}.*?{re.escape(SYNC_END)}", re.DOTALL)

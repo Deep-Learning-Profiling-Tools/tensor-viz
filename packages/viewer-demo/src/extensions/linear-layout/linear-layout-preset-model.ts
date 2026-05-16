@@ -1,9 +1,9 @@
-import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './linear-layout-presets/index.js';
+import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './presets/index.js';
 import type {
     ComposeLayoutPresetDefinition,
     ComposeLayoutPresetFacetValue,
     ComposeLayoutPresetFieldDefinition,
-} from './linear-layout-presets/types.js';
+} from './presets/types.js';
 import {
     formatSpecsText,
     parseLayoutSpecs,

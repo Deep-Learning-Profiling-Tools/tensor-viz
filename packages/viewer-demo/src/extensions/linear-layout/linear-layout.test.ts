@@ -14,7 +14,7 @@ import {
     propagationLabels,
     type ComposeLayoutState,
 } from './linear-layout.js';
-import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './linear-layout-presets/index.js';
+import { COMPOSE_LAYOUT_PRESET_FAMILIES } from './presets/index.js';
 import {
     coordsForRootIndexes,
     linearLayoutDisplayModel,

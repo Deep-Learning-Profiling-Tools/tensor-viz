@@ -8,9 +8,9 @@ import type {
     DemoExtensionContext,
     DemoWidgetSpec,
     LoadedSessionTab,
-} from './app-extension.js';
-import { controlIcons, type ControlSpec } from './control-dock.js';
-import { escapeInfo } from './app-format.js';
+} from '../../app-extension.js';
+import { controlIcons, type ControlSpec } from '../../control-dock.js';
+import { escapeInfo } from '../../app-format.js';
 import {
     composeLayoutStateFromLegacySpec,
     createComposeLayoutDocument,

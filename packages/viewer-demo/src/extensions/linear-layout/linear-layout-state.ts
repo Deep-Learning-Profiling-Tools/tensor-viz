@@ -1,5 +1,5 @@
 import type { LoadedBundleDocument, TensorViewSnapshot, ViewerSnapshot, TensorViewer } from '@tensor-viz/viewer-core';
-import { escapeInfo } from './app-format.js';
+import { escapeInfo } from '../../app-format.js';
 import {
     autoColorLayoutState,
     buildComposeRuntime,

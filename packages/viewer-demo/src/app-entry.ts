@@ -29,7 +29,7 @@ import {
 import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoWidgetSpec } from './app-extension.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
 import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
-import { createLinearLayoutExtension, type LinearLayoutExtensionRuntime } from './linear-layout-extension.js';
+import { createLinearLayoutExtension, type LinearLayoutExtensionRuntime } from './extensions/linear-layout/extension.js';
 import './styles.css';
 
 const app = getAppRoot();
