@@ -269,7 +269,7 @@ def _normalize_tab(tab: Tab, index: int) -> dict[str, Any]:
     }
 
 
-def _build_viewer_manifest(tensors: list[SessionTensor]) -> dict[str, Any]:
+def _build_viewer_manifest(tensors: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "version": 1,
         "displayMode": "2d",
@@ -285,16 +285,13 @@ def _build_viewer_manifest(tensors: list[SessionTensor]) -> dict[str, Any]:
         },
         "tensors": [
             {
-                "id": entry.tensor_id,
-                "name": entry.name,
-                "view": {
-                    "view": " ".join(entry.axis_labels),
-                    "hiddenIndices": [0] * len(entry.shape),
-                },
+                "id": entry["id"],
+                "name": entry["name"],
+                "view": entry["view"],
             }
             for entry in tensors
         ],
-        "activeTensorId": tensors[0].tensor_id if tensors else None,
+        "activeTensorId": tensors[0]["id"] if tensors else None,
     }
 
 
@@ -304,8 +301,33 @@ def _build_tensor_manifest(
     color_instructions: Mapping[str, list[dict[str, Any]]] | None = None,
     data_prefix: str = "tensors",
 ) -> list[dict[str, Any]]:
-    return [
-        {
+    manifest = []
+    for entry in tensors:
+        dim_ids = [f"axis-{axis}" for axis in range(len(entry.shape))]
+        view_input = ", ".join(
+            f"{label}={size}" for label, size in zip(entry.axis_labels, entry.shape)
+        )
+        view = {
+            "editor": {
+                "version": 2,
+                "viewTensorInput": f"[{view_input}]",
+                "baseDims": [
+                    {
+                        "id": f"axis-{axis}",
+                        "label": label,
+                        "size": entry.shape[axis],
+                    }
+                    for axis, label in enumerate(entry.axis_labels)
+                ],
+                "permutedDimIds": dim_ids,
+                "flattenSeparators": [True] * max(0, len(entry.shape) - 1),
+                "singletons": [],
+                "slicedTokenKeys": [],
+                "sliceValues": {},
+            },
+            "hiddenIndices": [0] * len(entry.shape),
+        }
+        tensor_manifest = {
             "id": entry.tensor_id,
             "name": entry.name,
             "dtype": entry.dtype,
@@ -318,14 +340,13 @@ def _build_tensor_manifest(
                 if entry.array is not None
                 else {}
             ),
-            "view": {
-                "view": " ".join(entry.axis_labels),
-                "hiddenIndices": [0] * len(entry.shape),
-            },
-            "colorInstructions": (color_instructions or {}).get(entry.tensor_id),
+            "view": view,
         }
-        for entry in tensors
-    ]
+        color = (color_instructions or {}).get(entry.tensor_id)
+        if color is not None:
+            tensor_manifest["colorInstructions"] = color
+        manifest.append(tensor_manifest)
+    return manifest
 
 
 def create_session_data(
@@ -456,7 +477,7 @@ def create_session_data(
             {
                 "id": tab["id"],
                 "title": tab["title"],
-                "viewer": _build_viewer_manifest(tab["tensors"]),
+                "viewer": _build_viewer_manifest(tensor_manifest),
                 "tensors": tensor_manifest,
             }
         )
