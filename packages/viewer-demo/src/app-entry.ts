@@ -27,9 +27,13 @@ import {
     selectionEnabled,
 } from './app-format.js';
 import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoWidgetSpec } from './app-extension.js';
-import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL } from './app-shell.js';
+import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL, type AppShellWidgetSlot } from './app-shell.js';
 import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
-import { createLinearLayoutExtension, type LinearLayoutExtensionRuntime } from './extensions/linear-layout/extension.js';
+import {
+    createLinearLayoutExtension,
+    LINEAR_LAYOUT_WIDGET_SLOTS,
+    type LinearLayoutExtensionRuntime,
+} from './extensions/linear-layout/extension.js';
 import './styles.css';
 
 const app = getAppRoot();
@@ -37,6 +41,12 @@ const app = getAppRoot();
 if (!supportsWebGL()) {
     renderWebglUnavailable(app);
 } else {
+const CORE_WIDGET_SLOTS = [
+    { id: 'tensor-view' },
+    { id: 'inspector' },
+    { id: 'selection' },
+    { id: 'advanced-settings' },
+] satisfies AppShellWidgetSlot[];
 const {
     viewport,
     tabStrip,
@@ -44,15 +54,11 @@ const {
     sidebarSplitter,
     sidebarHeader,
     widgets,
-    tensorViewWidget,
-    inspectorWidget,
-    selectionWidget,
-    advancedSettingsWidget,
     commandPalette,
     commandPaletteBackdrop,
     commandPaletteInput,
     commandPaletteList,
-} = mountAppShell(app);
+} = mountAppShell(app, [...LINEAR_LAYOUT_WIDGET_SLOTS, ...CORE_WIDGET_SLOTS]);
 
 const viewer = new TensorViewer(viewport);
 const infoTooltip = document.createElement('div');
@@ -61,6 +67,10 @@ app.appendChild(infoTooltip);
 const controlTooltip = document.createElement('div');
 controlTooltip.className = 'control-tooltip hidden';
 app.appendChild(controlTooltip);
+const tensorViewWidget = widgets['tensor-view']!;
+const inspectorWidget = widgets.inspector!;
+const selectionWidget = widgets.selection!;
+const advancedSettingsWidget = widgets['advanced-settings']!;
 const sidebar = tensorViewWidget.parentElement as HTMLElement;
 const sidebarScrollPad = document.createElement('div');
 sidebarScrollPad.className = 'sidebar-scroll-pad';

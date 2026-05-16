@@ -9,6 +9,7 @@ import type {
     DemoWidgetSpec,
     LoadedSessionTab,
 } from '../../app-extension.js';
+import type { AppShellWidgetSlot } from '../../app-shell.js';
 import { controlIcons, type ControlSpec } from '../../control-dock.js';
 import { escapeInfo } from '../../app-format.js';
 import {
@@ -81,6 +82,14 @@ const LINEAR_LAYOUT_WIDGETS = [
     'linear-layout-color',
     'cell-text',
 ] as const;
+
+export const LINEAR_LAYOUT_WIDGET_SLOTS = [
+    { id: 'linear-layout-preset', beforeHeader: true },
+    { id: 'linear-layout', beforeHeader: true },
+    { id: 'linear-layout-visible-tensors', beforeHeader: true },
+    { id: 'linear-layout-color', beforeHeader: true },
+    { id: 'cell-text', beforeHeader: true },
+] satisfies AppShellWidgetSlot[];
 
 function requireWidget(ctx: DemoExtensionContext, widgetId: typeof LINEAR_LAYOUT_WIDGETS[number]): HTMLElement {
     const widget = ctx.widgets[widgetId];

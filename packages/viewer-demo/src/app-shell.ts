@@ -6,16 +6,7 @@ export type AppShellRefs = {
     sidebarSplitter: HTMLDivElement;
     sidebar: HTMLElement;
     widgets: Record<string, HTMLElement>;
-    linearLayoutPresetWidget: HTMLElement;
-    linearLayoutWidget: HTMLElement;
-    linearLayoutVisibleTensorsWidget: HTMLElement;
-    cellTextWidget: HTMLElement;
-    linearLayoutColorWidget: HTMLElement;
     sidebarHeader: HTMLDivElement;
-    tensorViewWidget: HTMLElement;
-    inspectorWidget: HTMLElement;
-    selectionWidget: HTMLElement;
-    advancedSettingsWidget: HTMLElement;
     commandPalette: HTMLDivElement;
     commandPaletteBackdrop: HTMLDivElement;
     commandPaletteInput: HTMLInputElement;
@@ -26,18 +17,6 @@ export type AppShellWidgetSlot = {
     id: string;
     beforeHeader?: boolean;
 };
-
-const DEFAULT_WIDGET_SLOTS: AppShellWidgetSlot[] = [
-    { id: 'linear-layout-preset', beforeHeader: true },
-    { id: 'linear-layout', beforeHeader: true },
-    { id: 'linear-layout-visible-tensors', beforeHeader: true },
-    { id: 'linear-layout-color', beforeHeader: true },
-    { id: 'cell-text', beforeHeader: true },
-    { id: 'tensor-view' },
-    { id: 'inspector' },
-    { id: 'selection' },
-    { id: 'advanced-settings' },
-];
 
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
     const element = root.querySelector<T>(selector);
@@ -77,7 +56,7 @@ function widgetSlotHtml(slot: AppShellWidgetSlot): string {
     return `<section class="widget" id="${slot.id}-widget" data-widget-id="${slot.id}"></section>`;
 }
 
-export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[] = DEFAULT_WIDGET_SLOTS): AppShellRefs {
+export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[]): AppShellRefs {
     const primaryWidgets = widgetSlots.filter((slot) => slot.beforeHeader).map(widgetSlotHtml).join('\n');
     const sidebarWidgets = widgetSlots.filter((slot) => !slot.beforeHeader).map(widgetSlotHtml).join('\n');
     app.innerHTML = `
@@ -150,16 +129,7 @@ export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSl
         sidebarSplitter: requireElement(app, '#sidebar-splitter', 'sidebar splitter'),
         sidebar: requireElement(app, '#sidebar', 'sidebar'),
         widgets,
-        linearLayoutPresetWidget: widgets['linear-layout-preset']!,
-        linearLayoutWidget: widgets['linear-layout']!,
-        linearLayoutVisibleTensorsWidget: widgets['linear-layout-visible-tensors']!,
-        cellTextWidget: widgets['cell-text']!,
-        linearLayoutColorWidget: widgets['linear-layout-color']!,
         sidebarHeader: requireElement(app, '.sidebar-header', 'sidebar header'),
-        tensorViewWidget: widgets['tensor-view']!,
-        inspectorWidget: widgets.inspector!,
-        selectionWidget: widgets.selection!,
-        advancedSettingsWidget: widgets['advanced-settings']!,
         commandPalette: requireElement(app, '#command-palette', 'command palette'),
         commandPaletteBackdrop: requireElement(app, '#command-palette-backdrop', 'command palette backdrop'),
         commandPaletteInput: requireElement(app, '#command-palette-input', 'command palette input'),
