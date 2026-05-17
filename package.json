@@ -13,6 +13,7 @@
     "docs:py": "python -m sphinx -b html docs docs/_build/html",
     "docs:ts": "typedoc --options typedoc.json",
     "check:ts-docs": "node tools/check-ts-docs.mjs",
+    "check:ts-docs:llm": "node tools/check-ts-docs-llm.mjs",
     "check:ts-docs:llm-example": "node tools/llm-doc-audit-example.mjs",
     "check:ts-docs:staged": "node tools/check-ts-docs.mjs --staged",
     "sync:linear-layout-examples": "python tools/sync-linear-layout-examples.py",
