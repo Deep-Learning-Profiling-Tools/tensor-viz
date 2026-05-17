@@ -13,11 +13,15 @@
     "docs:py": "python -m sphinx -b html docs docs/_build/html",
     "docs:ts": "typedoc --options typedoc.json",
     "sync:linear-layout-examples": "python tools/sync-linear-layout-examples.py",
-    "test": "npm run test --workspace @tensor-viz/viewer-core && npm run test --workspace @tensor-viz/viewer-demo && PYTHONPATH=python/src python -m unittest discover -s python/tests -p 'test_*.py'",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:e2e": "playwright test",
+    "test:unit": "npm run test --workspace @tensor-viz/viewer-core && npm run test --workspace @tensor-viz/viewer-demo && PYTHONPATH=python/src python -m unittest discover -s python/tests -p 'test_*.py'",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/node": "^25.8.0",
+    "pngjs": "^7.0.0",
     "typedoc": "^0.28.17"
   }
 }

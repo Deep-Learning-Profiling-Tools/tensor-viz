@@ -5,5 +5,7 @@ packages/*/dist/
 packages/*/node_modules/
 docs/_build/
 docs/_extra/
+playwright-report/
+test-results/
 __pycache__/
 *.pyc
