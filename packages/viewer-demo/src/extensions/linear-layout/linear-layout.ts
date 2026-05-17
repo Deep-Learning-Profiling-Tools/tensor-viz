@@ -127,12 +127,14 @@ type EvaluatedLayout = {
     spec?: NamedLayoutSpec;
 };
 
+/** generated python line plus the matrix it should preview in the sidebar. */
 type CodeLine = {
     title: string;
     layout: EvaluatedLayout;
     line: string;
 };
 
+/** one baked demo tab before it is converted into a viewer document. */
 type ExampleState = {
     title: string;
     state: ComposeLayoutState;
@@ -241,10 +243,17 @@ function bakedComposeLayoutCatalog(): ExampleState[] {
     return BAKED_EXAMPLES;
 }
 
+/** return the startup compose-layout state used by the static demo.
+ *
+ * this is intentionally derived from the baked catalog instead of duplicating
+ * text fields, otherwise the default tab can drift from the examples synced out
+ * of demo_linear_layout.py.
+ */
 export function defaultComposeLayoutState(): ComposeLayoutState {
     return autoColoredComposeLayoutState(cloneComposeLayoutState(bakedComposeLayoutCatalog()[0]!.state));
 }
 
+/** return an empty but renderable layout editor state for newly-created tabs. */
 export function emptyComposeLayoutState(): ComposeLayoutState {
     const autoColor = autoColorLayoutState(DEFAULT_EMPTY_SPEC_TEXT, 'Layout_1');
     return {
@@ -259,6 +268,7 @@ export function emptyComposeLayoutState(): ComposeLayoutState {
     };
 }
 
+/** return cloned baked examples so callers can mutate sidebar state safely. */
 export function bakedComposeLayoutExamples(): ExampleState[] {
     return bakedComposeLayoutCatalog().map(({ title, state }) => ({
         title,
@@ -285,6 +295,7 @@ export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayou
     };
 }
 
+/** return whether a saved object can be treated as current compose-layout state. */
 export function isComposeLayoutState(value: unknown): value is ComposeLayoutState {
     if (!value || typeof value !== 'object') return false;
     const record = value as ComposeLayoutState;
@@ -299,6 +310,7 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
         && ['H', 'S', 'L'].every((channel) => Array.isArray(record.ranges?.[channel as ComposeChannel]));
 }
 
+/** return whether viewer snapshot metadata can drive linear-layout widgets. */
 export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta {
     if (!value || typeof value !== 'object') return false;
     const record = value as Record<string, unknown>;
@@ -315,6 +327,12 @@ export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta 
         && Array.isArray(record.tensors);
 }
 
+/** upgrade older python/demo linear-layout metadata into the current editor model.
+ *
+ * old sessions stored bases and color axes before the compose-layout editor
+ * existed. keeping this migration here lets the app load those sessions without
+ * scattering legacy branches through widgets.
+ */
 export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = 'Layout_1'): ComposeLayoutState {
     const legacy = parseLegacySpec(raw, fallbackTitle);
     const labelMap = new Map<string, string>();
@@ -375,6 +393,12 @@ function autoColoredComposeLayoutState(state: ComposeLayoutState): ComposeLayout
     };
 }
 
+/** evaluate sidebar text into the complete runtime model used by widgets.
+ *
+ * the runtime is the boundary between user-editable strings and viewer data:
+ * it parses layout specs, evaluates the operation AST over gf(2), builds the
+ * render chain, creates matrix previews, and emits python reconstruction code.
+ */
 export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName' | 'visibleTensors'>): ComposeRuntime {
     const specs = parseLayoutSpecs(state.specsText);
     if (specs.length === 0) {
@@ -428,6 +452,9 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
             case 'apply': {
                 const outer = evaluate(expr.outer);
                 const inner = evaluate(expr.inner);
+                // user syntax is Outer(Inner), while the triton python method is
+                // inner.compose(outer); keeping the order explicit prevents codegen
+                // from silently reversing composition.
                 const composed = composeLayouts(inner, outer, exprToString(expr));
                 const codeRef = `layout_tmp${tempIndex += 1}`;
                 layout = { ...composed, codeRef };
@@ -502,6 +529,8 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
         ...specs.map((spec) => matrixBlock(spec.name, namedLayout(spec))),
         ...codeLines.map(({ title, layout }) => matrixBlock(title, layout)),
     ];
+    // generated code follows the exact evaluated expression, including temporaries,
+    // so users can copy from the widget and reproduce the same matrix preview.
     const pythonCode = [
         ...specs.flatMap((spec) => pythonNamedLayout(spec)),
         ...(specs.length ? [''] : []),
@@ -541,6 +570,12 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     };
 }
 
+/** build the viewer tab for one evaluated compose-layout state.
+ *
+ * this is where abstract layout metadata becomes concrete tensors: dense buffers
+ * hold root ids, rgb buffers carry color state, and compose metadata lets hover,
+ * selection, and presets round-trip through saved viewer snapshots.
+ */
 export function createComposeLayoutDocument(
     state: ComposeLayoutState,
     viewer?: Partial<ViewerSnapshot>,
@@ -610,6 +645,7 @@ export function createComposeLayoutDocument(
     };
 }
 
+/** return root colors in the active H/S/L mapping for hover and ghost layers. */
 export function rootColorsForLayoutState(
     inputLabels: string[],
     inputShape: number[],
@@ -627,6 +663,7 @@ export function rootColorsForLayoutState(
     ));
 }
 
+/** return one dense rgb buffer per visible tensor in viewer storage order. */
 export function composeTensorColorBuffers(
     runtime: ComposeRuntime,
     state: Pick<ComposeLayoutState, 'mapping' | 'ranges' | 'propagateOutputs'>,
@@ -656,6 +693,7 @@ export function composeTensorColorBuffers(
         }));
 }
 
+/** return the labels and shape currently used for propagated colors/text. */
 export function propagationLabels(
     runtime: ComposeRuntime,
     propagateOutputs: boolean,
@@ -688,8 +726,10 @@ function parseOperation(source: string): LayoutExpr {
 
 /** recursive descent parser for layout expressions.
  *
- * precedence is intentionally small and explicit:
- * product binds weaker than application, and `inv(...)` is a unary form.
+ * precedence is intentionally small and explicit: product binds weaker than
+ * application, and `inv(...)` is a unary form. adding another operator should
+ * start here and in linear-layout.test.ts so generated python and matrix preview
+ * stay in lockstep.
  */
 class OperationParser {
     private index = 0;
@@ -918,6 +958,8 @@ function renderSteps(
 }
 
 function exprToString(expr: LayoutExpr, parentPrecedence = 0): string {
+    // stable expression text is used as tensor titles and matrix labels; avoid
+    // extra parentheses except where precedence would change the operation.
     const precedence = expr.kind === 'product' ? 1 : expr.kind === 'apply' ? 2 : 3;
     let text = '';
     switch (expr.kind) {
@@ -957,6 +999,8 @@ function indexedAxisLabel(label: string, index: number): string {
 }
 
 function pythonNamedLayout(spec: NamedLayoutSpec): string[] {
+    // emit verbose multiline code because contributors copy it into python
+    // notebooks while checking new presets.
     if (spec.inputs.length === 0) {
         return [
             `${spec.name} = LinearLayout.from_bases(`,
@@ -1008,6 +1052,8 @@ function mapCoord(
     matrix: number[][],
     outputBitCounts: number[],
 ): number[] {
+    // one coordinate maps by expanding to input bits, multiplying the gf(2)
+    // matrix, then packing output bits back into axis coordinates.
     const inputBits = bitsFromCoord(inputCoord, inputBitCounts);
     const outputBits = multiplyMatrixVector(matrix, inputBits);
     return coordFromBits(outputBits, outputBitCounts);
@@ -1056,6 +1102,8 @@ function multiplyMatrices(left: number[][], right: number[][]): number[][] {
 }
 
 function mergeProductMatrices(left: number[][], right: number[][]): number[][] {
+    // product matrices occupy disjoint bit lanes after embedding, so OR is the
+    // merge operation rather than xor.
     return left.map((row, rowIndex) => row.map((value, columnIndex) => value | (right[rowIndex]?.[columnIndex] ?? 0)));
 }
 
@@ -1068,6 +1116,8 @@ function embedProductMatrix(
     targetOutputBitCounts: number[],
     sharedOutputOffset: number[],
 ): number[][] {
+    // shared axis lists let A:[T]->[M] * B:[R]->[N] become [T,R]->[M,N]
+    // without special cases for overlapping labels.
     const matrix = Array.from({ length: sum(targetOutputBitCounts) }, () => new Array(sum(targetInputBitCounts)).fill(0));
     const targetInputAxes = new Map(targetInputs.map((label, axis) => [label, axis]));
     const targetOutputAxes = new Map(targetOutputs.map((label, axis) => [label, axis]));
@@ -1163,6 +1213,8 @@ function isInjectiveLayout(layout: Pick<EvaluatedLayout, 'matrix' | 'inputBitCou
 }
 
 function outputBitCountsFromBases(bases: number[][][], outputCount: number): number[] {
+    // output bit width is inferred from the largest set bit in the basis vectors;
+    // explicit output sizes are not stored in compose-layout specs.
     return Array.from({ length: outputCount }, (_entry, outputAxis) => {
         let bits = 0;
         bases.forEach((axisBases) => {
@@ -1227,6 +1279,8 @@ function expandOutputRows(
     currentBitCounts: number[],
     targetBitCounts: number[],
 ): number[][] {
+    // composition can require bridge axes wider than either side of the source
+    // matrix; missing high bits are zero rows.
     const currentOffsets = offsets(currentBitCounts);
     return targetBitCounts.flatMap((targetBits, axis) => (
         Array.from({ length: targetBits }, (_entry, bit) => {
@@ -1242,6 +1296,8 @@ function expandInputColumns(
     currentBitCounts: number[],
     targetBitCounts: number[],
 ): number[][] {
+    // composition can require bridge axes wider than either side of the source
+    // matrix; missing high bits are zero columns.
     const currentOffsets = offsets(currentBitCounts);
     return matrix.map((row) => targetBitCounts.flatMap((targetBits, axis) => (
         Array.from({ length: targetBits }, (_entry, bit) => {
@@ -1259,6 +1315,8 @@ function rgbColorForRootCoord(
     mapping: Record<ComposeChannel, ComposeMappingValue>,
     ranges: Record<ComposeChannel, [string, string]>,
 ): [number, number, number] {
+    // H/S/L controls are stored as axis labels, so the same mapping works for
+    // root-space and propagated output-space coloring.
     const hue = channelValue('H', coord, shape, labelToAxis.get(mapping.H) ?? null, ranges);
     const saturation = channelValue('S', coord, shape, labelToAxis.get(mapping.S) ?? null, ranges);
     const lightness = channelValue('L', coord, shape, labelToAxis.get(mapping.L) ?? null, ranges);
@@ -1332,6 +1390,7 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
 }
 
 function sanitizeIdentifier(value: string): string {
+    // generated python and operation text both need identifiers, not arbitrary titles.
     const cleaned = value.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
     return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Layout_${cleaned || '1'}`;
 }
@@ -1396,6 +1455,8 @@ function parseLegacySpec(raw: unknown, fallbackTitle: string): {
 }
 
 function canonicalLegacyLabel(name: string, axis: number): string {
+    // preserve the old hardware-axis labels where possible so saved color
+    // mappings still point at T/W/R after migration.
     const lowered = name.toLowerCase();
     if (lowered in LEGACY_AXIS_ALIASES) return LEGACY_AXIS_ALIASES[lowered as keyof typeof LEGACY_AXIS_ALIASES];
     const match = name.match(/[A-Za-z]/);
@@ -1448,6 +1509,8 @@ function autoColorMapping(
     inputLabels: string[],
     inputShape: number[],
 ): Record<ComposeChannel, ComposeMappingValue> {
+    // largest axes get the most perceptually distinct channels first; ties prefer
+    // later axes to match the historic hardware-layout defaults.
     const rankedAxes = inputLabels
         .map((label, axis) => ({ label, axis, size: inputShape[axis] ?? 1 }))
         .sort((left, right) => (right.size - left.size) || (right.axis - left.axis));
