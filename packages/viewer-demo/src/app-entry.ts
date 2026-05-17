@@ -26,10 +26,9 @@ import {
     labelWithInfo,
     selectionEnabled,
 } from './app-format.js';
-import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoWidgetSpec } from './app-extension.js';
+import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoTensorViewContribution, DemoWidgetSpec } from './app-extension.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL, type AppShellWidgetSlot } from './app-shell.js';
 import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
-import type { LinearLayoutExtensionRuntime } from './extensions/linear-layout/extension.js';
 import { DEMO_EXTENSION_FACTORIES } from './registered-extensions.js';
 import './styles.css';
 
@@ -38,6 +37,7 @@ const app = getAppRoot();
 if (!supportsWebGL()) {
     renderWebglUnavailable(app);
 } else {
+// startup and shell wiring
 const CORE_WIDGET_SLOTS = [
     { id: 'tensor-view' },
     { id: 'inspector' },
@@ -106,6 +106,7 @@ function sessionApiToken(): string | null {
 
 const sessionToken = sessionApiToken();
 
+// extension host services
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
     coordList: HTMLDivElement;
@@ -137,6 +138,7 @@ const extensionContext: DemoExtensionContext = {
 
 type SidebarWidgetId = string;
 
+// core widget registry
 const coreWidgetSpecs: DemoWidgetSpec[] = [
     {
         id: 'tensor-view',
@@ -188,11 +190,6 @@ const coreWidgetSpecs: DemoWidgetSpec[] = [
 ];
 
 const extensions: DemoAppExtension[] = DEMO_EXTENSION_FACTORIES.map((factory) => factory.create(extensionContext));
-const linearLayoutExtension = (() => {
-    const extension = extensions.find((entry): entry is LinearLayoutExtensionRuntime => entry.id === 'linear-layout');
-    if (!extension) throw new Error('Missing linear-layout extension.');
-    return extension;
-})();
 const widgetSpecs = [...extensions.flatMap((extension) => extension.widgets), ...coreWidgetSpecs];
 const widgetSpecById = new Map(widgetSpecs.map((spec) => [spec.id, spec]));
 const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, widgets[spec.id]!]));
@@ -207,6 +204,7 @@ let draggedWidgetSlot: number | null = null;
 let draggedWidgetPointerId: number | null = null;
 const collapsedWidgets = new Set<SidebarWidgetId>(widgetSpecs.filter((spec) => spec.defaultCollapsed).map((spec) => spec.id));
 
+// tooltip plumbing
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
     else console.log('[tensor-viz-ui]', event, details);
@@ -346,6 +344,7 @@ controlDock.addEventListener('scroll', () => {
     placeControlTooltip(activeControlButton);
 }, { passive: true });
 
+// command palette
 function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
     if (!enabled) return 'Unavailable';
     if (summary.count === 0) return '0';
@@ -429,6 +428,7 @@ function filteredCommandActions(): CommandAction[] {
         .map(({ entry }) => entry);
 }
 
+// sidebar widget lifecycle
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
     // widget visibility is derived from the active tab and viewer state instead
     // of unmounting widgets permanently, so drag order and collapsed state survive.
@@ -612,6 +612,7 @@ window.addEventListener('resize', () => {
     setSidebarWidth(currentWidth);
 });
 
+// tab documents
 function activeTab(): LoadedBundleDocument | undefined {
     return sessionTabs.find((tab) => tab.id === activeTabId);
 }
@@ -1086,6 +1087,7 @@ sidebar.addEventListener('pointercancel', (event) => {
     clearSidebarDragState();
 });
 
+// sidebar rendering
 function updateSidebar(snapshot: ViewerSnapshot): void {
     const visible = new Set(visibleSidebarWidgets(snapshot));
     applySidebarOrder();
@@ -1117,7 +1119,8 @@ function renderPreservingSidebarScroll(anchor: { selector: string; top: number }
     });
 }
 
-/** Keep compact textareas at their content height so widget fields stay visually aligned. */
+// tensor-view editor
+/** keep compact textareas at their content height so widget fields stay visually aligned. */
 function autosizeTextarea(textarea: HTMLTextAreaElement): void {
     textarea.style.height = '0';
     textarea.style.height = `${textarea.scrollHeight}px`;
@@ -1144,7 +1147,9 @@ function applyTensorViewEditor(
 ): void {
     try {
         viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
-        linearLayoutExtension.syncViewFilters();
+        extensions.forEach((extension) => {
+            extension.afterTensorViewChange?.(extensionContext, tensorId);
+        });
         viewErrors.delete(tensorId);
     } catch (error) {
         viewErrors.set(tensorId, error instanceof Error ? error.message : String(error));
@@ -1325,7 +1330,6 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
     const tab = activeTab();
-    const linearLayoutMeta = linearLayoutExtension.metaForTab(tab);
     if (!model.handle) {
         tensorViewWidget.innerHTML = `${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}<div class="widget-body">No tensor loaded.</div>`;
         return;
@@ -1334,8 +1338,15 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const error = viewErrors.get(model.handle.id);
     const editor = model.viewEditor;
     if (!editor) return;
-    const selectionMap = tab && linearLayoutExtension.isTab(tab) ? linearLayoutExtension.selectionMapForTab(tab) : null;
-    const multiInput = selectionMap ? linearLayoutExtension.multiInputModel(selectionMap) : null;
+    const tensorViewContribution = extensions.reduce<DemoTensorViewContribution>((merged, extension) => {
+        const contribution = extension.tensorView?.(extensionContext, { tab, tensorId: model.handle!.id });
+        if (!contribution) return merged;
+        return {
+            axisLabels: merged.axisLabels ?? contribution.axisLabels,
+            sliders: [...(merged.sliders ?? []), ...(contribution.sliders ?? [])],
+        };
+    }, {});
+    const extensionSliders = tensorViewContribution.sliders ?? [];
     const tensorOptions = model.tensors.map((tensor) => `
       <option value="${escapeHtml(tensor.id)}" ${tensor.id === model.handle!.id ? 'selected' : ''}>${escapeHtml(tensor.name || tensor.id)}</option>
     `).join('');
@@ -1344,7 +1355,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             ? `<span class="dim-chip dim-chip-singleton">1</span>`
             : `<button class="dim-chip interactive-chip${token.sliced ? ' dim-chip-sliced dim-chip-active' : ''}" data-slice-token="${escapeHtml(token.key)}" type="button">${escapeHtml(token.token)}<span>=${token.size}</span></button>`
     )).join('');
-    const originalAxisLabels = linearLayoutMeta?.tensors.find((tensor) => tensor.id === model.handle!.id)?.axisLabels ?? model.handle.axisLabels;
+    const originalAxisLabels = tensorViewContribution.axisLabels ?? model.handle.axisLabels;
     const defaultLabeledShape = model.handle.shape.map((size, index) => `${originalAxisLabels[index] ?? `A${index}`}=${size}`).join(', ');
     tensorViewWidget.innerHTML = `
       ${widgetTitle('tensor-view', 'Visualize tensor views, permutations, slices, or a combination of these ops.')}
@@ -1363,7 +1374,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
           <div class="dim-chip-row dim-chip-row-compact" id="slice-dims">${sliceContent}</div>
         </div>
         ${error ? `<div class="error-box">${escapeHtml(error)}</div>` : ''}
-        ${model.sliceTokens.length === 0 && !multiInput ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
+        ${model.sliceTokens.length === 0 && extensionSliders.length === 0 ? '' : '<div class="slider-list" id="slice-token-controls"></div>'}
         <div class="permute-slice-actions">
           <button class="reset-view-button interactive-chip" id="reset-view-button" type="button" title="Change tensor view to default view (original shape + dimension labels + no permutations)">Reset View</button>
         </div>
@@ -1448,7 +1459,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.key, nextValue);
-            linearLayoutExtension.syncViewFilters();
+            extensions.forEach((extension) => {
+                extension.afterTensorViewChange?.(extensionContext, model.handle!.id);
+            });
             // updating the whole widget during slider drag resets the active range input,
             // so keep the drag stable and only sync the expression text in place
             syncTensorViewInput();
@@ -1478,18 +1491,19 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         });
         return row;
     });
-    if (multiInput) {
+    extensionSliders.forEach((sliderSpec) => {
         const row = document.createElement('div');
         row.className = 'slider-row';
+        const sliderId = `extension-slider-${sliderSpec.id.replace(/[^a-z0-9_-]/gi, '-')}`;
         row.innerHTML = `
-          <label for="multi-input-slider">Multi-Input</label>
-          <input id="multi-input-slider" type="range" min="-1" max="${Math.max(0, multiInput.size - 1)}" value="${multiInput.value}" />
-          <input id="multi-input-slider-number" type="number" min="-1" max="${Math.max(0, multiInput.size - 1)}" value="${multiInput.value}" />
+          <label for="${sliderId}">${escapeHtml(sliderSpec.label)}</label>
+          <input id="${sliderId}" type="range" min="${sliderSpec.min}" max="${sliderSpec.max}" value="${sliderSpec.value}" />
+          <input id="${sliderId}-number" type="number" min="${sliderSpec.min}" max="${sliderSpec.max}" value="${sliderSpec.value}" />
         `;
-        const slider = row.querySelector<HTMLInputElement>('#multi-input-slider');
-        const number = row.querySelector<HTMLInputElement>('#multi-input-slider-number');
+        const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
+        const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
         const applyValue = (nextValue: number): void => {
-            linearLayoutExtension.setMultiInputValue(multiInput.focusedTensorId, nextValue);
+            sliderSpec.onChange(nextValue);
         };
         slider?.addEventListener('pointerdown', (event) => {
             beginTensorViewSliderDrag(slider, event.pointerId);
@@ -1506,7 +1520,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             endTensorViewSliderDrag(slider, event.pointerId);
         });
         number?.addEventListener('change', () => {
-            const clamped = Math.max(-1, Math.min(multiInput.size - 1, Number(number.value)));
+            const clamped = Math.max(sliderSpec.min, Math.min(sliderSpec.max, Number(number.value)));
             number.value = String(clamped);
             if (slider) slider.value = String(clamped);
             applyValue(clamped);
@@ -1514,15 +1528,13 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             render(viewer.getSnapshot());
         });
         sliderRows.push(row);
-    }
+    });
     sliceHost?.replaceChildren(...sliderRows);
 }
 
 function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
-    const tab = activeTab();
-    const linearLayoutTab = tab && linearLayoutExtension.isTab(tab) ? tab : null;
     if (!model.handle) {
         inspectorReady = false;
         inspectorRefs = null;
@@ -1566,8 +1578,18 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.coordList.classList.toggle('hidden', !hover);
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
     const coordList = inspectorWidget.querySelector<HTMLDivElement>('#inspector-coord-list');
-    const linearLayout = linearLayoutTab ? linearLayoutExtension.selectionMapForTab(linearLayoutTab) : null;
-    const coordEntries = linearLayoutExtension.inspectorCoordEntries(linearLayoutExtension.ui, hover, hoveredStatus, linearLayout);
+    const extensionCoordEntries = extensions.flatMap((extension) => (
+        extension.inspectorCoords?.(extensionContext, { snapshot, hover, hoveredStatus }) ?? []
+    ));
+    const coordEntries = extensionCoordEntries.length > 0 || !hover
+        ? extensionCoordEntries
+        : [{
+            title: hover.tensorName,
+            labels: hoveredStatus?.axisLabels.slice() ?? [],
+            shape: hoveredStatus?.shape.slice() ?? [],
+            coord: hover.tensorCoord,
+            hovered: true,
+        }];
     if (coordList) {
         coordList.innerHTML = coordEntries.map((entry) => `
             <div class="inspector-coord-item">
@@ -1691,6 +1713,7 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     });
 }
 
+// render cycle
 function render(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) {
         renderInspectorWidget(snapshot);
@@ -1716,6 +1739,7 @@ function render(snapshot: ViewerSnapshot): void {
     });
 }
 
+// python session loading
 function safeDataFile(dataFile: string): string {
     if (!DATA_FILE_PATTERN.test(dataFile) || dataFile.includes('..')) {
         throw new Error(`Unsafe tensor payload path ${dataFile}.`);
@@ -1906,6 +1930,7 @@ async function loadFallbackTabs(): Promise<boolean> {
     return false;
 }
 
+// command execution and global events
 async function runAction(action: string): Promise<void> {
     logUi('action', action);
     closeCommandPalette();
@@ -1962,11 +1987,11 @@ async function runAction(action: string): Promise<void> {
             render(viewer.getSnapshot());
             return;
         case 'view': {
-        const input = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
-        input?.focus();
-        input?.select();
-        logUi('tensor-view:focus');
-        return;
+            const input = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
+            input?.focus();
+            input?.select();
+            logUi('tensor-view:focus');
+            return;
         }
         case 'dims':
             viewer.toggleDimensionLines();

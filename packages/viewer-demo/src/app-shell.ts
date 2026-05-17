@@ -1,3 +1,4 @@
+/** concrete dom references returned after the demo shell has been mounted. */
 export type AppShellRefs = {
     app: HTMLDivElement;
     viewport: HTMLDivElement;
@@ -13,23 +14,27 @@ export type AppShellRefs = {
     commandPaletteList: HTMLDivElement;
 };
 
+/** one widget placeholder requested by core app code or an extension factory. */
 export type AppShellWidgetSlot = {
     id: string;
     beforeHeader?: boolean;
 };
 
+/** return one required element or fail during startup instead of later event binding. */
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
     const element = root.querySelector<T>(selector);
     if (!element) throw new Error(`Missing ${name}.`);
     return element;
 }
 
+/** return the root node where the demo app replaces index.html's empty shell. */
 export function getAppRoot(): HTMLDivElement {
     const app = document.querySelector<HTMLDivElement>('#app');
     if (!app) throw new Error('Missing app root.');
     return app;
 }
 
+/** check for a usable webgl context before constructing three.js renderer state. */
 export function supportsWebGL(): boolean {
     const canvas = document.createElement('canvas');
     try {
@@ -43,6 +48,7 @@ export function supportsWebGL(): boolean {
     }
 }
 
+/** render the only startup view that does not require a tensor viewer instance. */
 export function renderWebglUnavailable(app: HTMLDivElement): void {
     app.innerHTML = `
       <main class="startup-note">
@@ -52,10 +58,18 @@ export function renderWebglUnavailable(app: HTMLDivElement): void {
     `;
 }
 
+/** render one empty widget host that app-entry can hydrate from a widget spec. */
 function widgetSlotHtml(slot: AppShellWidgetSlot): string {
     return `<section class="widget" id="${slot.id}-widget" data-widget-id="${slot.id}"></section>`;
 }
 
+/** mount the reusable demo frame and return typed references to all moving parts.
+ *
+ * widget slots are supplied up front because extensions need real dom hosts
+ * before their lifecycle hooks run. for example, linear-layout asks for preset
+ * and spec widgets before the core tensor-view widget, while the plain demo
+ * still receives the same command palette and viewport refs.
+ */
 export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[]): AppShellRefs {
     const primaryWidgets = widgetSlots.filter((slot) => slot.beforeHeader).map(widgetSlotHtml).join('\n');
     const sidebarWidgets = widgetSlots.filter((slot) => !slot.beforeHeader).map(widgetSlotHtml).join('\n');

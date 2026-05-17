@@ -68,12 +68,6 @@ export type LinearLayoutExtensionRuntime = DemoAppExtension & {
     state: LinearLayoutUiState;
     ui: LinearLayoutUiContext;
     isTab: (tab: LoadedBundleDocument | undefined) => boolean;
-    metaForTab: (tab: LoadedBundleDocument | undefined) => ComposeLayoutMeta | null;
-    selectionMapForTab: (tab: LoadedBundleDocument) => LinearLayoutSelectionMap | null;
-    multiInputModel: (selectionMap: LinearLayoutSelectionMap) => ReturnType<typeof linearLayoutMultiInputModel>;
-    setMultiInputValue: (tensorId: string, value: number) => void;
-    syncViewFilters: () => void;
-    inspectorCoordEntries: typeof inspectorCoordEntries;
 };
 
 const LINEAR_LAYOUT_WIDGETS = [
@@ -279,17 +273,36 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         state,
         ui,
         isTab: (tab) => Boolean(tab && isLinearLayoutTab(tab)),
-        metaForTab: (tab) => (tab && isLinearLayoutTab(tab) ? composeLayoutMetaForTab(tab) : null),
-        selectionMapForTab: (tab) => (isLinearLayoutTab(tab) ? linearLayoutSelectionMapForTab(ui, tab) : null),
-        multiInputModel: (selectionMap) => linearLayoutMultiInputModel(ui, selectionMap),
-        setMultiInputValue: (tensorId, value) => {
-            state.linearLayoutMultiInputState[tensorId] = value;
-            const activeTabId = ctx.getActiveTabId();
-            if (activeTabId) state.linearLayoutMultiInputStates.set(activeTabId, cloneLinearLayoutMultiInputState(state.linearLayoutMultiInputState));
-            syncLinearLayoutViewFilters(ui);
+        tensorView: (_tensorViewCtx, { tab, tensorId }) => {
+            if (!tab || !isLinearLayoutTab(tab)) return null;
+            const meta = composeLayoutMetaForTab(tab);
+            const selectionMap = linearLayoutSelectionMapForTab(ui, tab);
+            const multiInput = selectionMap ? linearLayoutMultiInputModel(ui, selectionMap) : null;
+            const axisLabels = meta?.tensors.find((tensor) => tensor.id === tensorId)?.axisLabels;
+            return {
+                axisLabels,
+                sliders: multiInput ? [{
+                    id: 'linear-layout-multi-input',
+                    label: 'Multi-Input',
+                    min: -1,
+                    max: Math.max(0, multiInput.size - 1),
+                    value: multiInput.value,
+                    onChange: (value) => {
+                        state.linearLayoutMultiInputState[multiInput.focusedTensorId] = value;
+                        const activeTabId = ctx.getActiveTabId();
+                        if (activeTabId) state.linearLayoutMultiInputStates.set(activeTabId, cloneLinearLayoutMultiInputState(state.linearLayoutMultiInputState));
+                        syncLinearLayoutViewFilters(ui);
+                    },
+                }] : [],
+            };
         },
-        syncViewFilters: () => { syncLinearLayoutViewFilters(ui); },
-        inspectorCoordEntries,
+        afterTensorViewChange: () => { syncLinearLayoutViewFilters(ui); },
+        inspectorCoords: (_inspectorCtx, { hover, hoveredStatus }) => {
+            const tab = ctx.getActiveTab();
+            const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
+            if (!linearLayoutTab) return [];
+            return inspectorCoordEntries(ui, hover, hoveredStatus, linearLayoutSelectionMapForTab(ui, linearLayoutTab));
+        },
         controls: (controlCtx, snapshot): ControlSpec[] => {
             const tab = controlCtx.getActiveTab();
             const active = Boolean(tab && isLinearLayoutTab(tab));

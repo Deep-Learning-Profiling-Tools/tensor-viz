@@ -37,6 +37,20 @@ OUTPUT_AXIS_NAMES = (
     "b",
     "a",
 )
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_CANDIDATES = (
+    REPO_ROOT / "demo_linear_layout.py",
+    REPO_ROOT.parent / "demo_linear_layout.py",
+)
+TARGET_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "viewer-demo"
+    / "src"
+    / "extensions"
+    / "linear-layout"
+    / "linear-layout.ts"
+)
 
 
 def compose_identifier(name: str) -> str:
@@ -158,25 +172,18 @@ def format_block(layouts: list[tuple[str, list[tuple[str, list[list[int]]]], str
 def main() -> None:
     """Rewrite the baked viewer-demo examples from demo_linear_layout.py."""
 
-    repo_root = Path(__file__).resolve().parents[2]
-    source_path = repo_root / "demo_linear_layout.py"
-    target_path = (
-        repo_root
-        / "tensor-viz"
-        / "packages"
-        / "viewer-demo"
-        / "src"
-        / "extensions"
-        / "linear-layout"
-        / "linear-layout.ts"
-    )
+    source_path = next((path for path in SOURCE_CANDIDATES if path.exists()), None)
+    if source_path is None:
+        # standalone tensor-viz checkouts do not carry the ll-viz python demo source
+        print("No demo_linear_layout.py found; leaving baked examples unchanged.")
+        return
     layouts = parse_demo_layouts(source_path)
-    target_text = target_path.read_text()
+    target_text = TARGET_PATH.read_text()
     pattern = re.compile(rf"{re.escape(SYNC_START)}.*?{re.escape(SYNC_END)}", re.DOTALL)
     replacement = format_block(layouts)
     if not pattern.search(target_text):
         raise ValueError("Missing sync markers in linear-layout.ts.")
-    target_path.write_text(pattern.sub(lambda _match: replacement, target_text, count=1))
+    TARGET_PATH.write_text(pattern.sub(lambda _match: replacement, target_text, count=1))
 
 
 if __name__ == "__main__":

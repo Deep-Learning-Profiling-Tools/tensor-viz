@@ -1,5 +1,6 @@
 .venv/
 node_modules/
+python/src/*.egg-info/
 python/src/tensor_viz/static/
 packages/*/dist/
 packages/*/node_modules/
