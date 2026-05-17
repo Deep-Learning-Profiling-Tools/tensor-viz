@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+npm run check:ts-docs:staged
 npm run sync:linear-layout-examples
 unset GIT_DIR GIT_WORK_TREE
 git -C "$repo_root" add packages/viewer-demo/src/extensions/linear-layout/linear-layout.ts

@@ -12,6 +12,8 @@
     "docs": "npm run docs:ts && npm run docs:py",
     "docs:py": "python -m sphinx -b html docs docs/_build/html",
     "docs:ts": "typedoc --options typedoc.json",
+    "check:ts-docs": "node tools/check-ts-docs.mjs",
+    "check:ts-docs:staged": "node tools/check-ts-docs.mjs --staged",
     "sync:linear-layout-examples": "python tools/sync-linear-layout-examples.py",
     "test": "npm run test:unit && npm run test:e2e",
     "test:e2e": "playwright test",
