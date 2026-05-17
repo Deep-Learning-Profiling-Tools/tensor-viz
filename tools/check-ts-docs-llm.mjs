@@ -606,8 +606,9 @@ rubric:
 - @returns descriptions must explain what the returned value represents and how callers use it.
 - @throws descriptions must name concrete invalid inputs, states, or edge cases visible in the code/context.
 - @noThrows descriptions must explain why the declaration has no expected throw path when that is non-obvious.
-- examples must define realistic domain inputs before calling functions; reject undeclared variables, placeholders, and bare forwarding calls.
-- if @throws is documented, require an error or edge-case example in the replacement when a useful one is visible from context.
+- examples must define realistic domain inputs and show the expected output, observable state change, assertion, or thrown error message/class.
+- reject examples that only call the declaration without showing what result, mutation, or error the reader should expect.
+- if @throws is documented, require an error or edge-case example in the replacement when a useful one is visible from context, and show the expected error behavior.
 - every replacement must be a complete JSDoc block that replaces only the adjacent JSDoc for exactly one candidate declaration.
 - use the exact file, line, and symbol values from the candidate heading for issues and replacements.
 - if a candidate has no documentation quality issue, do not include a replacement for it.
