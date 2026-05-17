@@ -38,15 +38,24 @@ const DISPLAY_MODES = new Set(['2d', '3d']);
 const INTERACTION_MODES = new Set(['pan', 'select', 'rotate']);
 const MAPPING_SCHEMES = new Set(['z-order', 'contiguous']);
 
+/**
+ * return whether dtype for the current viewer state.
+ */
 export function isDType(value: unknown): value is DType {
     return typeof value === 'string' && value in DTYPE_BYTES;
 }
 
+/**
+ * return dtype byte length for the current viewer state.
+ */
 export function dtypeByteLength(dtype: unknown): number {
     if (!isDType(dtype)) throw new Error(`Unsupported dtype ${String(dtype)}.`);
     return DTYPE_BYTES[dtype];
 }
 
+/**
+ * return assert object for the current viewer state.
+ */
 function assertObject(value: unknown, label: string): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         throw new Error(`${label} must be an object.`);
@@ -54,36 +63,54 @@ function assertObject(value: unknown, label: string): Record<string, unknown> {
     return value as Record<string, unknown>;
 }
 
+/**
+ * return assert array for the current viewer state.
+ */
 function assertArray(value: unknown, label: string, maxLength: number = VIEWER_LIMITS.maxEditorEntries): unknown[] {
     if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
     if (value.length > maxLength) throw new Error(`${label} has too many entries.`);
     return value;
 }
 
+/**
+ * return finite number for the current viewer state.
+ */
 function finiteNumber(value: unknown, label: string): number {
     const number = Number(value);
     if (!Number.isFinite(number)) throw new Error(`${label} must be finite.`);
     return number;
 }
 
+/**
+ * return finite integer for the current viewer state.
+ */
 function finiteInteger(value: unknown, label: string): number {
     const number = finiteNumber(value, label);
     if (!Number.isInteger(number)) throw new Error(`${label} must be an integer.`);
     return number;
 }
 
+/**
+ * return bounded finite number for the current viewer state.
+ */
 function boundedFiniteNumber(value: unknown, label: string, min: number, max: number): number {
     const number = finiteNumber(value, label);
     if (number < min || number > max) throw new Error(`${label} is out of range.`);
     return number;
 }
 
+/**
+ * return bounded string for the current viewer state.
+ */
 function boundedString(value: unknown, label: string, maxLength: number = VIEWER_LIMITS.maxTextLength): string {
     if (typeof value !== 'string') throw new Error(`${label} must be a string.`);
     if (value.length > maxLength) throw new Error(`${label} is too long.`);
     return value;
 }
 
+/**
+ * return tensor element count for the current viewer state.
+ */
 export function tensorElementCount(shape: readonly number[], label = 'shape'): number {
     return shape.reduce((total, dim, axis) => {
         const next = total * dim;
@@ -94,6 +121,9 @@ export function tensorElementCount(shape: readonly number[], label = 'shape'): n
     }, 1);
 }
 
+/**
+ * validate tensor shape for the current viewer state.
+ */
 export function validateTensorShape(value: unknown, label = 'shape'): number[] {
     const shape = assertArray(value, label, VIEWER_LIMITS.maxRank).map((dim, axis) => {
         const number = finiteInteger(dim, `${label}[${axis}]`);
@@ -105,6 +135,9 @@ export function validateTensorShape(value: unknown, label = 'shape'): number[] {
     return shape;
 }
 
+/**
+ * return expected tensor byte length for the current viewer state.
+ */
 export function expectedTensorByteLength(dtype: DType, shape: readonly number[]): number {
     const bytes = tensorElementCount(shape) * dtypeByteLength(dtype);
     if (!Number.isSafeInteger(bytes) || bytes > VIEWER_LIMITS.maxPayloadBytes) {
@@ -113,6 +146,9 @@ export function expectedTensorByteLength(dtype: DType, shape: readonly number[])
     return bytes;
 }
 
+/**
+ * validate tensor payload for the current viewer state.
+ */
 export function validateTensorPayload(dtype: DType, shape: readonly number[], byteLength: number): void {
     const expectedBytes = expectedTensorByteLength(dtype, shape);
     if (byteLength !== expectedBytes) {
@@ -120,6 +156,9 @@ export function validateTensorPayload(dtype: DType, shape: readonly number[], by
     }
 }
 
+/**
+ * validate vec3 for the current viewer state.
+ */
 function validateVec3(value: unknown, label: string): Vec3 {
     const tuple = assertArray(value, label, 3);
     if (tuple.length !== 3) throw new Error(`${label} must have three values.`);
@@ -145,6 +184,9 @@ function validateVec3(value: unknown, label: string): Vec3 {
     ];
 }
 
+/**
+ * return assert unique ids for the current viewer state.
+ */
 function assertUniqueIds<T extends { id: string }>(entries: T[], label: string): T[] {
     const seen = new Set<string>();
     entries.forEach((entry) => {
@@ -154,12 +196,18 @@ function assertUniqueIds<T extends { id: string }>(entries: T[], label: string):
     return entries;
 }
 
+/**
+ * validate color tuple for the current viewer state.
+ */
 function validateColorTuple(value: unknown, label: string): number[] {
     const tuple = assertArray(value, label, 3).map((entry, index) => finiteNumber(entry, `${label}[${index}]`));
     if (tuple.length !== 2 && tuple.length !== 3) throw new Error(`${label} must have two or three channels.`);
     return tuple;
 }
 
+/**
+ * validate coord for the current viewer state.
+ */
 function validateCoord(value: unknown, shape: readonly number[], label: string): number[] {
     const coord = assertArray(value, label, shape.length).map((entry, axis) => {
         const index = finiteInteger(entry, `${label}[${axis}]`);
@@ -170,6 +218,9 @@ function validateCoord(value: unknown, shape: readonly number[], label: string):
     return coord;
 }
 
+/**
+ * validate region shape for the current viewer state.
+ */
 function validateRegionShape(value: unknown, tensorShape: readonly number[], label: string): number[] {
     const shape = assertArray(value, label, tensorShape.length).map((entry, axis) => {
         const dim = finiteInteger(entry, `${label}[${axis}]`);
@@ -180,6 +231,9 @@ function validateRegionShape(value: unknown, tensorShape: readonly number[], lab
     return shape;
 }
 
+/**
+ * validate color instruction for the current viewer state.
+ */
 function validateColorInstruction(instruction: unknown, shape: readonly number[], label: string): {
     instruction: ColorInstruction;
     entries: number;
@@ -229,6 +283,9 @@ function validateColorInstruction(instruction: unknown, shape: readonly number[]
     throw new Error(`${label}.kind is invalid.`);
 }
 
+/**
+ * validate color instructions for the current viewer state.
+ */
 export function validateColorInstructions(value: unknown, shape: readonly number[], label = 'colorInstructions'): ColorInstruction[] | undefined {
     if (value === undefined) return undefined;
     const instructions = assertArray(value, label, VIEWER_LIMITS.maxColorInstructions);
@@ -243,6 +300,9 @@ export function validateColorInstructions(value: unknown, shape: readonly number
     });
 }
 
+/**
+ * normalize tensor view editor for the current viewer state.
+ */
 export function normalizeTensorViewEditor(value: unknown, label = 'view.editor'): TensorViewEditor {
     const editor = assertObject(value, label);
     if (editor.version !== 2) throw new Error(`${label}.version is unsupported.`);
@@ -295,6 +355,9 @@ export function normalizeTensorViewEditor(value: unknown, label = 'view.editor')
     };
 }
 
+/**
+ * validate tensor view snapshot for the current viewer state.
+ */
 function validateTensorViewSnapshot(value: unknown, shape: readonly number[], label: string) {
     const snapshot = assertObject(value, label);
     const hiddenIndices = assertArray(snapshot.hiddenIndices, `${label}.hiddenIndices`, shape.length)
@@ -309,6 +372,9 @@ function validateTensorViewSnapshot(value: unknown, shape: readonly number[], la
     };
 }
 
+/**
+ * validate tensor manifest for the current viewer state.
+ */
 function validateTensorManifest(value: unknown, label: string): BundleManifest['tensors'][number] {
     const tensor = assertObject(value, label);
     const dtype = tensor.dtype;
@@ -337,6 +403,9 @@ function validateTensorManifest(value: unknown, label: string): BundleManifest['
     };
 }
 
+/**
+ * validate viewer tensor snapshot for the current viewer state.
+ */
 function validateViewerTensorSnapshot(
     value: unknown,
     tensorById: Map<string, BundleManifest['tensors'][number]>,
@@ -354,6 +423,9 @@ function validateViewerTensorSnapshot(
     };
 }
 
+/**
+ * validate viewer snapshot for the current viewer state.
+ */
 function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest['tensors']): ViewerSnapshot {
     const snapshot = assertObject(value, 'viewer');
     const displayMode = snapshot.displayMode;
@@ -418,6 +490,9 @@ function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest[
     };
 }
 
+/**
+ * validate bundle manifest for the current viewer state.
+ */
 export function validateBundleManifest(value: unknown): BundleManifest {
     const manifest = assertObject(value, 'manifest');
     if (manifest.version !== 1) throw new Error(`Unsupported bundle version ${String(manifest.version)}.`);
@@ -433,6 +508,9 @@ export function validateBundleManifest(value: unknown): BundleManifest {
     };
 }
 
+/**
+ * validate session bundle manifest for the current viewer state.
+ */
 export function validateSessionBundleManifest(value: unknown): SessionBundleManifest {
     const manifest = assertObject(value, 'session');
     if (manifest.version !== 1) throw new Error(`Unsupported session version ${String(manifest.version)}.`);

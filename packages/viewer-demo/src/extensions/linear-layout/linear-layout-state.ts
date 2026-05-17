@@ -16,6 +16,9 @@ import {
     type MatrixBlock,
 } from './linear-layout.js';
 
+/**
+ * shape of inspector coord entry data used by the viewer.
+ */
 export type InspectorCoordEntry = {
     title: string;
     labels: string[];
@@ -24,17 +27,38 @@ export type InspectorCoordEntry = {
     hovered: boolean;
 };
 
+/**
+ * shape of linear layout notice data used by the viewer.
+ */
 export type LinearLayoutNotice = {
     tone: 'error' | 'success';
     text: string;
 };
 
+/**
+ * shape of linear layout cell text state data used by the viewer.
+ */
 export type LinearLayoutCellTextState = Record<string, boolean>;
+/**
+ * shape of linear layout multi input state data used by the viewer.
+ */
 export type LinearLayoutMultiInputState = Record<string, number>;
+/**
+ * shape of linear layout tensor views state data used by the viewer.
+ */
 export type LinearLayoutTensorViewsState = Record<string, TensorViewSnapshot>;
+/**
+ * shape of linear layout form state data used by the viewer.
+ */
 export type LinearLayoutFormState = ComposeLayoutState;
+/**
+ * shape of linear layout channel data used by the viewer.
+ */
 export type LinearLayoutChannel = 'H' | 'S' | 'L';
 
+/**
+ * shape of linear layout selection map data used by the viewer.
+ */
 export type LinearLayoutSelectionMap = {
     injective: boolean;
     rootInputLabels: string[];
@@ -53,6 +77,9 @@ export type LinearLayoutSelectionMap = {
     orderedTensorIds: string[];
 };
 
+/**
+ * shape of linear layout ui state data used by the viewer.
+ */
 export type LinearLayoutUiState = {
     linearLayoutState: LinearLayoutFormState;
     linearLayoutStates: Map<string, LinearLayoutFormState>;
@@ -68,6 +95,9 @@ export type LinearLayoutUiState = {
     syncingLinearLayoutSelection: boolean;
 };
 
+/**
+ * shape of linear layout ui context data used by the viewer.
+ */
 export type LinearLayoutUiContext = {
     viewer: TensorViewer;
     viewport: HTMLElement;
@@ -89,6 +119,9 @@ export type LinearLayoutUiContext = {
 const LINEAR_LAYOUT_CHANNELS: LinearLayoutChannel[] = ['H', 'S', 'L'];
 const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
 
+/**
+ * load linear layout state for the current viewer state.
+ */
 export function loadLinearLayoutState(): LinearLayoutFormState {
     const fallback = defaultLinearLayoutState();
     try {
@@ -111,6 +144,9 @@ export function loadLinearLayoutState(): LinearLayoutFormState {
     return fallback;
 }
 
+/**
+ * return store linear layout state for the current viewer state.
+ */
 export function storeLinearLayoutState(state: LinearLayoutFormState): void {
     try {
         window.localStorage.setItem(LINEAR_LAYOUT_STORAGE_KEY, JSON.stringify(state));
@@ -119,43 +155,73 @@ export function storeLinearLayoutState(state: LinearLayoutFormState): void {
     }
 }
 
+/**
+ * return whether linear layout state for the current viewer state.
+ */
 export function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
     return isComposeLayoutState(value);
 }
 
+/**
+ * return default linear layout state for the current viewer state.
+ */
 export function defaultLinearLayoutState(): LinearLayoutFormState {
     return defaultComposeLayoutState();
 }
 
+/**
+ * return empty linear layout state for the current viewer state.
+ */
 export function emptyLinearLayoutState(): LinearLayoutFormState {
     return emptyComposeLayoutState();
 }
 
+/**
+ * clone linear layout state for the current viewer state.
+ */
 export function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
     return cloneComposeLayoutState(state);
 }
 
+/**
+ * return default linear layout cell text state for the current viewer state.
+ */
 export function defaultLinearLayoutCellTextState(labels: string[] = []): LinearLayoutCellTextState {
     return Object.fromEntries(labels.map((label) => [label, true]));
 }
 
+/**
+ * clone linear layout cell text state for the current viewer state.
+ */
 export function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState): LinearLayoutCellTextState {
     return { ...state };
 }
 
+/**
+ * return default linear layout multi input state for the current viewer state.
+ */
 export function defaultLinearLayoutMultiInputState(): LinearLayoutMultiInputState {
     return {};
 }
 
+/**
+ * clone linear layout multi input state for the current viewer state.
+ */
 export function cloneLinearLayoutMultiInputState(state: LinearLayoutMultiInputState): LinearLayoutMultiInputState {
     return { ...state };
 }
 
+/**
+ * return whether linear layout multi input state for the current viewer state.
+ */
 export function isLinearLayoutMultiInputState(value: unknown): value is LinearLayoutMultiInputState {
     if (!value || typeof value !== 'object') return false;
     return Object.values(value as Record<string, unknown>).every((entry) => Number.isInteger(entry) && Number(entry) >= -1);
 }
 
+/**
+ * clone linear layout tensor views state for the current viewer state.
+ */
 export function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViewsState): LinearLayoutTensorViewsState {
     return Object.fromEntries(Object.entries(state).map(([tensorId, view]) => [
         tensorId,
@@ -163,11 +229,17 @@ export function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViews
     ]));
 }
 
+/**
+ * return whether linear layout cell text state for the current viewer state.
+ */
 export function isLinearLayoutCellTextState(value: unknown): value is LinearLayoutCellTextState {
     if (!value || typeof value !== 'object') return false;
     return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'boolean');
 }
 
+/**
+ * return snapshot tensor views for the current viewer state.
+ */
 export function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTensorViewsState {
     return Object.fromEntries(snapshot.tensors.map((tensor) => [
         tensor.id,
@@ -175,15 +247,24 @@ export function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTenso
     ]));
 }
 
+/**
+ * compose layout meta for tab for the current viewer state.
+ */
 export function composeLayoutMetaForTab(tab: LoadedBundleDocument): ComposeLayoutMeta | null {
     const candidate = (tab.manifest.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
     return isComposeLayoutMeta(candidate) ? candidate : null;
 }
 
+/**
+ * return whether linear layout tab for the current viewer state.
+ */
 export function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
     return composeLayoutMetaForTab(tab) !== null;
 }
 
+/**
+ * sync linear layout state for the current viewer state.
+ */
 export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
     if (!isLinearLayoutTab(tab)) return;
     const stored = ctx.state.linearLayoutStates.get(tab.id);
@@ -221,6 +302,9 @@ export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBun
     refreshLinearLayoutMatrixPreview(ctx);
 }
 
+/**
+ * sync linear layout cell text state for the current viewer state.
+ */
 export function syncLinearLayoutCellTextState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
     if (!isLinearLayoutTab(tab)) {
         ctx.state.linearLayoutCellTextState = defaultLinearLayoutCellTextState();
@@ -245,6 +329,9 @@ export function syncLinearLayoutCellTextState(ctx: LinearLayoutUiContext, tab: L
     ctx.state.linearLayoutCellTextStates.set(tab.id, cloneLinearLayoutCellTextState(ctx.state.linearLayoutCellTextState));
 }
 
+/**
+ * sync linear layout multi input state for the current viewer state.
+ */
 export function syncLinearLayoutMultiInputState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
     if (!isLinearLayoutTab(tab)) {
         ctx.state.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
@@ -265,6 +352,9 @@ export function syncLinearLayoutMultiInputState(ctx: LinearLayoutUiContext, tab:
     ctx.state.linearLayoutMultiInputStates.set(tab.id, cloneLinearLayoutMultiInputState(ctx.state.linearLayoutMultiInputState));
 }
 
+/**
+ * refresh linear layout matrix preview for the current viewer state.
+ */
 export function refreshLinearLayoutMatrixPreview(ctx: LinearLayoutUiContext, state = ctx.state.linearLayoutState): void {
     try {
         ctx.state.linearLayoutMatrixPreview = matrixPreviewFromBlocks(buildComposeRuntime(state).matrixBlocks);
@@ -273,6 +363,9 @@ export function refreshLinearLayoutMatrixPreview(ctx: LinearLayoutUiContext, sta
     }
 }
 
+/**
+ * return legacy editor state for the current viewer state.
+ */
 function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutFormState): LinearLayoutFormState {
     const textByLabel = new Map<string, string>([['T', '[]'], ['W', '[]'], ['R', '[]']]);
     if (typeof raw.basesText === 'string') {
@@ -331,6 +424,9 @@ function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutF
     };
 }
 
+/**
+ * parse bases field for the current viewer state.
+ */
 function parseBasesField(label: string, value: string): number[][] {
     if (!value.trim()) return [];
     let parsed: unknown;
@@ -351,10 +447,9 @@ function parseBasesField(label: string, value: string): number[][] {
     });
 }
 
-function matrixAxisColorClass(axis: number): string {
-    return `matrix-axis-${axis % 3}`;
-}
-
+/**
+ * return matrix preview from blocks for the current viewer state.
+ */
 function matrixPreviewFromBlocks(blocks: MatrixBlock[]): string {
     return blocks.map((block) => {
         const labelWidth = Math.max(1, ...block.rows.map((row) => row.label.length));
@@ -362,12 +457,12 @@ function matrixPreviewFromBlocks(blocks: MatrixBlock[]): string {
         const header = block.columns.length === 0
             ? '<span class="matrix-zero">0</span>'
             : `${' '.repeat(labelWidth)} | ${block.columns.map((column, index) => (
-                `<span class="matrix-label ${matrixAxisColorClass(column.axis)}">${escapeInfo(column.label.padStart(columnWidths[index] ?? 1))}</span>`
+                `<span class="matrix-label matrix-axis-${column.axis % 3}">${escapeInfo(column.label.padStart(columnWidths[index] ?? 1))}</span>`
             )).join(' ')}`;
         const rows = block.rows.length === 0
             ? []
             : block.rows.map((row, rowIndex) => (
-                `<span class="matrix-label ${matrixAxisColorClass(row.axis)}">${escapeInfo(row.label.padStart(labelWidth))}</span> | ${block.columns.map((_column, columnIndex) => {
+                `<span class="matrix-label matrix-axis-${row.axis % 3}">${escapeInfo(row.label.padStart(labelWidth))}</span> | ${block.columns.map((_column, columnIndex) => {
                     const value = block.values[rowIndex]?.[columnIndex] === 1 ? '1' : '0';
                     const klass = value === '1' ? 'matrix-one' : 'matrix-zero';
                     return `<span class="${klass}">${value.padStart(columnWidths[columnIndex] ?? 1)}</span>`;

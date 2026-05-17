@@ -10,11 +10,17 @@ import {
 export const LINEAR_LAYOUT_CHANNELS: LinearLayoutChannel[] = ['H', 'S', 'L'];
 export const VISIBLE_TENSORS_ERROR = 'At least one tensor in the render chain must stay visible.';
 
+/**
+ * return active linear layout tab for the current viewer state.
+ */
 export function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleDocument | null {
     const tab = ctx.getActiveTab();
     return tab && isLinearLayoutTab(tab) ? tab : null;
 }
 
+/**
+ * return linear layout propagation labels for the current viewer state.
+ */
 export function linearLayoutPropagationLabels(ctx: LinearLayoutUiContext): { labels: string[]; injective: boolean } {
     const tab = activeLinearLayoutTab(ctx);
     const meta = tab ? composeLayoutMetaForTab(tab) : null;
@@ -31,20 +37,32 @@ export function linearLayoutPropagationLabels(ctx: LinearLayoutUiContext): { lab
     }
 }
 
+/**
+ * normalize cell text state for the current viewer state.
+ */
 export function normalizeCellTextState(state: Record<string, boolean>, labels: string[]): Record<string, boolean> {
     return Object.fromEntries(labels.map((label) => [label, state[label] ?? true]));
 }
 
+/**
+ * return mapping matches labels for the current viewer state.
+ */
 export function mappingMatchesLabels(mapping: Record<LinearLayoutChannel, string>, labels: string[]): boolean {
     const allowed = new Set(labels);
     return LINEAR_LAYOUT_CHANNELS.every((channel) => mapping[channel] === 'none' || allowed.has(mapping[channel]));
 }
 
+/**
+ * return autosize textarea for the current viewer state.
+ */
 export function autosizeTextarea(textarea: HTMLTextAreaElement): void {
     textarea.style.height = '0';
     textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
+/**
+ * return copy text for the current viewer state.
+ */
 export async function copyText(text: string): Promise<void> {
     if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -60,6 +78,9 @@ export async function copyText(text: string): Promise<void> {
     document.body.removeChild(input);
 }
 
+/**
+ * return settle initial layout for the current viewer state.
+ */
 export async function settleInitialLayout(ctx: LinearLayoutUiContext): Promise<void> {
     if ('fonts' in document) {
         try {

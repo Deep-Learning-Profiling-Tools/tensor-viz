@@ -64,6 +64,31 @@ import {
 } from './linear-layout-ui.js';
 import { linearLayoutPropagateOutputsInfo } from './widgets/linear-layout-color-widget.js';
 
+// extension.ts is the bridge between the generic demo shell and the
+// linear-layout workflow.
+// model files parse layouts and compute tensor data; widget files render forms.
+// this file wires those pieces into the host extension lifecycle: widgets,
+// tab creation, session load/save, hover/selection synchronization, and control
+// dock commands.
+// keep new linear-layout behavior data-driven in model/widget files whenever
+// possible.  Code added here should usually mean the host application needs a
+// new lifecycle hook or a new connection between existing lifecycle hooks.
+// tab-local maps below mirror the host tab ids because a single app session can
+// switch between ordinary tensor tabs and compose-layout tabs without tearing
+// down the extension.
+// hover, selection, and tensor-view hooks all call back into state/viewer-sync
+// modules so this lifecycle file does not duplicate mapping math.
+// session load supports both current compose-layout snapshots and older
+// linearLayoutSpec snapshots; remove neither path without a migration.
+// widget ids must stay aligned with LINEAR_LAYOUT_WIDGET_SLOTS or the app shell
+// cannot hand the extension real DOM hosts during startup.
+// controls are optional host commands, while widgets are always declared here.
+// use runtime.widgets for re-render loops so future widget additions do not
+// need another hard-coded render list.
+
+/**
+ * shape of linear layout extension runtime data used by the viewer.
+ */
 export type LinearLayoutExtensionRuntime = DemoAppExtension & {
     state: LinearLayoutUiState;
     ui: LinearLayoutUiContext;
@@ -86,12 +111,18 @@ export const LINEAR_LAYOUT_WIDGET_SLOTS = [
     { id: 'cell-text', beforeHeader: true },
 ] satisfies AppShellWidgetSlot[];
 
+/**
+ * return require widget for the current viewer state.
+ */
 function requireWidget(ctx: DemoExtensionContext, widgetId: typeof LINEAR_LAYOUT_WIDGETS[number]): HTMLElement {
     const widget = ctx.widgets[widgetId];
     if (!widget) throw new Error(`Missing ${widgetId} widget.`);
     return widget;
 }
 
+/**
+ * return linear layout widget icon for the current viewer state.
+ */
 function linearLayoutWidgetIcon(widgetId: string): string {
     switch (widgetId) {
         case 'linear-layout-preset':
@@ -148,7 +179,11 @@ function linearLayoutWidgetIcon(widgetId: string): string {
     }
 }
 
+/**
+ * return linear layout widgets for the current viewer state.
+ */
 function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
+    /** return whether a host tab should show linear-layout widgets. */
     const active = (ctx: DemoExtensionContext): boolean => {
         const tab = ctx.getActiveTab();
         return Boolean(tab && isLinearLayoutTab(tab));
@@ -197,10 +232,15 @@ function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
     ];
 }
 
+/**
+ * create linear layout extension for the current viewer state.
+ */
 export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLayoutExtensionRuntime {
     const hoverPopup = document.createElement('div');
     hoverPopup.className = 'linear-layout-hover-popup hidden';
     ctx.viewport.appendChild(hoverPopup);
+    // popup placement is tracked in viewport-local pixels so scrolling the page
+    // does not move the popup away from the hovered canvas cell.
     let hoverPopupPointer = { x: 16, y: 16 };
     let lastActiveTensorId: string | null = null;
     const state: LinearLayoutUiState = {
@@ -234,6 +274,7 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         loadTab: ctx.loadTab,
         renderLinearLayoutEditorWidgets: () => { renderLinearLayoutEditorWidgets(ui); },
     };
+    /** render the hover popup from the current viewer hover and selection map. */
     const renderHoverPopup = (): void => {
         const tab = ctx.getActiveTab();
         const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
@@ -257,6 +298,7 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         hoverPopup.classList.remove('hidden');
         placeHoverPopup();
     };
+    /** keep the hover popup inside the viewport even near the bottom/right edge. */
     const placeHoverPopup = (): void => {
         if (hoverPopup.classList.contains('hidden')) return;
         const rect = ctx.viewport.getBoundingClientRect();
@@ -279,6 +321,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             const selectionMap = linearLayoutSelectionMapForTab(ui, tab);
             const multiInput = selectionMap ? linearLayoutMultiInputModel(ui, selectionMap) : null;
             const axisLabels = meta?.tensors.find((tensor) => tensor.id === tensorId)?.axisLabels;
+            // multi-input sliders appear only for focused non-injective cells;
+            // the model returns null for ordinary one-root cells.
             return {
                 axisLabels,
                 sliders: multiInput ? [{
@@ -328,6 +372,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             state.linearLayoutState = emptyLinearLayoutState();
             const document = createComposeLayoutDocument(state.linearLayoutState, snapshot, title);
             const meta = composeLayoutMetaForTab(document);
+            // new tabs snapshot the viewer immediately so later tensor-view
+            // edits can be restored when switching away and back.
             state.linearLayoutCellTextState = defaultLinearLayoutCellTextState(meta?.rootInputLabels ?? []);
             state.linearLayoutMultiInputState = defaultLinearLayoutMultiInputState();
             state.linearLayoutStates.set(id, cloneLinearLayoutState(state.linearLayoutState));
@@ -349,6 +395,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             const clonedCellText = cloneLinearLayoutCellTextState(state.linearLayoutCellTextState);
             const clonedMultiInput = cloneLinearLayoutMultiInputState(state.linearLayoutMultiInputState);
             const tensorViews = preservedLinearLayoutTensorViews(ui, tab.id);
+            // write both tab-local caches and the serialized snapshot because a
+            // save can be followed by either in-session tab switching or reload.
             state.linearLayoutStates.set(tab.id, cloned);
             state.linearLayoutCellTextStates.set(tab.id, clonedCellText);
             state.linearLayoutMultiInputStates.set(tab.id, clonedMultiInput);
@@ -389,6 +437,9 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             const composeMeta = (tab.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
             const storedMultiInputState = (tab.viewer as { linearLayoutMultiInputState?: unknown }).linearLayoutMultiInputState;
             if (legacySpec) {
+                // older demos stored one linearLayoutSpec field instead of the
+                // compose-layout state object; keep that path so saved examples
+                // and external links remain loadable.
                 const linearLayoutState = isLinearLayoutState(storedComposeState)
                     ? cloneLinearLayoutState(storedComposeState)
                     : composeLayoutStateFromLegacySpec(legacySpec, tab.title);
@@ -409,6 +460,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             }
             const isLinearLayout = isComposeLayoutMeta(composeMeta);
             if (!isLinearLayout) return null;
+            // loaded compose-layout tabs intentionally hide the generic
+            // selection panel because selection is mirrored across all tensors.
             const viewerState = {
                 ...tab.viewer,
                 dimensionMappingScheme: tab.viewer.dimensionMappingScheme ?? 'contiguous',
@@ -438,6 +491,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             };
         },
         afterLoadTab: (_tabCtx, tab) => {
+            // tab load is the single place where form state, cell text,
+            // multi-input sliders, and viewer filters are all rehydrated.
             syncLinearLayoutState(ui, tab);
             syncLinearLayoutCellTextState(ui, tab);
             syncLinearLayoutMultiInputState(ui, tab);
@@ -452,6 +507,8 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
             if (activeTensorId === lastActiveTensorId) return false;
             lastActiveTensorId = activeTensorId;
             if (!activeTensorId) return false;
+            // active tensor changes can expose a different multi-input slider
+            // without changing the underlying layout document.
             syncLinearLayoutViewFilters(ui);
             return true;
         },

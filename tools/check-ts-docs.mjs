@@ -10,6 +10,8 @@ const SOURCE_ROOTS = [
 ];
 const DEFAULT_MIN_COMMENT_RATIO = 0.1;
 const HELPER_MIN_REFERENCES = 3;
+const SMALL_HELPER_MAX_LINES = 3;
+const SMALL_HELPER_MAX_STATEMENTS = 1;
 const INTERFACE_BOUNDARY_PATTERN = /@(interfaceBoundary|boundary|publicApi)\b|interface boundary/i;
 
 const rawArgs = process.argv.slice(2);
@@ -216,18 +218,41 @@ function isInterfaceBoundary(node, sourceFile) {
     return INTERFACE_BOUNDARY_PATTERN.test(jsdocText(node, sourceFile));
 }
 
+/** return the implementation node for a top-level helper candidate. */
+function helperImplementation(node) {
+    if (ts.isFunctionDeclaration(node)) return node;
+    if (!ts.isVariableStatement(node)) return null;
+    return node.declarationList.declarations.find((decl) => (
+        decl.initializer
+        && (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+    ))?.initializer ?? null;
+}
+
+/** return whether a top-level helper is small enough that it should usually be inlined. */
+function isSmallHelper(node, sourceFile) {
+    const implementation = helperImplementation(node);
+    if (!implementation) return false;
+    const start = sourceFile.getLineAndCharacterOfPosition(implementation.getStart(sourceFile)).line;
+    const end = sourceFile.getLineAndCharacterOfPosition(implementation.getEnd()).line;
+    if (!implementation.body || !ts.isBlock(implementation.body)) return true;
+    return (end - start + 1) <= SMALL_HELPER_MAX_LINES
+        && implementation.body.statements.length <= SMALL_HELPER_MAX_STATEMENTS;
+}
+
 /** return non-exported top-level helper candidates in one source file. */
 function helperCandidates(sourceFile) {
     return sourceFile.statements.flatMap((statement) => {
         if (ts.isFunctionDeclaration(statement)
             && statement.name
             && !hasExportModifier(statement)
-            && !isInterfaceBoundary(statement, sourceFile)) {
+            && !isInterfaceBoundary(statement, sourceFile)
+            && isSmallHelper(statement, sourceFile)) {
             return [{ name: statement.name.text, nameNode: statement.name, node: statement }];
         }
         if (ts.isVariableStatement(statement)
             && !hasExportModifier(statement)
-            && !isInterfaceBoundary(statement, sourceFile)) {
+            && !isInterfaceBoundary(statement, sourceFile)
+            && isSmallHelper(statement, sourceFile)) {
             return functionVariableDeclarations(statement);
         }
         return [];
@@ -265,25 +290,22 @@ function helperUsageFailures(sourceFile) {
         }))
         .filter(({ references }) => references < HELPER_MIN_REFERENCES)
         .map(({ name, references, node }) => (
-            `${lineAndColumn(sourceFile, node.getStart(sourceFile))} helper ${name} has ${references} reference${references === 1 ? '' : 's'}; expected at least ${HELPER_MIN_REFERENCES} or a JSDoc @interfaceBoundary tag`
+            `${lineAndColumn(sourceFile, node.getStart(sourceFile))} small helper ${name} has ${references} reference${references === 1 ? '' : 's'}; expected at least ${HELPER_MIN_REFERENCES}, inlining, or a JSDoc @interfaceBoundary tag`
         ));
 }
 
 /** return the set of source lines occupied by comments. */
 function commentLines(text) {
-    const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text);
     const lines = new Set();
-    let token = scanner.scan();
-    while (token !== ts.SyntaxKind.EndOfFileToken) {
-        if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
-            const start = scanner.getTokenPos();
-            const end = scanner.getTextPos();
-            const startLine = text.slice(0, start).split('\n').length;
-            const endLine = text.slice(0, end).split('\n').length;
-            for (let line = startLine; line <= endLine; line += 1) lines.add(line);
-        }
-        token = scanner.scan();
-    }
+    let inBlockComment = false;
+    text.split('\n').forEach((line, index) => {
+        const trimmed = line.trim();
+        const startsComment = trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*');
+        const inlineComment = line.includes('//') || line.includes('/*');
+        if (inBlockComment || startsComment || inlineComment) lines.add(index + 1);
+        if (inBlockComment && line.includes('*/')) inBlockComment = false;
+        if (!inBlockComment && line.includes('/*') && !line.includes('*/')) inBlockComment = true;
+    });
     return lines;
 }
 

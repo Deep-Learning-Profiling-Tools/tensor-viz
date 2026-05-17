@@ -58,11 +58,6 @@ export function renderWebglUnavailable(app: HTMLDivElement): void {
     `;
 }
 
-/** render one empty widget host that app-entry can hydrate from a widget spec. */
-function widgetSlotHtml(slot: AppShellWidgetSlot): string {
-    return `<section class="widget" id="${slot.id}-widget" data-widget-id="${slot.id}"></section>`;
-}
-
 /** mount the reusable demo frame and return typed references to all moving parts.
  *
  * widget slots are supplied up front because extensions need real dom hosts
@@ -71,8 +66,16 @@ function widgetSlotHtml(slot: AppShellWidgetSlot): string {
  * still receives the same command palette and viewport refs.
  */
 export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[]): AppShellRefs {
-    const primaryWidgets = widgetSlots.filter((slot) => slot.beforeHeader).map(widgetSlotHtml).join('\n');
-    const sidebarWidgets = widgetSlots.filter((slot) => !slot.beforeHeader).map(widgetSlotHtml).join('\n');
+    // widgets before the header are extension-owned command panels; sidebar
+    // widgets are ordinary viewer panels that share the default layout chrome.
+    const primaryWidgets = widgetSlots
+        .filter((slot) => slot.beforeHeader)
+        .map((slot) => `<section class="widget" id="${slot.id}-widget" data-widget-id="${slot.id}"></section>`)
+        .join('\n');
+    const sidebarWidgets = widgetSlots
+        .filter((slot) => !slot.beforeHeader)
+        .map((slot) => `<section class="widget" id="${slot.id}-widget" data-widget-id="${slot.id}"></section>`)
+        .join('\n');
     app.innerHTML = `
       <div class="ribbon">
         <div class="menu">

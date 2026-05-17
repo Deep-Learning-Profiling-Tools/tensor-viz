@@ -1,10 +1,16 @@
 import { Color, Vector3 } from 'three';
 import type { CustomColor, DType, HueSaturation, NumericArray, RGB, Vec3 } from './types.js';
 
+/**
+ * return signed log1p for the current viewer state.
+ */
 export function signedLog1p(value: number): number {
     return Math.sign(value) * Math.log1p(Math.abs(value));
 }
 
+/**
+ * return compute min max for the current viewer state.
+ */
 export function computeMinMax(data: NumericArray): { min: number; max: number } {
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
@@ -17,14 +23,23 @@ export function computeMinMax(data: NumericArray): { min: number; max: number } 
     return { min, max };
 }
 
+/**
+ * return vector from tuple for the current viewer state.
+ */
 export function vectorFromTuple(tuple: Vec3): Vector3 {
     return new Vector3(tuple[0], tuple[1], tuple[2]);
 }
 
+/**
+ * return tuple from vector for the current viewer state.
+ */
 export function tupleFromVector(vector: Vector3): Vec3 {
     return [vector.x, vector.y, vector.z];
 }
 
+/**
+ * return dtype from array for the current viewer state.
+ */
 export function dtypeFromArray(data: NumericArray): DType {
     if (data instanceof Float32Array) return 'float32';
     if (data instanceof Int32Array) return 'int32';
@@ -32,18 +47,30 @@ export function dtypeFromArray(data: NumericArray): DType {
     return 'float64';
 }
 
+/**
+ * return numeric value for the current viewer state.
+ */
 export function numericValue(data: NumericArray | null, index: number): number {
     return Number(data?.[index] ?? 0);
 }
 
+/**
+ * return coord key for the current viewer state.
+ */
 export function coordKey(coord: number[]): string {
     return coord.join(',');
 }
 
+/**
+ * return coord from key for the current viewer state.
+ */
 export function coordFromKey(key: string): number[] {
     return key === '' ? [] : key.split(',').map((value) => Number(value));
 }
 
+/**
+ * return quantile for the current viewer state.
+ */
 export function quantile(sortedValues: number[], percentile: number): number {
     if (sortedValues.length === 1) return sortedValues[0] ?? 0;
     const position = (sortedValues.length - 1) * percentile;
@@ -55,6 +82,9 @@ export function quantile(sortedValues: number[], percentile: number): number {
     return lowerValue + (upperValue - lowerValue) * (position - lower);
 }
 
+/**
+ * return boxes intersect for the current viewer state.
+ */
 export function boxesIntersect(
     left: { left: number; right: number; top: number; bottom: number },
     right: { left: number; right: number; top: number; bottom: number },
@@ -65,20 +95,32 @@ export function boxesIntersect(
         && left.bottom >= right.top;
 }
 
+/**
+ * color from rgb for the current viewer state.
+ */
 export function colorFromRgb(rgb: RGB): Color {
     return new Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
 }
 
+/**
+ * normalize hue for the current viewer state.
+ */
 function normalizeHue(hue: number): number {
     const unit = Math.abs(hue) > 1 ? hue / 360 : hue;
     return ((unit % 1) + 1) % 1;
 }
 
+/**
+ * normalize saturation for the current viewer state.
+ */
 function normalizeSaturation(saturation: number): number {
     const unit = Math.abs(saturation) > 1 ? saturation / 100 : saturation;
     return Math.max(0, Math.min(1, unit));
 }
 
+/**
+ * color from hue saturation for the current viewer state.
+ */
 export function colorFromHueSaturation(color: HueSaturation, brightness: number): Color {
     const hue = normalizeHue(color[0]);
     const saturation = normalizeSaturation(color[1]);
@@ -100,6 +142,9 @@ export function colorFromHueSaturation(color: HueSaturation, brightness: number)
     return new Color(components[0], components[1], components[2]);
 }
 
+/**
+ * parse custom color for the current viewer state.
+ */
 export function parseCustomColor(value: number[]): CustomColor {
     if (value.length === 2) return { kind: 'hs', value: [value[0], value[1]] };
     if (value.length === 3) return { kind: 'rgb', value: [value[0], value[1], value[2]] };

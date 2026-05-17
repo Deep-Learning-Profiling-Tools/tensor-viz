@@ -7,12 +7,18 @@ const GAP = 0.15;
 /** Default multiplier used when spacing nested dimension blocks apart. */
 export const DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE = 3;
 
+/**
+ * shape of extent3 data used by the viewer.
+ */
 type Extent3 = {
     x: number;
     y: number;
     z: number;
 };
 
+/**
+ * shape of extent2 data used by the viewer.
+ */
 type Extent2 = {
     x: number;
     y: number;
@@ -56,19 +62,31 @@ export function axisWorldKeyForMode(
     return 0;
 }
 
+/**
+ * normalize display shape for the current viewer state.
+ */
 function normalizeDisplayShape(shape: number[]): number[] {
     return shape.length === 0 ? [1] : shape.map((value) => Math.max(1, value));
 }
 
+/**
+ * normalize dimension block gap multiple for the current viewer state.
+ */
 function normalizeDimensionBlockGapMultiple(value: number): number {
     return Number.isFinite(value) ? Math.max(0, value) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
 }
 
+/**
+ * return level gap for the current viewer state.
+ */
 function levelGap(level: number, dimensionBlockGapMultiple: number): number {
     if (dimensionBlockGapMultiple <= 0) return 0;
     return GAP * Math.pow(dimensionBlockGapMultiple, Math.max(0, level));
 }
 
+/**
+ * return depth height width for the current viewer state.
+ */
 function depthHeightWidth(shape: number[]): { depth: number; height: number; width: number } {
     if (shape.length === 1) return { depth: 1, height: 1, width: shape[0] };
     if (shape.length === 2) return { depth: 1, height: shape[0], width: shape[1] };
@@ -79,6 +97,9 @@ function depthHeightWidth(shape: number[]): { depth: number; height: number; wid
     };
 }
 
+/**
+ * return base grid extent3 d for the current viewer state.
+ */
 function baseGridExtent3D(shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Extent3 {
     const shape = normalizeDisplayShape(shapeInput);
     const { depth, height, width } = depthHeightWidth(shape);
@@ -90,6 +111,9 @@ function baseGridExtent3D(shapeInput: number[], cellExtent: Extent3, level: numb
     };
 }
 
+/**
+ * return recursive extent3 d for the current viewer state.
+ */
 function recursiveExtent3D(shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Extent3 {
     const shape = normalizeDisplayShape(shapeInput);
     if (shape.length <= 3) return baseGridExtent3D(shape, cellExtent, level, dimensionBlockGapMultiple);
@@ -100,6 +124,9 @@ function recursiveExtent3D(shapeInput: number[], cellExtent: Extent3, level: num
     return recursiveExtent3D(shape.slice(0, split), innerExtent, level + 1, dimensionBlockGapMultiple);
 }
 
+/**
+ * return base grid position3 d for the current viewer state.
+ */
 function baseGridPosition3D(coord: number[], shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Vector3 {
     const shape = normalizeDisplayShape(shapeInput);
     const { depth, height, width } = depthHeightWidth(shape);
@@ -117,6 +144,9 @@ function baseGridPosition3D(coord: number[], shapeInput: number[], cellExtent: E
     );
 }
 
+/**
+ * return recursive position3 d for the current viewer state.
+ */
 function recursivePosition3D(coord: number[], shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Vector3 {
     const shape = normalizeDisplayShape(shapeInput);
     if (shape.length <= 3) return baseGridPosition3D(coord, shape, cellExtent, level, dimensionBlockGapMultiple);
@@ -131,6 +161,9 @@ function recursivePosition3D(coord: number[], shapeInput: number[], cellExtent: 
     return outerPosition.add(innerPosition);
 }
 
+/**
+ * return base grid extent2 d for the current viewer state.
+ */
 function baseGridExtent2D(
     shapeInput: number[],
     cellExtent: Extent2,
@@ -154,10 +187,16 @@ function baseGridExtent2D(
     };
 }
 
+/**
+ * return axis world key2 dzorder for the current viewer state.
+ */
 function axisWorldKey2DZOrder(rank: number, axis: number): 0 | 1 {
     return ((rank - 1 - axis) % 2) as 0 | 1;
 }
 
+/**
+ * return recursive extent2 d for the current viewer state.
+ */
 function recursiveExtent2D(
     shapeInput: number[],
     cellExtent: Extent2,
@@ -178,6 +217,9 @@ function recursiveExtent2D(
     return recursiveExtent2D(shape.slice(0, split), innerExtent, level + 1, outerVertical, originalRank, axisOffset, dimensionBlockGapMultiple);
 }
 
+/**
+ * return base grid position2 d for the current viewer state.
+ */
 function baseGridPosition2D(
     coord: number[],
     shapeInput: number[],
@@ -206,19 +248,31 @@ function baseGridPosition2D(
     };
 }
 
+/**
+ * return inside cell for the current viewer state.
+ */
 function insideCell(point: number, center: number, extent: number): boolean {
     return Math.abs(point - center) <= extent / 2 + CELL_HIT_EPSILON;
 }
 
+/**
+ * normalize zero for the current viewer state.
+ */
 function normalizeZero(value: number): number {
     return Object.is(value, -0) ? 0 : value;
 }
 
+/**
+ * return family axes for the current viewer state.
+ */
 function familyAxes(rank: number, displayMode: '2d' | '3d', familyKey: 0 | 1 | 2, scheme: DimensionMappingScheme): number[] {
     return Array.from({ length: rank }, (_entry, axis) => axis)
         .filter((axis) => axisWorldKeyForMode(displayMode, rank, axis, scheme) === familyKey);
 }
 
+/**
+ * return family extent1 d for the current viewer state.
+ */
 function familyExtent1D(shape: number[], axes: number[], dimensionBlockGapMultiple: number): number {
     let extent = CELL_SIZE;
     for (let index = axes.length - 1, level = 0; index >= 0; index -= 1, level += 1) {
@@ -230,6 +284,9 @@ function familyExtent1D(shape: number[], axes: number[], dimensionBlockGapMultip
     return extent;
 }
 
+/**
+ * return family position1 d for the current viewer state.
+ */
 function familyPosition1D(
     coord: number[],
     shape: number[],
@@ -248,6 +305,9 @@ function familyPosition1D(
     return normalizeZero(position);
 }
 
+/**
+ * return family hit1 d for the current viewer state.
+ */
 function familyHit1D(
     point: number,
     shape: number[],
@@ -294,6 +354,9 @@ function familyHit1D(
     return { coord, position: normalizeZero(position) };
 }
 
+/**
+ * return contiguous position3 d for the current viewer state.
+ */
 function contiguousPosition3D(coord: number[], shape: number[], dimensionBlockGapMultiple: number): Vector3 {
     const rank = shape.length;
     return new Vector3(
@@ -303,6 +366,9 @@ function contiguousPosition3D(coord: number[], shape: number[], dimensionBlockGa
     );
 }
 
+/**
+ * return contiguous extent3 d for the current viewer state.
+ */
 function contiguousExtent3D(shape: number[], dimensionBlockGapMultiple: number): Extent3 {
     const rank = shape.length;
     return {
@@ -312,6 +378,9 @@ function contiguousExtent3D(shape: number[], dimensionBlockGapMultiple: number):
     };
 }
 
+/**
+ * return contiguous position2 d for the current viewer state.
+ */
 function contiguousPosition2D(coord: number[], shape: number[], dimensionBlockGapMultiple: number): { x: number; y: number } {
     const rank = shape.length;
     return {
@@ -320,6 +389,9 @@ function contiguousPosition2D(coord: number[], shape: number[], dimensionBlockGa
     };
 }
 
+/**
+ * return contiguous extent2 d for the current viewer state.
+ */
 function contiguousExtent2D(shape: number[], dimensionBlockGapMultiple: number): Extent2 {
     const rank = shape.length;
     return {
@@ -328,6 +400,9 @@ function contiguousExtent2D(shape: number[], dimensionBlockGapMultiple: number):
     };
 }
 
+/**
+ * return contiguous hit2 d for the current viewer state.
+ */
 function contiguousHit2D(point: { x: number; y: number }, shape: number[], dimensionBlockGapMultiple: number): CoordHit2D | null {
     const xHit = familyHit1D(point.x, shape, familyAxes(shape.length, '2d', 0, 'contiguous'), 1, dimensionBlockGapMultiple);
     if (!xHit) return null;
@@ -346,6 +421,9 @@ function contiguousHit2D(point: { x: number; y: number }, shape: number[], dimen
     };
 }
 
+/**
+ * return base grid hit2 d for the current viewer state.
+ */
 function baseGridHit2D(
     point: { x: number; y: number },
     shapeInput: number[],
@@ -390,6 +468,9 @@ function baseGridHit2D(
     };
 }
 
+/**
+ * return recursive position2 d for the current viewer state.
+ */
 function recursivePosition2D(
     coord: number[],
     shapeInput: number[],
@@ -418,6 +499,9 @@ function recursivePosition2D(
     };
 }
 
+/**
+ * return recursive hit2 d for the current viewer state.
+ */
 function recursiveHit2D(
     point: { x: number; y: number },
     shapeInput: number[],

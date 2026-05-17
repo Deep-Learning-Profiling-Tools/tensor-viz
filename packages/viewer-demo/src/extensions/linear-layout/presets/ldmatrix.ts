@@ -1,6 +1,23 @@
 import { GPU_ARCHS_SM75_PLUS, GPU_ARCHS_SM100_PLUS } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition, MatrixTransferLayoutDefinition } from './types.js';
 
+// ldmatrix presets start from one table of memory-transfer layouts.
+// each table row describes the matrix shape, dtype, input display name, and the
+// basis rows for transpose/no-transpose modes.
+// the exported preset list expands that table into selector facets so the
+// preset widget can filter purely from data.
+// `R` and `C` are logical shared-memory row/column coordinates.
+// `T` is the hardware thread coordinate emitted by the instruction.
+// `R32` is the register-lane coordinate used by tensor-core operands.
+// sm_75-plus entries cover the original b16 forms.
+// sm_100-plus entries cover newer b8/b4 forms.
+// transpose variants only exist when the source table supplies rows for that
+// mode; missing rows intentionally hide that selector choice.
+// comments attached to generated presets are shown in the notation panel after
+// the layout is selected.
+// if future architectures add a new transfer shape, add one table row here and
+// only split it out if the row-generation rule stops being shared.
+
 export const MATRIX_TRANSFER_LAYOUTS: MatrixTransferLayoutDefinition[] = [
     {
         name: 'ldmatrix_m8n8_x1_b16',

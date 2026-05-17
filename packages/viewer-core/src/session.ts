@@ -69,6 +69,9 @@ export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): V
     };
 }
 
+/**
+ * return tensor view for the current viewer state.
+ */
 function tensorView(shape: number[], axisLabels: string[] | undefined, view?: TensorViewSnapshot): TensorViewSnapshot {
     return {
         editor: view?.editor ?? defaultTensorViewEditor(shape, axisLabels),

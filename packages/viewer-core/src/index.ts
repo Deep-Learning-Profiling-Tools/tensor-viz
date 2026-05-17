@@ -1,3 +1,11 @@
+// public package surface for embedding tensor-viz.
+// keep exports grouped by subsystem so downstream imports stay predictable:
+// typed-array owns binary dtype wrappers.
+// layout/view own coordinate and tensor-view math.
+// session/validation own persisted bundle shapes.
+// viewer-utils owns small coordinate serialization helpers.
+// TensorViewer is the imperative runtime class.
+// types stay type-only so bundlers do not pull runtime code unnecessarily.
 export { createTypedArray } from './typed-array.js';
 export { axisWorldKeyForMode, displayExtent, displayHitForPoint2D, displayPositionForCoord, displayPositionForCoord2D, unravelIndex } from './layout.js';
 export type { CoordHit2D } from './layout.js';

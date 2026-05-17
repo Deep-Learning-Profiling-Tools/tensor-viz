@@ -15,6 +15,9 @@ import { applyLinearLayoutSpec } from './linear-layout-widget-actions.js';
 
 let clearPresetOutsideClickHandler: (() => void) | null = null;
 
+/**
+ * return linear layout preset help html for the current viewer state.
+ */
 function linearLayoutPresetHelpHtml(): string {
     const instructions = composeLayoutPresetOptions(undefined).instruction.join(', ');
     return `
@@ -70,6 +73,9 @@ Operand: D</code>
     `;
 }
 
+/**
+ * return preset search field for the current viewer state.
+ */
 function presetSearchField(
     field: ComposeLayoutPresetField,
     value: string,
@@ -90,18 +96,20 @@ function presetSearchField(
     `;
 }
 
+/**
+ * return filtered preset options for the current viewer state.
+ */
 function filteredPresetOptions(options: string[], query: string): string[] {
-    const normalizedQuery = normalizePresetSearch(query);
+    const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!normalizedQuery) return options;
     return options.filter((option) => fuzzyPresetMatch(option, normalizedQuery));
 }
 
-function normalizePresetSearch(value: string): string {
-    return value.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
+/**
+ * return fuzzy preset match for the current viewer state.
+ */
 function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
-    const normalizedOption = normalizePresetSearch(option);
+    const normalizedOption = option.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (normalizedOption.includes(normalizedQuery)) return true;
     let queryIndex = 0;
     for (const char of normalizedOption) {
@@ -111,6 +119,9 @@ function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
     return false;
 }
 
+/**
+ * bind preset input for the current viewer state.
+ */
 function bindPresetInput(
     ctx: LinearLayoutUiContext,
     input: HTMLInputElement | null,
@@ -145,6 +156,9 @@ function bindPresetInput(
     });
 }
 
+/**
+ * bind preset options for the current viewer state.
+ */
 function bindPresetOptions(ctx: LinearLayoutUiContext): void {
     ctx.linearLayoutPresetWidget.querySelectorAll<HTMLButtonElement>('[data-preset-input][data-preset-value]').forEach((button) => {
         button.addEventListener('mousedown', (event) => {
@@ -152,7 +166,7 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
         });
         button.addEventListener('click', () => {
             const inputId = button.dataset.presetInput ?? '';
-            const field = presetFieldForInputId(inputId);
+            const field = composeLayoutPresetFields().find((candidate) => candidate.id === inputId)?.key ?? null;
             if (!field) return;
             ctx.state.linearLayoutState.presetSelection = presetSelectionForOption(
                 ctx.state.linearLayoutState.presetSelection,
@@ -165,9 +179,12 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
     });
 }
 
+/**
+ * sync preset controls for the current viewer state.
+ */
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
     const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
-    if (activeInputId === null && renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFieldIds(ctx.state.linearLayoutState.presetSelection, presetOptions)) {
+    if (activeInputId === null && renderedPresetFieldIds(ctx.linearLayoutPresetWidget) !== visiblePresetFields(ctx.state.linearLayoutState.presetSelection, presetOptions).map((field) => field.id).join(',')) {
         // field visibility depends on selected facets, so re-render only when the
         // field set changes; otherwise update inputs in place to preserve focus.
         renderLinearLayoutPresetWidget(ctx);
@@ -206,6 +223,9 @@ function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | 
     if (loadPreset) loadPreset.disabled = preset === null;
 }
 
+/**
+ * return invalid preset option info for the current viewer state.
+ */
 function invalidPresetOptionInfo(field: string, value: string, selection: ComposeLayoutPresetSelection): string {
     const nextSelection = presetSelectionForOption(selection, field, value, true);
     const clearedFields = composeLayoutPresetFields()
@@ -217,6 +237,9 @@ function invalidPresetOptionInfo(field: string, value: string, selection: Compos
     return `Selecting this clears conflicting fields: ${clearedFields.join(', ')}`;
 }
 
+/**
+ * return preset options html for the current viewer state.
+ */
 function presetOptionsHtml(
     field: string,
     inputId: string,
@@ -238,6 +261,9 @@ function presetOptionsHtml(
     ].join('');
 }
 
+/**
+ * return invalid preset field options for the current viewer state.
+ */
 function invalidPresetFieldOptions(field: string, validOptions: string[]): string[] {
     const allOptions = presetFieldOptions(composeLayoutPresetOptions(undefined), field);
     return allOptions.filter((option) => !validOptions.includes(option));
@@ -278,6 +304,9 @@ function presetSelectionForOption(
     return normalizeComposeLayoutPresetSelection(next);
 }
 
+/**
+ * return preset matches for the current viewer state.
+ */
 function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
     return composeLayoutPresets().some((preset) => Object.keys(filters).every((key) => {
         const value = filters[key];
@@ -286,20 +315,25 @@ function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
     }));
 }
 
+/**
+ * set preset dropdown visibility for the current viewer state.
+ */
 function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | null): void {
     root.querySelectorAll<HTMLElement>('.preset-option-list').forEach((list) => {
         list.classList.toggle('is-open', list.closest<HTMLElement>('[data-preset-field]')?.dataset.presetField === activeInputId);
     });
 }
 
+/**
+ * return preset field options for the current viewer state.
+ */
 function presetFieldOptions(options: ComposeLayoutPresetOptions, field: string): string[] {
     return options[field] ?? [];
 }
 
-function presetFieldForInputId(inputId: string): string | null {
-    return composeLayoutPresetFields().find((field) => field.id === inputId)?.key ?? null;
-}
-
+/**
+ * return visible preset fields for the current viewer state.
+ */
 function visiblePresetFields(
     selection: ComposeLayoutPresetSelection,
     options: ComposeLayoutPresetOptions,
@@ -311,16 +345,18 @@ function visiblePresetFields(
         || (field.dependsOn.every((key) => Boolean(selection[key])) && presetFieldOptions(options, field.key).length > 0));
 }
 
-function visiblePresetFieldIds(selection: ComposeLayoutPresetSelection, options: ComposeLayoutPresetOptions): string {
-    return visiblePresetFields(selection, options).map((field) => field.id).join(',');
-}
-
+/**
+ * return rendered preset field ids for the current viewer state.
+ */
 function renderedPresetFieldIds(root: HTMLElement): string {
     return Array.from(root.querySelectorAll<HTMLElement>('[data-preset-field]'))
         .map((field) => field.dataset.presetField ?? '')
         .join(',');
 }
 
+/**
+ * render linear layout preset widget for the current viewer state.
+ */
 export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void {
     clearPresetOutsideClickHandler?.();
     const presetSelection = cloneComposeLayoutPresetSelection(ctx.state.linearLayoutState.presetSelection);
@@ -355,6 +391,7 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
         bindPresetInput(ctx, ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${field.id}`), field.key);
     });
     bindPresetOptions(ctx);
+    /** close open preset dropdowns when focus moves outside the widget. */
     const outsideClickHandler = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Node)) return;

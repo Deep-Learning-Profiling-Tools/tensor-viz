@@ -252,7 +252,10 @@ export class TensorViewer {
         logEvent('viewer:init', { background: options.background ?? '#e5e7eb' });
     }
 
-    private createControls(camera: PerspectiveCamera | OrthographicCamera): OrbitControls {
+        /**
+     * create controls for this class instance.
+     */
+private createControls(camera: PerspectiveCamera | OrthographicCamera): OrbitControls {
         const controls = new OrbitControls(camera, this.renderer.domElement);
         controls.enableDamping = false;
         controls.enablePan = true;
@@ -267,7 +270,10 @@ export class TensorViewer {
         return controls;
     }
 
-    private normalizeInteractionMode(): void {
+        /**
+     * normalize interaction mode for this class instance.
+     */
+private normalizeInteractionMode(): void {
         // selection currently depends on contiguous 2d screen order; normalize here
         // so callers can request a mode without checking every display constraint.
         if (this.state.displayMode === '2d') {
@@ -278,7 +284,10 @@ export class TensorViewer {
         if (this.state.interactionMode === 'select') this.state.interactionMode = 'pan';
     }
 
-    private syncInteractionMode(): void {
+        /**
+     * sync interaction mode for this class instance.
+     */
+private syncInteractionMode(): void {
         this.normalizeInteractionMode();
         const leftButton = this.state.displayMode === '3d' && this.state.interactionMode === 'rotate' ? MOUSE.ROTATE : MOUSE.PAN;
         this.controls.enableRotate = this.state.displayMode === '3d';
@@ -286,7 +295,10 @@ export class TensorViewer {
         this.controls.mouseButtons.RIGHT = MOUSE.PAN;
     }
 
-    private bindEvents(): void {
+        /**
+     * bind events for this class instance.
+     */
+private bindEvents(): void {
         window.addEventListener('resize', this.resize);
         this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown, { capture: true });
         this.renderer.domElement.addEventListener('pointermove', this.onPointerMove);
@@ -340,43 +352,73 @@ export class TensorViewer {
         this.requestRender();
     };
 
-    private canvasScale(): number {
+        /**
+     * handle canvas scale for this class instance.
+     */
+private canvasScale(): number {
         return this.flatCanvas.width / Math.max(1, this.flatCanvas.clientWidth || this.flatCanvas.width || 1);
     }
 
-    private layoutGapMultiple(): number {
+        /**
+     * handle layout gap multiple for this class instance.
+     */
+private layoutGapMultiple(): number {
         return this.state.displayGaps ? this.state.dimensionBlockGapMultiple : 0;
     }
 
-    private instanceShape(spec: TensorViewSpec): number[] {
+        /**
+     * handle instance shape for this class instance.
+     */
+private instanceShape(spec: TensorViewSpec): number[] {
         return spec.viewShape.length === 0 ? [1] : spec.viewShape;
     }
 
-    private layoutShape(spec: TensorViewSpec): number[] {
+        /**
+     * handle layout shape for this class instance.
+     */
+private layoutShape(spec: TensorViewSpec): number[] {
         return layoutShape(spec, this.state.collapseHiddenAxes);
     }
 
-    private mapViewCoordToLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
+        /**
+     * map view coord to layout coord for this class instance.
+     */
+private mapViewCoordToLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
         return mapViewCoordToLayoutCoord(viewCoord, spec, this.state.collapseHiddenAxes);
     }
 
-    private mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec): number[] {
+        /**
+     * map layout coord to view coord for this class instance.
+     */
+private mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec): number[] {
         return mapLayoutCoordToViewCoord(layoutCoord, spec, this.state.collapseHiddenAxes);
     }
 
-    private layoutCoordIsVisible(coord: number[], spec: TensorViewSpec): boolean {
+        /**
+     * handle layout coord is visible for this class instance.
+     */
+private layoutCoordIsVisible(coord: number[], spec: TensorViewSpec): boolean {
         return layoutCoordIsVisible(coord, spec, this.state.collapseHiddenAxes);
     }
 
-    private tensorCoordVisible(tensor: TensorRecord, tensorCoord: number[]): boolean {
+        /**
+     * handle tensor coord visible for this class instance.
+     */
+private tensorCoordVisible(tensor: TensorRecord, tensorCoord: number[]): boolean {
         return !tensor.visibleCoords || tensor.visibleCoords.has(coordKey(tensorCoord));
     }
 
-    private layoutAxisLabels(spec: TensorViewSpec): string[] {
+        /**
+     * handle layout axis labels for this class instance.
+     */
+private layoutAxisLabels(spec: TensorViewSpec): string[] {
         return layoutAxisLabels(spec, this.state.collapseHiddenAxes);
     }
 
-    private meshContext() {
+        /**
+     * handle mesh context for this class instance.
+     */
+private meshContext() {
         // viewer-mesh is deliberately stateless; this context is the narrow bridge
         // that lets mesh construction ask the viewer for current render settings.
         return {
@@ -408,7 +450,10 @@ export class TensorViewer {
         };
     }
 
-    private tensorExtentForMode(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
+        /**
+     * handle tensor extent for mode for this class instance.
+     */
+private tensorExtentForMode(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
         const shape = layoutShape(tensor.view, this.state.collapseHiddenAxes);
         if (mode === '2d') {
             const extent = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
@@ -418,7 +463,10 @@ export class TensorViewer {
         return [extent.x, extent.y, extent.z];
     }
 
-    private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
+        /**
+     * handle auto tensor offset for this class instance.
+     */
+private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
         // new tensors are placed to the right of the current world extent so demos
         // can append tensors without manually managing offsets.
         const spacing = mode === '3d' ? DEFAULT_TENSOR_SPACING * 2 : DEFAULT_TENSOR_SPACING;
@@ -432,7 +480,10 @@ export class TensorViewer {
         return [maxRight + spacing + width / 2, 0, 0];
     }
 
-    private relayoutTensorOffsets(mode: '2d' | '3d' = this.state.displayMode): void {
+        /**
+     * handle relayout tensor offsets for this class instance.
+     */
+private relayoutTensorOffsets(mode: '2d' | '3d' = this.state.displayMode): void {
         const tensors = Array.from(this.tensors.values());
         if (tensors.length < 2) {
             if (tensors[0]) tensors[0].offset = [0, 0, 0];
@@ -459,7 +510,10 @@ export class TensorViewer {
         });
     }
 
-    private relayoutAutoOffsets(): void {
+        /**
+     * handle relayout auto offsets for this class instance.
+     */
+private relayoutAutoOffsets(): void {
         let maxRight = Number.NEGATIVE_INFINITY;
         this.tensors.forEach((tensor) => {
             const [width] = this.tensorExtentForMode(tensor, this.state.displayMode);
@@ -471,7 +525,10 @@ export class TensorViewer {
         });
     }
 
-    private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo, 'value' | 'colorSource'> {
+        /**
+     * handle hover value for this class instance.
+     */
+private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo, 'value' | 'colorSource'> {
         const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : null;
         return {
             value,
@@ -483,7 +540,10 @@ export class TensorViewer {
         };
     }
 
-    private heatmapNormalizedValue(value: number, min: number, max: number): number {
+        /**
+     * handle heatmap normalized value for this class instance.
+     */
+private heatmapNormalizedValue(value: number, min: number, max: number): number {
         const scaledValue = this.state.logScale ? signedLog1p(value) : value;
         const scaledMin = this.state.logScale ? signedLog1p(min) : min;
         const scaledMax = this.state.logScale ? signedLog1p(max) : max;
@@ -491,7 +551,10 @@ export class TensorViewer {
         return Math.max(0, Math.min(1, (scaledValue - scaledMin) / range));
     }
 
-    private sync2DCamera(): void {
+        /**
+     * handle sync2 dcamera for this class instance.
+     */
+private sync2DCamera(): void {
         const zoom = normalizeCanvasZoom(this.canvasZoom);
         this.canvasZoom = zoom;
         this.orthographicCamera.zoom = zoom;
@@ -504,7 +567,10 @@ export class TensorViewer {
         this.orthographicCamera.updateProjectionMatrix();
     }
 
-    private canvasPointerToWorld(clientX: number, clientY: number): { x: number; y: number } {
+        /**
+     * handle canvas pointer to world for this class instance.
+     */
+private canvasPointerToWorld(clientX: number, clientY: number): { x: number; y: number } {
         const rect = this.flatCanvas.getBoundingClientRect();
         const scaleX = this.flatCanvas.width / Math.max(1, rect.width);
         const scaleY = this.flatCanvas.height / Math.max(1, rect.height);
@@ -514,7 +580,10 @@ export class TensorViewer {
         };
     }
 
-    private pickEntries(clientX: number, clientY: number, point2D?: { x: number; y: number }): PickMesh[] {
+        /**
+     * handle pick entries for this class instance.
+     */
+private pickEntries(clientX: number, clientY: number, point2D?: { x: number; y: number }): PickMesh[] {
         const currentTensorId = this.state.hover?.tensorId;
         const activeTensorId = this.state.activeTensorId;
         const candidates = this.state.displayMode === '2d'
@@ -536,7 +605,10 @@ export class TensorViewer {
         return candidates;
     }
 
-    private canvasPointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
+        /**
+     * handle canvas pointer to hover for this class instance.
+     */
+private canvasPointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
         const point = this.canvasPointerToWorld(clientX, clientY);
         const entries = this.pickEntries(clientX, clientY, point);
         for (const entry of entries) {
@@ -571,7 +643,10 @@ export class TensorViewer {
         return null;
     }
 
-    private scenePointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
+        /**
+     * handle scene pointer to hover for this class instance.
+     */
+private scenePointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
         this.pointer.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
@@ -608,7 +683,10 @@ export class TensorViewer {
         };
     }
 
-    private sameHover(left: HoverInfo | null, right: HoverInfo | null): boolean {
+        /**
+     * handle same hover for this class instance.
+     */
+private sameHover(left: HoverInfo | null, right: HoverInfo | null): boolean {
         return !!left
             && !!right
             && left.tensorId === right.tensorId
@@ -616,7 +694,10 @@ export class TensorViewer {
             && left.tensorCoord.every((value, index) => value === right.tensorCoord[index]);
     }
 
-    private selectionCount(): number {
+        /**
+     * handle selection count for this class instance.
+     */
+private selectionCount(): number {
         let count = 0;
         this.selectionEntries().forEach((entries) => {
             count += entries.size;
@@ -624,36 +705,54 @@ export class TensorViewer {
         return count;
     }
 
-    private selectionEntries(): Map<string, Set<string>> {
+        /**
+     * handle selection entries for this class instance.
+     */
+private selectionEntries(): Map<string, Set<string>> {
         return this.selectedCells;
     }
 
-    private selectionCoords(entries: Map<string, Set<string>> = this.selectionEntries()): SelectionCoords {
+        /**
+     * handle selection coords for this class instance.
+     */
+private selectionCoords(entries: Map<string, Set<string>> = this.selectionEntries()): SelectionCoords {
         return new Map(Array.from(entries.entries(), ([tensorId, coords]) => [
             tensorId,
             Array.from(coords, (key) => coordFromKey(key)),
         ]));
     }
 
-    private selectionEnabled(
+        /**
+     * handle selection enabled for this class instance.
+     */
+private selectionEnabled(
         displayMode: '2d' | '3d' = this.state.displayMode,
         dimensionMappingScheme: DimensionMappingScheme = this.state.dimensionMappingScheme,
     ): boolean {
         return displayMode === '2d' && dimensionMappingScheme === 'contiguous';
     }
 
-    private isSelectedCell(tensorId: string, tensorCoord: number[]): boolean {
+        /**
+     * return whether selected cell for this class instance.
+     */
+private isSelectedCell(tensorId: string, tensorCoord: number[]): boolean {
         return this.selectionEntries().get(tensorId)?.has(coordKey(tensorCoord)) ?? false;
     }
 
-    private isHighlightedCell(tensorId: string, tensorCoord: number[]): boolean {
+        /**
+     * return whether highlighted cell for this class instance.
+     */
+private isHighlightedCell(tensorId: string, tensorCoord: number[]): boolean {
         const key = coordKey(tensorCoord);
         if (this.selectionDrag) return this.previewSelectedCells.get(tensorId)?.has(key) ?? false;
         return (this.selectionEntries().get(tensorId)?.has(key) ?? false)
             || (this.previewSelectedCells.get(tensorId)?.has(key) ?? false);
     }
 
-    private selectedColor(baseColor: Color): Color {
+        /**
+     * handle selected color for this class instance.
+     */
+private selectedColor(baseColor: Color): Color {
         return baseColor.clone().lerp(ACTIVE_COLOR, SELECTION_TINT_ALPHA);
     }
 
@@ -677,11 +776,17 @@ export class TensorViewer {
         return new Color().setRGB(gray, gray, gray);
     }
 
-    private cloneSelectionEntries(entries: Map<string, Set<string>>): Map<string, Set<string>> {
+        /**
+     * clone selection entries for this class instance.
+     */
+private cloneSelectionEntries(entries: Map<string, Set<string>>): Map<string, Set<string>> {
         return new Map(Array.from(entries.entries(), ([tensorId, coords]) => [tensorId, new Set(coords)]));
     }
 
-    private selectionBoxBounds(drag: SelectionDragState): { left: number; right: number; top: number; bottom: number } {
+        /**
+     * handle selection box bounds for this class instance.
+     */
+private selectionBoxBounds(drag: SelectionDragState): { left: number; right: number; top: number; bottom: number } {
         const start = drag.source === '2d' && drag.startWorld
             ? this.projectCanvasPoint(drag.startWorld.x, drag.startWorld.y)
             : this.overlayPoint(drag.startClient.x, drag.startClient.y);
@@ -694,18 +799,27 @@ export class TensorViewer {
         };
     }
 
-    private canvasPixelToWorld(x: number, y: number): { x: number; y: number } {
+        /**
+     * handle canvas pixel to world for this class instance.
+     */
+private canvasPixelToWorld(x: number, y: number): { x: number; y: number } {
         return {
             x: (x - this.flatCanvas.width / 2 - this.canvasPan.x) / (CANVAS_WORLD_SCALE * this.canvasZoom),
             y: -((y - this.flatCanvas.height / 2 - this.canvasPan.y) / (CANVAS_WORLD_SCALE * this.canvasZoom)),
         };
     }
 
-    private decodeSelectionIndex(index: number, shape: number[]): number[] {
+        /**
+     * decode selection index for this class instance.
+     */
+private decodeSelectionIndex(index: number, shape: number[]): number[] {
         return shape.length === 0 ? [] : unravelIndex(index, shape);
     }
 
-    private monotonicIndexRange(
+        /**
+     * handle monotonic index range for this class instance.
+     */
+private monotonicIndexRange(
         length: number,
         valueAt: (index: number) => number,
         lower: number,
@@ -731,7 +845,10 @@ export class TensorViewer {
         return first <= last ? { start: first, end: last } : null;
     }
 
-    private fastBoxSelectionEntries2D(
+        /**
+     * handle fast box selection entries2 d for this class instance.
+     */
+private fastBoxSelectionEntries2D(
         tensor: TensorRecord,
         box: { left: number; right: number; top: number; bottom: number },
     ): Set<string> | null {
@@ -784,7 +901,10 @@ export class TensorViewer {
         return selected;
     }
 
-    private projectScenePoint(point: Vector3): { x: number; y: number } | null {
+        /**
+     * project scene point for this class instance.
+     */
+private projectScenePoint(point: Vector3): { x: number; y: number } | null {
         const projected = point.clone().project(this.camera);
         if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) return null;
         return {
@@ -793,7 +913,10 @@ export class TensorViewer {
         };
     }
 
-    private canvasCellBounds(
+        /**
+     * handle canvas cell bounds for this class instance.
+     */
+private canvasCellBounds(
         tensor: TensorRecord,
         layoutCoord: number[],
         bias: readonly [number, number] = [0, 0],
@@ -816,7 +939,10 @@ export class TensorViewer {
         };
     }
 
-    private sceneCellBounds(
+        /**
+     * handle scene cell bounds for this class instance.
+     */
+private sceneCellBounds(
         tensor: TensorRecord,
         layoutCoord: number[],
     ): { left: number; right: number; top: number; bottom: number } | null {
@@ -842,7 +968,10 @@ export class TensorViewer {
         return { left, right, top, bottom };
     }
 
-    private boxSelectionEntries(drag: SelectionDragState): Map<string, Set<string>> {
+        /**
+     * handle box selection entries for this class instance.
+     */
+private boxSelectionEntries(drag: SelectionDragState): Map<string, Set<string>> {
         if (!this.selectionEnabled()) return new Map();
         const entries = new Map<string, Set<string>>();
         const box = this.selectionBoxBounds(drag);
@@ -871,7 +1000,10 @@ export class TensorViewer {
         return entries;
     }
 
-    private updateSelectionPreview(drag: SelectionDragState): void {
+        /**
+     * update selection preview for this class instance.
+     */
+private updateSelectionPreview(drag: SelectionDragState): void {
         const selected = this.boxSelectionEntries(drag);
         const sourceTensorId = this.selectionSourceTensorId(drag, selected);
         if (sourceTensorId) {
@@ -895,7 +1027,10 @@ export class TensorViewer {
         drag.previewSelections = nextPreviewSelections;
     }
 
-    private selectionSourceTensorId(
+        /**
+     * handle selection source tensor id for this class instance.
+     */
+private selectionSourceTensorId(
         drag: SelectionDragState,
         selected: Map<string, Set<string>>,
     ): string | null {
@@ -1016,7 +1151,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         });
     }
 
-    private refreshTensorColors(tensorId: string): void {
+        /**
+     * refresh tensor colors for this class instance.
+     */
+private refreshTensorColors(tensorId: string): void {
         const tensor = this.tensors.get(tensorId);
         const group = this.tensorMeshes.get(tensorId);
         const mesh = group?.children[0];
@@ -1046,13 +1184,19 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         mesh.material.needsUpdate = true;
     }
 
-    private refreshSelectionVisuals(...tensorIds: string[]): void {
+        /**
+     * refresh selection visuals for this class instance.
+     */
+private refreshSelectionVisuals(...tensorIds: string[]): void {
         const ids = new Set(tensorIds);
         ids.forEach((tensorId) => this.refreshTensorColors(tensorId));
         this.requestRender();
     }
 
-    private clearSelection(emit = true): void {
+        /**
+     * clear selection for this class instance.
+     */
+private clearSelection(emit = true): void {
         if (!this.selectionDrag && this.selectedCells.size === 0) return;
         const tensorIds = new Set(this.selectedCells.keys());
         this.selectionDrag?.baseSelections.forEach((_coords, tensorId) => tensorIds.add(tensorId));
@@ -1066,7 +1210,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         if (emit) this.emit();
     }
 
-    private beginSelectionDrag(
+        /**
+     * handle begin selection drag for this class instance.
+     */
+private beginSelectionDrag(
         source: '2d' | '3d',
         hover: HoverInfo | null,
         mode: 'replace' | 'add' | 'remove',
@@ -1096,7 +1243,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.emit();
     }
 
-    private updateSelectionDrag(
+        /**
+     * update selection drag for this class instance.
+     */
+private updateSelectionDrag(
         source: '2d' | '3d',
         clientX: number,
         clientY: number,
@@ -1109,7 +1259,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.requestRender();
     }
 
-    private finalizeSelectionDrag(): void {
+        /**
+     * handle finalize selection drag for this class instance.
+     */
+private finalizeSelectionDrag(): void {
         const drag = this.selectionDrag;
         if (!drag) return;
         this.updateSelectionPreview(drag);
@@ -1134,7 +1287,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.emit();
     }
 
-    private overlayPoint(clientX: number, clientY: number): { x: number; y: number } {
+        /**
+     * handle overlay point for this class instance.
+     */
+private overlayPoint(clientX: number, clientY: number): { x: number; y: number } {
         const rect = this.container.getBoundingClientRect();
         const scaleX = this.flatCanvas.width / Math.max(1, rect.width);
         const scaleY = this.flatCanvas.height / Math.max(1, rect.height);
@@ -1144,7 +1300,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         };
     }
 
-    private syncSelectionBox(): void {
+        /**
+     * sync selection box for this class instance.
+     */
+private syncSelectionBox(): void {
         const drag = this.selectionDrag;
         if (!drag) {
             this.selectionBox.setAttribute('display', 'none');
@@ -1163,7 +1322,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatOverlay.style.display = 'block';
     }
 
-    private hoverPosition(hover: HoverInfo): Vector3 | null {
+        /**
+     * handle hover position for this class instance.
+     */
+private hoverPosition(hover: HoverInfo): Vector3 | null {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return null;
         const shape = this.layoutShape(tensor.view);
@@ -1175,7 +1337,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return displayPositionForCoord(layoutCoord, shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme).add(vectorFromTuple(tensor.offset));
     }
 
-    private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): boolean {
+        /**
+     * sync hover outline for this class instance.
+     */
+private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): boolean {
         const outline = source === '3d' ? this.hoverOutline : this.hoverOutline2D;
         const otherOutline = source === '3d' ? this.hoverOutline2D : this.hoverOutline;
         let changed = outline.visible !== !!hover || otherOutline.visible;
@@ -1191,14 +1356,20 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return changed;
     }
 
-    private hoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo | null): boolean {
+        /**
+     * handle hovered cell contains pointer for this class instance.
+     */
+private hoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo | null): boolean {
         if (!hover) return false;
         return this.state.displayMode === '2d'
             ? this.canvasHoveredCellContainsPointer(clientX, clientY, hover)
             : this.sceneHoveredCellContainsPointer(clientX, clientY, hover);
     }
 
-    private canvasHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
+        /**
+     * handle canvas hovered cell contains pointer for this class instance.
+     */
+private canvasHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
         const shape = this.layoutShape(tensor.view);
@@ -1215,7 +1386,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return clientX >= left && clientX <= right && clientY >= top && clientY <= bottom;
     }
 
-    private sceneHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
+        /**
+     * handle scene hovered cell contains pointer for this class instance.
+     */
+private sceneHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
         const shape = this.layoutShape(tensor.view);
@@ -1244,7 +1418,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return clientX >= minX && clientX <= maxX && clientY >= minY && clientY <= maxY;
     }
 
-    private projectCanvasPoint(x: number, y: number): { x: number; y: number } {
+        /**
+     * project canvas point for this class instance.
+     */
+private projectCanvasPoint(x: number, y: number): { x: number; y: number } {
         return {
             x: this.flatCanvas.width / 2 + this.canvasPan.x + (x * CANVAS_WORLD_SCALE * this.canvasZoom),
             y: this.flatCanvas.height / 2 + this.canvasPan.y - (y * CANVAS_WORLD_SCALE * this.canvasZoom),
@@ -1263,7 +1440,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return measuredWidth > maxWidth ? Math.max(1, preferredFontSize * (maxWidth / measuredWidth)) : preferredFontSize;
     }
 
-    private fitCanvasView(bounds: Box3 | null = null): void {
+        /**
+     * fit canvas view for this class instance.
+     */
+private fitCanvasView(bounds: Box3 | null = null): void {
         if (!bounds) {
             this.canvasPan = { x: 0, y: 0 };
             this.canvasZoom = 1;
@@ -1452,7 +1632,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         }
     };
 
-    private zoomBy(scale: number): void {
+        /**
+     * handle zoom by for this class instance.
+     */
+private zoomBy(scale: number): void {
         if (this.camera instanceof OrthographicCamera) {
             this.canvasZoom = normalizeCanvasZoom(this.canvasZoom / scale);
             this.sync2DCamera();
@@ -1463,7 +1646,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.emit();
     }
 
-    private requestRender(): void {
+        /**
+     * handle request render for this class instance.
+     */
+private requestRender(): void {
         if (this.renderPending) return;
         this.renderPending = true;
         requestAnimationFrame(() => {
@@ -1480,7 +1666,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         });
     }
 
-    private sceneBounds(): Box3 | null {
+        /**
+     * handle scene bounds for this class instance.
+     */
+private sceneBounds(): Box3 | null {
         const groups = Array.from(this.tensorMeshes.values());
         if (groups.length === 0) return null;
         const bounds = new Box3();
@@ -1491,7 +1680,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return bounds;
     }
 
-    private fitCamera(): void {
+        /**
+     * fit camera for this class instance.
+     */
+private fitCamera(): void {
         const bounds = this.sceneBounds();
         if (this.state.displayMode === '2d') {
             this.fitCanvasView(bounds);
@@ -1521,7 +1713,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.requestRender();
     }
 
-    private rebuildAllMeshes(options: { fitCamera?: boolean } = {}): void {
+        /**
+     * rebuild all meshes for this class instance.
+     */
+private rebuildAllMeshes(options: { fitCamera?: boolean } = {}): void {
         const shouldFitCamera = options.fitCamera ?? false;
         this.relayoutAutoOffsets();
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
@@ -1556,7 +1751,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.emit();
     }
 
-    private buildTensorGroup(tensor: TensorRecord): Group {
+        /**
+     * build tensor group for this class instance.
+     */
+private buildTensorGroup(tensor: TensorRecord): Group {
         return buildTensorGroup(this.meshContext(), tensor);
     }
 
@@ -1565,7 +1763,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return updateSliceMesh(this.meshContext(), tensor, previousView);
     }
 
-    private render2D(): void {
+        /**
+     * handle render2 d for this class instance.
+     */
+private render2D(): void {
         // 2d is a hybrid render: webgl draws cells for speed, then canvas draws
         // labels and annotations that would be expensive as thousands of meshes.
         this.sync2DCamera();
@@ -1579,7 +1780,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.draw2DCellLabels();
     }
 
-    private draw2DMarkers(): void {
+        /**
+     * handle draw2 dmarkers for this class instance.
+     */
+private draw2DMarkers(): void {
         this.flatContext.save();
         this.tensors.forEach((tensor) => {
             if (!tensor.markerCoords || tensor.markerCoords.size === 0) return;
@@ -1621,7 +1825,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.restore();
     }
 
-    private draw2DGhostLayers(): void {
+        /**
+     * handle draw2 dghost layers for this class instance.
+     */
+private draw2DGhostLayers(): void {
         this.flatContext.save();
         this.flatContext.textAlign = 'center';
         this.flatContext.textBaseline = 'middle';
@@ -1641,7 +1848,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.restore();
     }
 
-    private draw2DLayerTips(): void {
+        /**
+     * handle draw2 dlayer tips for this class instance.
+     */
+private draw2DLayerTips(): void {
         this.flatContext.save();
         this.tensors.forEach((tensor) => {
             if (!tensor.ghostLayers?.length) return;
@@ -1664,7 +1874,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.restore();
     }
 
-    private draw2DCellLabels(): void {
+        /**
+     * handle draw2 dcell labels for this class instance.
+     */
+private draw2DCellLabels(): void {
         this.flatContext.save();
         this.flatContext.textAlign = 'center';
         this.flatContext.textBaseline = 'middle';
@@ -1684,7 +1897,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatContext.restore();
     }
 
-    private draw2DCellText(
+        /**
+     * handle draw2 dcell text for this class instance.
+     */
+private draw2DCellText(
         tensor: TensorRecord,
         tensorCoord: number[],
         text: string,
@@ -1709,7 +1925,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         });
     }
 
-    private escapeSvgText(text: string): string {
+        /**
+     * escape svg text for this class instance.
+     */
+private escapeSvgText(text: string): string {
         return text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -1717,7 +1936,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             .replace(/"/g, '&quot;');
     }
 
-    private linearIndex(coord: number[], shape: number[]): number {
+        /**
+     * handle linear index for this class instance.
+     */
+private linearIndex(coord: number[], shape: number[]): number {
         let index = 0;
         coord.forEach((value, axis) => {
             index = (index * shape[axis]) + value;
@@ -1725,7 +1947,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return index;
     }
 
-    private cellColor(
+        /**
+     * handle cell color for this class instance.
+     */
+private cellColor(
         tensor: TensorRecord,
         tensorCoord: number[],
         value: number,
@@ -1735,7 +1960,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return this.isHighlightedCell(tensor.id, tensorCoord) ? this.selectedColor(color) : color;
     }
 
-    private cellLabelColor(tensor: TensorRecord, tensorCoord: number[]): string {
+        /**
+     * handle cell label color for this class instance.
+     */
+private cellLabelColor(tensor: TensorRecord, tensorCoord: number[]): string {
         const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
         const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
         const color = this.cellColor(tensor, tensorCoord, value, heatmapRange);
@@ -1743,7 +1971,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return luminance > 0.5 ? CELL_LABEL_DARK : CELL_LABEL_LIGHT;
     }
 
-    private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
+        /**
+     * apply color instructions for this class instance.
+     */
+private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
         const tensor = this.requireTensor(tensorId);
         tensor.customColors.clear();
         validateColorInstructions(instructions, tensor.shape)?.forEach((instruction) => {
@@ -1759,7 +1990,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         });
     }
 
-    private applyColors(
+        /**
+     * apply colors for this class instance.
+     */
+private applyColors(
         tensor: TensorRecord,
         arg1: Uint8ClampedArray | Float32Array | number[][] | number[],
         arg2?: RGB | HueSaturation | number[],
@@ -1797,6 +2031,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 const color = parseCustomColor(arg4 as number[]);
                 const ranges = shape.map((dim, axis) => Array.from({ length: dim }, (_entry, index) => base[axis] + index * jumps[axis]));
                 const coord = new Array(shape.length).fill(0);
+                /** recursively enumerate the rectangular region covered by this color instruction. */
                 const visit = (axis: number): void => {
                     if (axis === shape.length) {
                         tensor.customColors.set(coordKey(coord.slice()), color);
@@ -1812,27 +2047,42 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         }
     }
 
-    private emit(): void {
+        /**
+     * emit for this class instance.
+     */
+private emit(): void {
         const snapshot = this.getSnapshot();
         this.listeners.forEach((listener) => listener(snapshot));
     }
 
-    private emitHover(): void {
+        /**
+     * emit hover for this class instance.
+     */
+private emitHover(): void {
         const hover = this.getHover();
         this.hoverListeners.forEach((listener) => listener(hover));
     }
 
-    private emitSelection(): void {
+        /**
+     * emit selection for this class instance.
+     */
+private emitSelection(): void {
         const selection = this.getSelectedCoords();
         this.selectionListeners.forEach((listener) => listener(selection));
     }
 
-    private emitSelectionPreview(): void {
+        /**
+     * emit selection preview for this class instance.
+     */
+private emitSelectionPreview(): void {
         const selection = this.selectionDrag ? this.selectionCoords(this.selectionDrag.previewSelections) : new Map();
         this.selectionPreviewListeners.forEach((listener) => listener(selection));
     }
 
-    private clearHover(): void {
+        /**
+     * clear hover for this class instance.
+     */
+private clearHover(): void {
         this.state.hover = null;
         this.state.lastHover = null;
         this.hoverOutline.visible = false;
@@ -1841,7 +2091,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.emitHover();
     }
 
-    private resetLoadedState(): void {
+        /**
+     * reset loaded state for this class instance.
+     */
+private resetLoadedState(): void {
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
         this.tensorMeshes.clear();
         this.pickMeshes.length = 0;
@@ -1858,7 +2111,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.lastHoverLogKey = null;
     }
 
-    private applyDisplayMode(mode: '2d' | '3d'): void {
+        /**
+     * apply display mode for this class instance.
+     */
+private applyDisplayMode(mode: '2d' | '3d'): void {
         const previousTarget = this.controls.target.clone();
         this.state.displayMode = mode;
         if (!this.selectionEnabled()) this.clearSelection(false);
@@ -1880,7 +2136,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.sync2DCamera();
     }
 
-    private assignTensorView(tensor: TensorRecord, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
+        /**
+     * assign tensor view for this class instance.
+     */
+private assignTensorView(tensor: TensorRecord, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const parsed = parseTensorView(tensor.shape, spec, hiddenIndices ?? tensor.view.hiddenIndices, tensor.axisLabels);
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
         tensor.view = parsed.spec;
@@ -1890,14 +2149,20 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         };
     }
 
-    private clearSliceStateFromOtherTensors(activeTensorId: string): void {
+        /**
+     * clear slice state from other tensors for this class instance.
+     */
+private clearSliceStateFromOtherTensors(activeTensorId: string): void {
         this.tensors.forEach((tensor) => {
             if (tensor.id === activeTensorId || tensor.view.sliceTokens.length === 0) return;
             this.assignTensorView(tensor, serializeTensorViewEditor(clearTensorViewSlices(tensor.view.editor)));
         });
     }
 
-    private applySnapshot(snapshot: ViewerSnapshot): void {
+        /**
+     * apply snapshot for this class instance.
+     */
+private applySnapshot(snapshot: ViewerSnapshot): void {
         this.clearSelection(false);
         this.state.heatmap = snapshot.heatmap;
         this.state.dimensionBlockGapMultiple = snapshot.dimensionBlockGapMultiple ?? DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
@@ -1954,7 +2219,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         }
     }
 
-    private shouldAutoFitSnapshot(snapshot: ViewerSnapshot): boolean {
+        /**
+     * return whether should auto fit snapshot for this class instance.
+     */
+private shouldAutoFitSnapshot(snapshot: ViewerSnapshot): boolean {
         // generated demos historically wrote the default camera even when the view
         // had never been fitted, so treat that exact pose as "no camera saved".
         return snapshot.camera.zoom === 1
@@ -1969,7 +2237,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             && snapshot.camera.rotation[2] === 0;
     }
 
-    private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): void {
+        /**
+     * update hover for this class instance.
+     */
+private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): void {
         const outlineChanged = this.syncHoverOutline(hover, source, outlinePosition);
         if (this.sameHover(this.state.hover, hover)) {
             if (outlineChanged) this.requestRender();
@@ -2032,7 +2303,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         });
     }
 
-    private insertTensor(
+        /**
+     * insert tensor for this class instance.
+     */
+private insertTensor(
         shape: number[],
         data: NumericArray | null,
         options: {
@@ -2576,9 +2850,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         return request;
     }
 
-    public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
-    public colorTensor(tensorId: string, coords: number[][], color: RGB | HueSaturation): void;
-    public colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGB | HueSaturation): void;
+        /**
+     * color tensor for this class instance.
+     */
+public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
+        /**
+     * color tensor for this class instance.
+     */
+public colorTensor(tensorId: string, coords: number[][], color: RGB | HueSaturation): void;
+        /**
+     * color tensor for this class instance.
+     */
+public colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGB | HueSaturation): void;
     /** Apply dense, coordinate, or region-based custom colors to one tensor. */
     public colorTensor(
         tensorId: string,
@@ -3084,7 +3367,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.container.removeChild(this.flatOverlay);
     }
 
-    private requireTensor(tensorId: string): TensorRecord {
+        /**
+     * handle require tensor for this class instance.
+     */
+private requireTensor(tensorId: string): TensorRecord {
         const tensor = this.tensors.get(tensorId);
         if (!tensor) throw new Error(`Unknown tensor ${tensorId}.`);
         return tensor;

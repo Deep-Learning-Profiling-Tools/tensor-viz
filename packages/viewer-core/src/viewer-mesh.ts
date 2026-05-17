@@ -23,6 +23,16 @@ import { axisFamilyColor, createLine, createTextLabel } from './viewer-graphics.
 import { coordKey, numericValue, vectorFromTuple } from './viewer-utils.js';
 import type { TensorRecord, TensorViewSpec, ViewerState, Vec3 } from './types.js';
 
+// viewer-mesh.ts owns renderable geometry, not viewer state.
+// TensorViewer passes a narrow context so this file can build groups, instance
+// buffers, labels, outlines, and dimension guides without reaching into private
+// class fields.
+// coordinate transforms still live in layout/view modules; mesh code should
+// call those helpers instead of re-deriving tensor-view semantics.
+// if a feature changes what cells exist, update the view/model layer first.
+// if a feature changes how existing cells are drawn, this is usually the right
+// file.
+
 const MULTI_INPUT_Z_STEP = 1.15;
 
 /** narrow rendering interface supplied by TensorViewer.
@@ -62,6 +72,9 @@ type MeshViewerContext = {
     emit(): void;
 };
 
+/**
+ * populate fast mesh2 d for the current viewer state.
+ */
 function populateFastMesh2D(
     viewer: MeshViewerContext,
     tensor: TensorRecord,
@@ -87,6 +100,8 @@ function populateFastMesh2D(
     // default 1d/2d views are affine grids, so write instance buffers directly.
     const matrixArray = mesh.instanceMatrix.array as Float32Array;
     const extent = displayExtent2D(instanceShape, viewer.layoutGapMultiple(), viewer.state.dimensionMappingScheme);
+    // one-dimensional tensors render as a single row so the same direct buffer
+    // writer can handle both vector and matrix defaults.
     const rowCount = instanceShape.length > 1 ? instanceShape[0] : 1;
     const columnCount = instanceShape.length > 1 ? instanceShape[1] : (instanceShape[0] ?? 1);
     const startX = tensor.offset[0] - extent.x / 2 + 0.5;
@@ -133,6 +148,8 @@ function populateFastMesh2D(
                 colorArray[colorOffset + 2] = BASE_COLOR.b;
             }
             if (selectionState) {
+                // the fast path only handles identity views, so instance index
+                // is already the canonical tensor coordinate.
                 const tensorCoord = instanceShape.length > 1 ? [row, column] : [column];
                 selectionState[cellIndex] = viewer.isSelectedCell(tensor.id, tensorCoord) ? 1 : 0;
             }
@@ -144,7 +161,12 @@ function populateFastMesh2D(
     return true;
 }
 
+/**
+ * build outline for the current viewer state.
+ */
 function buildOutline(extent: Vector3, offset: Vec3): LineSegments {
+    // 3d outlines use box edges so depth sorting and camera rotation stay
+    // consistent with the instanced cube cells.
     const outline = new LineSegments(
         new EdgesGeometry(new BoxGeometry(extent.x + 0.2, extent.y + 0.2, extent.z + 0.2)),
         new LineBasicMaterial({ color: '#334155' }),
@@ -153,7 +175,12 @@ function buildOutline(extent: Vector3, offset: Vec3): LineSegments {
     return outline;
 }
 
+/**
+ * build outline2 d for the current viewer state.
+ */
 function buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
+    // 2d outlines are lines instead of box edges because SVG export mirrors this
+    // flat geometry path.
     const halfX = extent.x / 2;
     const halfY = extent.y / 2;
     const outline = createLine([
@@ -167,6 +194,9 @@ function buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
     return outline;
 }
 
+/**
+ * build dimension guides2 d for the current viewer state.
+ */
 function buildDimensionGuides2D(
     viewer: MeshViewerContext,
     shape: number[],
@@ -193,6 +223,8 @@ function buildDimensionGuides2D(
         const familyKey = axisWorldKeyForMode('2d', rank, axis, viewer.state.dimensionMappingScheme) as 0 | 1;
         const family = families.get(familyKey) ?? [axis];
         const familyPos = Math.max(0, family.indexOf(axis));
+        // later axes in the same rendered family extend from the current axis so
+        // stacked labels show nested block structure rather than full extents.
         const start = new Array(rank).fill(0);
         const end = start.slice();
         family.forEach((familyAxis) => {
@@ -222,6 +254,9 @@ function buildDimensionGuides2D(
     return group;
 }
 
+/**
+ * build dimension guides for the current viewer state.
+ */
 function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape: number[], offset: Vec3, labels: string[]): Group {
     const group = new Group();
     const halfX = extent.x / 2;

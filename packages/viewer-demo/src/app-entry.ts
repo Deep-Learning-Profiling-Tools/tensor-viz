@@ -110,6 +110,9 @@ const SESSION_MANIFEST_MAX_BYTES = 8 * 1024 * 1024;
 const SESSION_MAX_TENSORS = VIEWER_LIMITS.maxTensors;
 const SESSION_MAX_TENSOR_BYTES = VIEWER_LIMITS.maxPayloadBytes;
 
+/**
+ * return session api token for the current viewer state.
+ */
 function sessionApiToken(): string | null {
     return new URLSearchParams(window.location.search).get('token')
         ?? new URLSearchParams(window.location.hash.slice(1)).get('token');
@@ -118,6 +121,9 @@ function sessionApiToken(): string | null {
 const sessionToken = sessionApiToken();
 
 // extension host services
+/**
+ * shape of inspector refs data used by the viewer.
+ */
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
     coordList: HTMLDivElement;
@@ -147,6 +153,9 @@ const extensionContext: DemoExtensionContext = {
     },
 };
 
+/**
+ * shape of sidebar widget id data used by the viewer.
+ */
 type SidebarWidgetId = string;
 
 // core widget registry
@@ -218,16 +227,25 @@ let draggedWidgetPointerId: number | null = null;
 const collapsedWidgets = new Set<SidebarWidgetId>(widgetSpecs.filter((spec) => spec.defaultCollapsed).map((spec) => spec.id));
 
 // tooltip plumbing
+/**
+ * return log ui for the current viewer state.
+ */
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
     else console.log('[tensor-viz-ui]', event, details);
 }
 
+/**
+ * hide info tooltip for the current viewer state.
+ */
 function hideInfoTooltip(): void {
     activeInfoTarget = null;
     infoTooltip.classList.add('hidden');
 }
 
+/**
+ * place info tooltip for the current viewer state.
+ */
 function placeInfoTooltip(target: HTMLElement): void {
     const text = target.dataset.info?.trim();
     if (!text) {
@@ -252,11 +270,17 @@ function placeInfoTooltip(target: HTMLElement): void {
     infoTooltip.style.top = `${top}px`;
 }
 
+/**
+ * hide control tooltip for the current viewer state.
+ */
 function hideControlTooltip(): void {
     activeControlButton = null;
     controlTooltip.classList.add('hidden');
 }
 
+/**
+ * place control tooltip for the current viewer state.
+ */
 function placeControlTooltip(button: HTMLButtonElement): void {
     const label = button.dataset.tooltipLabel?.trim();
     const description = button.dataset.tooltipDescription?.trim();
@@ -358,17 +382,26 @@ controlDock.addEventListener('scroll', () => {
 }, { passive: true });
 
 // command palette
+/**
+ * return selection count value for the current viewer state.
+ */
 function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
     if (!enabled) return 'Unavailable';
     if (summary.count === 0) return '0';
     return summary.availableCount === summary.count ? String(summary.count) : `${summary.count} (${summary.availableCount} with values)`;
 }
 
+/**
+ * return selection stat value for the current viewer state.
+ */
 function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean, key: keyof NonNullable<ReturnType<TensorViewer['getSelectionSummary']>['stats']>): string {
     if (!enabled || !summary.stats) return '—';
     return formatRangeValue(summary.stats[key]);
 }
 
+/**
+ * return command actions for the current viewer state.
+ */
 function commandActions(): CommandAction[] {
     return [
         { action: 'command-palette', label: 'Command Palette', shortcut: '?', keywords: 'command palette search actions' },
@@ -394,6 +427,9 @@ function commandActions(): CommandAction[] {
     ];
 }
 
+/**
+ * return tab actions for the current viewer state.
+ */
 function tabActions(): CommandAction[] {
     return sessionTabs.map((tab) => ({
         action: `tab:${tab.id}`,
@@ -403,10 +439,16 @@ function tabActions(): CommandAction[] {
     }));
 }
 
+/**
+ * return palette actions for the current viewer state.
+ */
 function paletteActions(): CommandAction[] {
     return commandPaletteMode === 'tabs' ? tabActions() : commandActions();
 }
 
+/**
+ * return fuzzy score for the current viewer state.
+ */
 function fuzzyScore(candidate: string, query: string): number | null {
     let score = 0;
     let queryIndex = 0;
@@ -427,6 +469,9 @@ function fuzzyScore(candidate: string, query: string): number | null {
     return score - Math.max(0, candidate.length - query.length) * 0.01;
 }
 
+/**
+ * return filtered command actions for the current viewer state.
+ */
 function filteredCommandActions(): CommandAction[] {
     const query = commandPaletteInput.value.trim().toLowerCase().replace(/\s+/g, ' ');
     const actions = paletteActions();
@@ -442,12 +487,18 @@ function filteredCommandActions(): CommandAction[] {
 }
 
 // sidebar widget lifecycle
+/**
+ * return visible sidebar widgets for the current viewer state.
+ */
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
     // widget visibility is derived from the active tab and viewer state instead
     // of unmounting widgets permanently, so drag order and collapsed state survive.
     return widgetOrder.filter((widgetId) => widgetSpecById.get(widgetId)?.visible(extensionContext, snapshot) ?? false);
 }
 
+/**
+ * return widget title for the current viewer state.
+ */
 function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
     const title = sidebarWidgetLabels[widgetId];
     const collapsed = collapsedWidgets.has(widgetId);
@@ -468,11 +519,17 @@ function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
     `;
 }
 
+/**
+ * apply sidebar order for the current viewer state.
+ */
 function applySidebarOrder(): void {
     sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]), sidebarScrollPad);
     syncSidebarDragState();
 }
 
+/**
+ * sync widget header state for the current viewer state.
+ */
 function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): void {
     const collapsed = collapsedWidgets.has(widgetId);
     const button = widget.querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
@@ -483,6 +540,9 @@ function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): 
     button.setAttribute('aria-expanded', String(!collapsed));
 }
 
+/**
+ * sync sidebar drag state for the current viewer state.
+ */
 function syncSidebarDragState(): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
     (Object.entries(sidebarWidgets) as [SidebarWidgetId, HTMLElement][]).forEach(([widgetId, widget]) => {
@@ -496,6 +556,9 @@ function syncSidebarDragState(): void {
     sidebarWidgets[targetId].classList.add(boundedSlot >= visible.length ? 'widget-drop-after' : 'widget-drop-before');
 }
 
+/**
+ * toggle widget collapse for the current viewer state.
+ */
 function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
     const header = sidebarWidgets[widgetId].querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
     const headerOffset = header
@@ -516,6 +579,9 @@ function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
     sidebar.scrollTop = targetScrollTop;
 }
 
+/**
+ * return sidebar widget slot for the current viewer state.
+ */
 function sidebarWidgetSlot(clientY: number): number | null {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
     if (visible.length === 0) return null;
@@ -526,6 +592,9 @@ function sidebarWidgetSlot(clientY: number): number | null {
     return visible.length;
 }
 
+/**
+ * move sidebar widget to slot for the current viewer state.
+ */
 function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
     const visibleIndex = visible.indexOf(widgetId);
@@ -541,6 +610,9 @@ function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void 
     applySidebarOrder();
 }
 
+/**
+ * clear sidebar drag state for the current viewer state.
+ */
 function clearSidebarDragState(): void {
     draggedWidgetId = null;
     draggedWidgetSlot = null;
@@ -548,10 +620,16 @@ function clearSidebarDragState(): void {
     syncSidebarDragState();
 }
 
+/**
+ * return widget icon for the current viewer state.
+ */
 function widgetIcon(widgetId: SidebarWidgetId): string {
     return sidebarWidgetIcons[widgetId] ?? '';
 }
 
+/**
+ * render command palette for the current viewer state.
+ */
 function renderCommandPalette(): void {
     if (!commandPaletteOpen) return;
     const actions = filteredCommandActions();
@@ -578,6 +656,9 @@ function renderCommandPalette(): void {
     }));
 }
 
+/**
+ * open command palette for the current viewer state.
+ */
 function openCommandPalette(): void {
     commandPaletteMode = 'actions';
     commandPaletteOpen = true;
@@ -590,6 +671,9 @@ function openCommandPalette(): void {
     commandPaletteInput.select();
 }
 
+/**
+ * open tab palette for the current viewer state.
+ */
 function openTabPalette(): void {
     commandPaletteMode = 'tabs';
     commandPaletteOpen = true;
@@ -602,6 +686,9 @@ function openTabPalette(): void {
     commandPaletteInput.select();
 }
 
+/**
+ * close command palette for the current viewer state.
+ */
 function closeCommandPalette(): void {
     if (!commandPaletteOpen) return;
     commandPaletteOpen = false;
@@ -611,6 +698,9 @@ function closeCommandPalette(): void {
     commandPaletteList.replaceChildren();
 }
 
+/**
+ * set sidebar width for the current viewer state.
+ */
 function setSidebarWidth(width: number): void {
     const maxWidth = Math.max(0, app.clientWidth - sidebarSplitter.offsetWidth);
     const clamped = Math.max(0, Math.min(maxWidth, width));
@@ -626,10 +716,16 @@ window.addEventListener('resize', () => {
 });
 
 // tab documents
+/**
+ * return active tab for the current viewer state.
+ */
 function activeTab(): LoadedBundleDocument | undefined {
     return sessionTabs.find((tab) => tab.id === activeTabId);
 }
 
+/**
+ * return next tab title for the current viewer state.
+ */
 function nextTabTitle(): string {
     const used = new Set(sessionTabs.map((tab) => tab.title));
     let index = 1;
@@ -637,6 +733,9 @@ function nextTabTitle(): string {
     return `Layout ${index}`;
 }
 
+/**
+ * clone tab document for the current viewer state.
+ */
 function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string): LoadedBundleDocument {
     return {
         id,
@@ -646,6 +745,9 @@ function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string):
     };
 }
 
+/**
+ * return normalized tensor view snapshot for the current viewer state.
+ */
 function normalizedTensorViewSnapshot(
     tensor: BundleManifest['tensors'][number],
     ...views: Array<ViewerSnapshot['tensors'][number]['view'] | undefined>
@@ -672,6 +774,9 @@ function normalizedTensorViewSnapshot(
     throw new Error('Tensor view editor state is invalid.');
 }
 
+/**
+ * normalize viewer snapshot for the current viewer state.
+ */
 function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnapshot): ViewerSnapshot {
     return {
         ...snapshot,
@@ -687,10 +792,16 @@ function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnap
     };
 }
 
+/**
+ * clear tab title edit for the current viewer state.
+ */
 function clearTabTitleEdit(): void {
     editingTab = null;
 }
 
+/**
+ * capture active tab snapshot for the current viewer state.
+ */
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
@@ -704,6 +815,9 @@ function captureActiveTabSnapshot(): void {
     tab.manifest.viewer = normalizeViewerSnapshot(tab, snapshot);
 }
 
+/**
+ * close tab for the current viewer state.
+ */
 async function closeTab(tabId: string): Promise<void> {
     const index = sessionTabs.findIndex((tab) => tab.id === tabId);
     if (index < 0) return;
@@ -728,6 +842,9 @@ async function closeTab(tabId: string): Promise<void> {
     await loadTab(sessionTabs[Math.max(0, index - 1)]!.id);
 }
 
+/**
+ * render tab strip for the current viewer state.
+ */
 function renderTabStrip(): void {
     tabStrip.classList.remove('hidden');
     if (sessionTabs.length === 0) {
@@ -828,6 +945,9 @@ function renderTabStrip(): void {
     tabStrip.replaceChildren(...tabs, actions);
 }
 
+/**
+ * add new tab for the current viewer state.
+ */
 async function addNewTab(): Promise<void> {
     const currentTab = activeTab();
     const id = `tab-${Date.now()}`;
@@ -852,10 +972,16 @@ async function addNewTab(): Promise<void> {
     await loadTab(id);
 }
 
+/**
+ * close current tab for the current viewer state.
+ */
 async function closeCurrentTab(): Promise<void> {
     if (activeTabId) await closeTab(activeTabId);
 }
 
+/**
+ * render control dock for the current viewer state.
+ */
 function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
     const canRotate = snapshot.displayMode === '3d';
@@ -965,6 +1091,9 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
     renderControlDockControls(controlDock, controls);
 }
 
+/**
+ * load tab for the current viewer state.
+ */
 async function loadTab(tabId: string): Promise<void> {
     const tab = sessionTabs.find((entry) => entry.id === tabId);
     if (!tab) return;
@@ -1104,6 +1233,9 @@ sidebar.addEventListener('pointercancel', (event) => {
 });
 
 // sidebar rendering
+/**
+ * update sidebar for the current viewer state.
+ */
 function updateSidebar(snapshot: ViewerSnapshot): void {
     const visible = new Set(visibleSidebarWidgets(snapshot));
     applySidebarOrder();
@@ -1115,11 +1247,17 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
     syncSidebarDragState();
 }
 
+/**
+ * capture sidebar anchor for the current viewer state.
+ */
 function captureSidebarAnchor(element: HTMLElement | null, selector: string): { selector: string; top: number } | null {
     if (!element) return null;
     return { selector, top: element.getBoundingClientRect().top };
 }
 
+/**
+ * render preserving sidebar scroll for the current viewer state.
+ */
 function renderPreservingSidebarScroll(anchor: { selector: string; top: number } | null = null): void {
     const previousScrollTop = sidebar.scrollTop;
     render(viewer.getSnapshot());
@@ -1144,12 +1282,18 @@ function autosizeTextarea(textarea: HTMLTextAreaElement): void {
     textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
+/**
+ * return begin tensor view slider drag for the current viewer state.
+ */
 function beginTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
     suspendTensorViewRender = true;
     activeTensorViewSliderPointerId = pointerId;
     slider.setPointerCapture(pointerId);
 }
 
+/**
+ * return end tensor view slider drag for the current viewer state.
+ */
 function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
     if (activeTensorViewSliderPointerId !== pointerId) return;
     activeTensorViewSliderPointerId = null;
@@ -1158,6 +1302,9 @@ function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): v
     renderPreservingSidebarScroll(captureSidebarAnchor(slider, `#${CSS.escape(slider.id)}`));
 }
 
+/**
+ * apply tensor view editor for the current viewer state.
+ */
 function applyTensorViewEditor(
     tensorId: string,
     editor: TensorViewEditor,
@@ -1178,10 +1325,16 @@ function applyTensorViewEditor(
     renderPreservingSidebarScroll(anchor);
 }
 
+/**
+ * return tensor call input value for the current viewer state.
+ */
 function tensorCallInputValue(value: string): string {
     return value.replace(/^\[/, '').replace(/\]$/, '');
 }
 
+/**
+ * parse integer term for the current viewer state.
+ */
 function parseIntegerTerm(value: string): number {
     const term = value.trim();
     if (term === '') return Number.NaN;
@@ -1191,6 +1344,9 @@ function parseIntegerTerm(value: string): number {
     return parts.reduce((acc, part) => acc * part, 1);
 }
 
+/**
+ * parse shape spec for the current viewer state.
+ */
 function parseShapeSpec(
     value: string,
     totalElements: number,
@@ -1225,10 +1381,16 @@ function parseShapeSpec(
     return dims;
 }
 
+/**
+ * parse integer list input for the current viewer state.
+ */
 function parseIntegerListInput(value: string): number[] {
     return value.split(',').map(parseIntegerTerm).filter((part) => Number.isFinite(part));
 }
 
+/**
+ * build step4 editor for the current viewer state.
+ */
 function buildStep4Editor(
     previous: TensorViewEditor,
     viewInput: string,
@@ -1255,6 +1417,9 @@ function buildStep4Editor(
     };
 }
 
+/**
+ * return tensor view help html for the current viewer state.
+ */
 function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly string[]): string {
     const shapeText = escapeHtml(shape.join(', '));
     const reversedRangeText = escapeHtml(shape.map((_dim, index) => shape.length - index - 1).join(', '));
@@ -1288,6 +1453,9 @@ function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly strin
     `;
 }
 
+/**
+ * parse tensor view expression input for the current viewer state.
+ */
 function parseTensorViewExpressionInput(
     value: string,
     previous: TensorViewEditor,
@@ -1296,6 +1464,7 @@ function parseTensorViewExpressionInput(
     const text = value.trim();
     if (!text.startsWith('tensor')) throw new Error('Tensor View must start with "tensor".');
     let rest = text.slice('tensor'.length);
+    /** consume one chained tensor-view call and return its raw argument text. */
     const consumeCall = (name: 'view' | 'permute'): string | null => {
         if (!rest.startsWith(`.${name}(`)) return null;
         const start = name.length + 2;
@@ -1347,6 +1516,9 @@ function parseTensorViewExpressionInput(
     };
 }
 
+/**
+ * render tensor view widget for the current viewer state.
+ */
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
     const model = viewer.getInspectorModel();
@@ -1474,12 +1646,14 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         `;
         const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
+        /** refresh the editable tensor-view expression without rebuilding the widget. */
         const syncTensorViewInput = (): void => {
             const tensorViewInput = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
             if (!tensorViewInput) return;
             tensorViewInput.value = viewer.getInspectorModel().preview;
             autosizeTextarea(tensorViewInput);
         };
+        /** apply one slice slider value and notify extensions that tensor-view state changed. */
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.key, nextValue);
@@ -1526,6 +1700,7 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         `;
         const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
+        /** route extension-owned slider changes through the extension callback. */
         const applyValue = (nextValue: number): void => {
             sliderSpec.onChange(nextValue);
         };
@@ -1556,6 +1731,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     sliceHost?.replaceChildren(...sliderRows);
 }
 
+/**
+ * render inspector widget for the current viewer state.
+ */
 function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     const dimensionMappingScheme = snapshot.dimensionMappingScheme ?? 'z-order';
@@ -1587,6 +1765,7 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
+    /** format one coordinate as fixed-width binary tokens for the inspector. */
     const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
         if (!coord || !shape) return '';
         return formatAxisTokens(
@@ -1633,6 +1812,9 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.rankValue.textContent = String(hoveredStatus?.rank ?? model.handle.rank);
 }
 
+/**
+ * render selection widget for the current viewer state.
+ */
 function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
     const selectionModeActive = (snapshot.interactionMode ?? viewer.getInteractionMode()) === 'select';
@@ -1662,6 +1844,9 @@ function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     `;
 }
 
+/**
+ * render advanced settings widget for the current viewer state.
+ */
 function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
     const displayGaps = snapshot.displayGaps ?? false;
@@ -1740,6 +1925,9 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 }
 
 // render cycle
+/**
+ * render for the current viewer state.
+ */
 function render(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) {
         // live slider drags still need hover/inspector freshness, but rebuilding
@@ -1768,6 +1956,9 @@ function render(snapshot: ViewerSnapshot): void {
 }
 
 // python session loading
+/**
+ * return safe data file for the current viewer state.
+ */
 function safeDataFile(dataFile: string): string {
     if (!DATA_FILE_PATTERN.test(dataFile) || dataFile.includes('..')) {
         throw new Error(`Unsafe tensor payload path ${dataFile}.`);
@@ -1775,12 +1966,18 @@ function safeDataFile(dataFile: string): string {
     return dataFile;
 }
 
+/**
+ * return api url for the current viewer state.
+ */
 function apiUrl(path: string): string {
     const url = new URL(path, window.location.href);
     if (sessionToken) url.searchParams.set('token', sessionToken);
     return `${url.pathname}${url.search}`;
 }
 
+/**
+ * return bounded array buffer for the current viewer state.
+ */
 async function boundedArrayBuffer(
     response: Response,
     options: {
@@ -1873,6 +2070,9 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
     };
 }
 
+/**
+ * try load session for the current viewer state.
+ */
 async function tryLoadSession(): Promise<boolean> {
     const response = await fetch(apiUrl('/api/session.json'), { cache: 'no-store' });
     if (!response.ok) return false;
@@ -1918,6 +2118,9 @@ async function tryLoadSession(): Promise<boolean> {
     return true;
 }
 
+/**
+ * return seed demo tensor for the current viewer state.
+ */
 function seedDemoTensor(): void {
     sessionTabs.forEach((tab) => {
         extensions.forEach((extension) => {
@@ -1934,6 +2137,9 @@ function seedDemoTensor(): void {
     viewer.addTensor(shape, data, 'Sample');
 }
 
+/**
+ * download svg for the current viewer state.
+ */
 function downloadSvg(filename: string, svg: string): void {
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1944,17 +2150,26 @@ function downloadSvg(filename: string, svg: string): void {
     URL.revokeObjectURL(url);
 }
 
+/**
+ * return svg filename for the current viewer state.
+ */
 function svgFilename(): string {
     const title = activeTab()?.title ?? 'tensor-viz';
     const base = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     return `${base || 'tensor-viz'}.svg`;
 }
 
+/**
+ * return current svg document for the current viewer state.
+ */
 async function currentSvgDocument(): Promise<string> {
     if (viewer.getSnapshot().displayMode !== '2d') return viewer.exportCurrentViewSvg();
     return viewer.saveSvg().text();
 }
 
+/**
+ * load fallback tabs for the current viewer state.
+ */
 async function loadFallbackTabs(): Promise<boolean> {
     for (const extension of extensions) {
         if (await extension.loadFallback?.(extensionContext)) return true;
@@ -1963,6 +2178,9 @@ async function loadFallbackTabs(): Promise<boolean> {
 }
 
 // command execution and global events
+/**
+ * run action for the current viewer state.
+ */
 async function runAction(action: string): Promise<void> {
     logUi('action', action);
     closeCommandPalette();

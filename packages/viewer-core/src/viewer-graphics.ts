@@ -17,6 +17,9 @@ import { VIEWER_LIMITS } from './validation.js';
 
 const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
 
+/**
+ * create line for the current viewer state.
+ */
 export function createLine(points: Vector3[], color: string): Line {
     const geometry = new BufferGeometry().setFromPoints(points);
     const line = new Line(geometry, new LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 }));
@@ -24,6 +27,9 @@ export function createLine(points: Vector3[], color: string): Line {
     return line;
 }
 
+/**
+ * initialize vertex colors for the current viewer state.
+ */
 export function initializeVertexColors(geometry: BufferGeometry): void {
     const normals = geometry.attributes.normal;
     const colorArray = new Float32Array(geometry.attributes.position.count * 3);
@@ -39,6 +45,9 @@ export function initializeVertexColors(geometry: BufferGeometry): void {
     geometry.setAttribute('color', new BufferAttribute(colorArray, 3));
 }
 
+/**
+ * create text label for the current viewer state.
+ */
 export function createTextLabel(text: string, color = '#334155'): Group {
     // use shape text instead of troika so brave/linux stays on the same path as the working line geometry.
     const boundedText = text.length > VIEWER_LIMITS.maxTextLength ? `${text.slice(0, VIEWER_LIMITS.maxTextLength)}...` : text;
@@ -59,6 +68,9 @@ export function createTextLabel(text: string, color = '#334155'): Group {
     return label;
 }
 
+/**
+ * return axis family color for the current viewer state.
+ */
 export function axisFamilyColor(worldKey: 0 | 1 | 2, familyIndex: number, familyCount: number): string {
     const t = Math.max(1, familyIndex + 1) / Math.max(1, familyCount);
     const color = new Color();

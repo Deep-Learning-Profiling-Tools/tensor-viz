@@ -11,6 +11,9 @@ import {
     stripLayoutComment,
 } from './linear-layout-parser.js';
 
+/**
+ * shape of compose layout preset selection data used by the viewer.
+ */
 export type ComposeLayoutPresetSelection = Record<string, string>;
 
 /** normalized field metadata consumed directly by the preset widget. */
@@ -160,7 +163,10 @@ export function composeLayoutPresetOptions(
     COMPOSE_LAYOUT_PRESET_FIELDS.forEach((field) => {
         // when computing choices for one field, ignore that field's current
         // value; otherwise a typo would hide the valid options needed to recover.
-        const values = uniquePresetFacetValues(filteredPresets(presets, withoutPresetField(current, field.key)), field);
+        const values = uniquePresetFacetValues(filteredPresets(
+            presets,
+            Object.fromEntries(Object.entries(current).map(([key, value]) => [key, key === field.key ? '' : value])),
+        ), field);
         options[field.key] = values;
         const alias = PRESET_FIELD_OPTION_ALIASES[field.key as keyof typeof PRESET_FIELD_OPTION_ALIASES];
         if (alias) options[alias] = values;
@@ -191,10 +197,9 @@ export function composeLayoutPresetForSelection(
     return matches.length === 1 ? matches[0]! : null;
 }
 
-function layoutSpecText(signature: string, rows: string[]): string {
-    return [signature, ...rows].join('\n');
-}
-
+/**
+ * return merged preset fields for the current viewer state.
+ */
 function mergedPresetFields(definitions: readonly ComposeLayoutPresetFieldDefinition[]): ComposeLayoutPresetField[] {
     const fields = new Map<string, ComposeLayoutPresetField>();
     definitions.forEach((definition) => {
@@ -203,6 +208,9 @@ function mergedPresetFields(definitions: readonly ComposeLayoutPresetFieldDefini
     return Array.from(fields.values()).sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
 }
 
+/**
+ * normalize preset field definition for the current viewer state.
+ */
 function normalizePresetFieldDefinition(
     definition: ComposeLayoutPresetFieldDefinition,
     current?: ComposeLayoutPresetField,
@@ -211,7 +219,7 @@ function normalizePresetFieldDefinition(
     const dependsOn = [...new Set([...(current?.dependsOn ?? []), ...(definition.dependsOn ?? [])])];
     return {
         key: definition.key,
-        id: current?.id ?? `linear-layout-preset-${kebabPresetFieldKey(definition.key)}`,
+        id: current?.id ?? `linear-layout-preset-${definition.key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`,
         label: current?.label ?? definition.label,
         placeholder: current?.placeholder ?? definition.placeholder,
         order: Math.min(current?.order ?? definition.order, definition.order),
@@ -221,6 +229,9 @@ function normalizePresetFieldDefinition(
     };
 }
 
+/**
+ * return inferred preset field definition for the current viewer state.
+ */
 function inferredPresetFieldDefinition(key: string): ComposeLayoutPresetFieldDefinition {
     const label = key
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -234,16 +245,18 @@ function inferredPresetFieldDefinition(key: string): ComposeLayoutPresetFieldDef
     };
 }
 
-function kebabPresetFieldKey(key: string): string {
-    return key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-}
-
+/**
+ * return preset operation text for the current viewer state.
+ */
 function presetOperationText(specsText: string): string {
     const signature = specsText.split('\n', 1)[0]?.trim() ?? '';
     const colonIndex = signature.indexOf(':');
     return (colonIndex === -1 ? signature : signature.slice(0, colonIndex)).trim();
 }
 
+/**
+ * return axis comment for the current viewer state.
+ */
 function axisComment(label: string, signature: { inputs: string[]; outputs: string[] }): string {
     if (label === 'T') return 'T = thread (AKA lane)';
     if (label === 'R') {
@@ -266,6 +279,9 @@ function axisComment(label: string, signature: { inputs: string[]; outputs: stri
     return `${label} = ${label} axis`;
 }
 
+/**
+ * return annotated layout specs text for the current viewer state.
+ */
 function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): string {
     const lines = specsText.replace(/\r\n/g, '\n').split('\n');
     const signature = parseSignature(stripLayoutComment(lines[0] ?? '').trim());
@@ -279,6 +295,9 @@ function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): s
     ].join('\n');
 }
 
+/**
+ * return preset definition facets for the current viewer state.
+ */
 function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Record<string, string[]> {
     // every normalized preset receives every known field key.  Empty arrays mean
     // the field is irrelevant for that preset and should remain blank.
@@ -288,28 +307,38 @@ function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Reco
     ]));
 }
 
+/**
+ * return preset definition facet values for the current viewer state.
+ */
 function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, key: string): string[] {
     const facet = definition.facets?.[key];
     if (facet !== undefined) return normalizePresetFacetValue(facet);
     // legacy scalar fields keep old NVIDIA presets working while new families
     // can describe selector behavior entirely through facets.
-    if (isLegacyPresetFieldKey(key)) return normalizePresetFacetValue(definition[key] ?? '');
+    if (LEGACY_PRESET_FIELD_KEYS.includes(key as typeof LEGACY_PRESET_FIELD_KEYS[number])) {
+        return normalizePresetFacetValue(definition[key as typeof LEGACY_PRESET_FIELD_KEYS[number]] ?? '');
+    }
     return [];
 }
 
+/**
+ * normalize preset facet value for the current viewer state.
+ */
 function normalizePresetFacetValue(value: ComposeLayoutPresetFacetValue): string[] {
     const values = Array.isArray(value) ? value : [value];
     return values.map((entry) => String(entry)).filter(Boolean);
 }
 
-function isLegacyPresetFieldKey(key: string): key is typeof LEGACY_PRESET_FIELD_KEYS[number] {
-    return LEGACY_PRESET_FIELD_KEYS.includes(key as typeof LEGACY_PRESET_FIELD_KEYS[number]);
-}
-
+/**
+ * return preset facet scalar for the current viewer state.
+ */
 function presetFacetScalar(facets: Record<string, string[]>, key: string): string {
     return facets[key]?.[0] ?? '';
 }
 
+/**
+ * compose layout preset for the current viewer state.
+ */
 function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): ComposeLayoutPreset {
     const inputName = definition.inputName ?? 'Hardware Layout';
     const facets = presetDefinitionFacets(definition);
@@ -333,7 +362,7 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
     // named definitions are the compact path for ISA-table-style presets: the
     // source file stores row data, and this model builds the editor notation.
     const specsText = annotatedLayoutSpecsText(
-        layoutSpecText(`${definition.name}: ${definition.signature}`, definition.rows.map(([label, bases]) => `${label}: ${bases}`)),
+        [`${definition.name}: ${definition.signature}`, ...definition.rows.map(([label, bases]) => `${label}: ${bases}`)].join('\n'),
         definition.comments,
     );
     return {
@@ -354,6 +383,9 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
     };
 }
 
+/**
+ * return filtered presets for the current viewer state.
+ */
 function filteredPresets(
     presets: ComposeLayoutPreset[],
     filters: ComposeLayoutPresetSelection,
@@ -364,15 +396,17 @@ function filteredPresets(
     }));
 }
 
+/**
+ * return normalized preset field for the current viewer state.
+ */
 function normalizedPresetField(value: string, options: string[]): string {
     if (options.includes(value)) return value;
     return options.length === 1 ? options[0] ?? '' : '';
 }
 
-function withoutPresetField(selection: ComposeLayoutPresetSelection, key: string): ComposeLayoutPresetSelection {
-    return Object.fromEntries(Object.entries(selection).map(([fieldKey, value]) => [fieldKey, fieldKey === key ? '' : value]));
-}
-
+/**
+ * return unique preset facet values for the current viewer state.
+ */
 function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeLayoutPresetField): string[] {
     const values = new Set(presets.flatMap((preset) => preset.facets[field.key] ?? []));
     // catalog-provided values define display order; contributed values still
@@ -383,6 +417,9 @@ function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeL
     ];
 }
 
+/**
+ * return preset field is complete for the current viewer state.
+ */
 function presetFieldIsComplete(
     preset: ComposeLayoutPreset,
     selection: ComposeLayoutPresetSelection,
@@ -393,6 +430,9 @@ function presetFieldIsComplete(
     return values.length === 0 ? selected === '' : values.includes(selected);
 }
 
+/**
+ * return canonical layout specs text for the current viewer state.
+ */
 function canonicalLayoutSpecsText(specsText: string): string {
     try {
         return formatSpecsText(parseLayoutSpecs(specsText));

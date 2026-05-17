@@ -1,6 +1,25 @@
 import { GPU_ARCHS_WGMMA } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
+// wgmma presets are tensor-core layouts for warp-group instructions.
+// the selector facets are explicit data because the widget should not know
+// instruction-specific rules.
+// all current entries target sm_90a through GPU_ARCHS_WGMMA.
+// `T` is the per-thread coordinate inside the warp group.
+// `W` is the warp coordinate inside the warp group.
+// `R` is the per-thread register coordinate.
+// output accumulator presets share the same D operand forms across A/B input
+// families, so they live in WGMMA_D_PRESETS and are spread into the raw list.
+// dtype aliases like b16 and b32 intentionally describe element bit width, not
+// the exact semantic type, because several ISA dtypes share one layout.
+// comments attached to entries are shown to users when the preset is loaded.
+// keep new shape families as data rows here before adding any preset-model code;
+// the model already handles array-valued facets and shared fields.
+// if an entry applies to several architectures, change the gpu-arch helper data
+// rather than duplicating the same layout under multiple names.
+// names match the notation block names so copy/paste from rendered specs stays
+// reversible during documentation review.
+
 const WGMMA_D_PRESETS: ComposeLayoutPresetDefinition[] = [
     {
         name: 'WGMMA_m64n8_D_b32',

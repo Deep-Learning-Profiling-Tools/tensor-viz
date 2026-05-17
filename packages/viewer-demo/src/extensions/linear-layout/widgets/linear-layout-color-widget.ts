@@ -14,6 +14,9 @@ import {
     normalizeCellTextState,
 } from './linear-layout-widget-shared.js';
 
+/**
+ * return linear layout color help html for the current viewer state.
+ */
 function linearLayoutColorHelpHtml(): string {
     return `
       <details class="usage-guide">
@@ -33,14 +36,22 @@ function linearLayoutColorHelpHtml(): string {
     `;
 }
 
+/**
+ * return linear layout propagate outputs info for the current viewer state.
+ */
 export function linearLayoutPropagateOutputsInfo(injective: boolean): string {
     return injective
         ? 'When off, colors and cell text come from the input space and flow forward. When on, they come from the final output space and flow backward.'
         : 'When off, non-injective layouts keep the current popup, ghost-layer, and multi-input behavior. When on, colors and cell text come from the final output space.';
 }
 
+/**
+ * toggle linear layout propagate outputs for the current viewer state.
+ */
 export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiContext): Promise<void> {
     ctx.state.linearLayoutState.propagateOutputs = !ctx.state.linearLayoutState.propagateOutputs;
+    // propagation changes the coordinate space that H/S/L channels reference,
+    // so recolor from the current spec instead of trying to reinterpret ranges.
     const autoColor = autoColorLayoutState(
         ctx.state.linearLayoutState.specsText,
         ctx.state.linearLayoutState.operationText,
@@ -58,6 +69,9 @@ export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiCont
     ctx.renderLinearLayoutEditorWidgets();
 }
 
+/**
+ * render linear layout color widget for the current viewer state.
+ */
 export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
     const activeElement = document.activeElement;
     const focusedInput = activeElement instanceof HTMLInputElement && ctx.linearLayoutColorWidget.contains(activeElement)
@@ -65,6 +79,8 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         : null;
     const channelLabels: Record<LinearLayoutChannel, string> = { H: 'Hue', S: 'Sat', L: 'Light' };
     const { labels, injective } = linearLayoutPropagationLabels(ctx);
+    // assigned labels disappear from the source pool; dragging a chip back to
+    // the pool clears that color channel without needing a separate reset button.
     const assignedLabels = new Set(
         LINEAR_LAYOUT_CHANNELS
             .map((channel) => ctx.state.linearLayoutState.mapping[channel])
@@ -130,11 +146,14 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
     `;
 
     ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>('#linear-layout-propagate-outputs')?.addEventListener('change', async () => {
+        // checkbox state is read from the DOM because the click may come from a
+        // label activation rather than from a direct input event target.
         const checked = ctx.linearLayoutColorWidget
             .querySelector<HTMLInputElement>('#linear-layout-propagate-outputs')?.checked ?? false;
         if (checked === ctx.state.linearLayoutState.propagateOutputs) return;
         await toggleLinearLayoutPropagateOutputs(ctx);
     });
+    /** write checkbox state into tab-local cell-text settings and repaint labels. */
     const syncCellText = (): void => {
         ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
             label,
@@ -145,14 +164,18 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         applyLinearLayoutCellText(ctx);
     };
     labels.forEach((label) => {
+        // each checkbox writes to the persisted tab state immediately so a
+        // later spec re-apply keeps the user's current label visibility.
         ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', syncCellText);
     });
 
+    /** store a drag payload under a private type plus text fallback for browsers. */
     const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
         event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));
         event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
     };
+    /** parse one color-channel drag payload, returning null for unrelated drags. */
     const readDragPayload = (event: DragEvent): Record<string, string> | null => {
         const raw = event.dataTransfer?.getData('application/x-linear-layout-mapping') || event.dataTransfer?.getData('text/plain');
         if (!raw) return null;
@@ -164,6 +187,8 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
     };
     ctx.linearLayoutColorWidget.querySelectorAll<HTMLElement>('[draggable="true"]').forEach((element) => {
         element.addEventListener('dragstart', (event) => {
+            // chips dragged from a channel carry both source channel and axis so
+            // drops can distinguish swaps from pool-to-channel assignments.
             const channel = element.dataset.channel;
             const axis = element.dataset.axis;
             if (axis) writeDragPayload(event, channel ? { kind: 'channel', channel, axis } : { kind: 'axis', axis });
@@ -171,6 +196,8 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
     });
     ctx.linearLayoutColorWidget.querySelectorAll<HTMLElement>('.mapping-drop-zone').forEach((element) => {
         element.addEventListener('dragover', (event) => {
+            // this widget accepts every internal chip drag; the payload is
+            // validated again on drop before mutating mapping state.
             event.preventDefault();
             element.classList.add('drag-over');
         });

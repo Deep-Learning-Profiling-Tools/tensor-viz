@@ -91,6 +91,9 @@ export function formatSpecsText(specs: NamedLayoutSpec[]): string {
     ].join('\n')).join('\n\n');
 }
 
+/**
+ * parse label list for the current viewer state.
+ */
 function parseLabelList(source: string, label: string): string[] {
     const trimmed = source.trim();
     if (!trimmed) return [];
@@ -103,6 +106,9 @@ function parseLabelList(source: string, label: string): string[] {
     });
 }
 
+/**
+ * parse basis row for the current viewer state.
+ */
 function parseBasisRow(line: string, outputCount: number, axisLabel: string): number[][] {
     let parsed: unknown;
     try {
@@ -129,6 +135,9 @@ function parseBasisRow(line: string, outputCount: number, axisLabel: string): nu
     });
 }
 
+/**
+ * return duplicate value for the current viewer state.
+ */
 function duplicateValue(values: string[]): string | null {
     const seen = new Set<string>();
     for (const value of values) {

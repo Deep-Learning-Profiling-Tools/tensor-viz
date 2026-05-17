@@ -1,6 +1,16 @@
 import { GPU_ARCHS_SWIZZLE } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
+// swizzle presets are generated because the major variants differ only by which
+// output axis receives the contiguous and cross terms.
+// the generated rows are intentionally kept in the same notation contributors
+// use in hand-written preset files.
+// b8 through b128 reuse the same 128-byte tile rule with fewer leading vectors
+// as element width increases.
+
+/**
+ * return swizzle bases for the current viewer state.
+ */
 function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): string {
     const contiguousBases = Array.from({ length: leadingVectors }, (_, index) => major === 'MN-major'
         ? [2 ** index, 0]

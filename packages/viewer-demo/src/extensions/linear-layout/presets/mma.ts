@@ -7,6 +7,104 @@ import {
 } from './gpu-archs.js';
 import type { ComposeLayoutPresetDefinition } from './types.js';
 
+// this file is deliberately data-heavy: mma layout behavior should be added by
+// editing preset rows, not by changing preset filtering or widget logic.
+// the model layer reads the facets below and automatically derives the visible
+// selector fields, option lists, and unique selection matching.
+// `T` means thread id bits.
+// `R` means register-lane bits.
+// `M`, `N`, and `K` are the logical matrix axes used by the instruction name.
+// row-major and col-major suffixes are represented as operand facet values so
+// the preset widget can disambiguate them without instruction-specific code.
+// old text presets are kept for the sm_70 m8n8k4 family because those were
+// authored before named row presets existed.
+// new entries should prefer named presets with `signature` and `rows` so the
+// notation stays compact and close to ISA tables.
+// b1, b4, b8, b16, and b32 are layout-width aliases, not complete dtype
+// semantics; entry comments explain the concrete semantic families when needed.
+// `mmaGpuArchs` is the only architecture inference in this file.
+// do not duplicate a preset just to list another compatible architecture.
+// if a future instruction has different selector fields, add a new preset
+// family under presets/index.ts instead of putting widget branches here.
+// matrix-size groups below are ordered by first supported architecture, then by
+// operand order A/B/C/D, which makes external review diff-friendly.
+// accumulator C and output D often share the same layout; both entries remain
+// explicit because they are different selector outcomes in the UI.
+// f64 support moves later than f16/f32 for several shapes; the architecture
+// helper encodes that rule so data rows stay readable.
+// sm_120-only f16 m16n8k32 is intentionally narrow because earlier chips expose
+// different forms for the same nominal dimensions.
+// when adding an AMD-style family later, do not extend this file unless the
+// instruction is genuinely NVIDIA mma-compatible.
+// add comments to unusual rows when the basis vector contains a zero placeholder
+// or a cross-axis term that would surprise a reader copying from ISA docs.
+// the checker enforces comment density here because preset files are the most
+// likely external contribution surface.
+// keep this comment as a reading guide rather than a source of truth; the data
+// rows and invariant tests are the source of truth.
+// examples of selector outcomes:
+// gpuArch=sm_70, instruction=mma, matrixSize=m8n8k4, dtype=f16, operand=A-row-major.
+// gpuArch=sm_75, instruction=mma, matrixSize=m8n8k16, dtype=b8, operand=B.
+// gpuArch=sm_80, instruction=mma, matrixSize=m16n8k8, dtype=tf32, operand=A.
+// gpuArch=sm_90, instruction=mma, matrixSize=m16n8k4, dtype=f64, operand=D.
+// gpuArch=sm_120, instruction=mma, matrixSize=m16n8k32, dtype=f16, operand=A.
+// review checklist for new rows:
+// confirm the name encodes the same matrix size, operand, and dtype as facets.
+// confirm every input label in the signature has exactly one row.
+// confirm each basis vector has one entry per output axis.
+// confirm C/D accumulator rows are both present when the ISA exposes both.
+// confirm the architecture helper returns the broadest correct compatible set.
+// confirm comments explain dtype aliases that would otherwise be ambiguous.
+// confirm generated specs still pass parser and preset invariant tests.
+// confirm the row order follows the bit significance used by the ISA table.
+// confirm examples in ARCHITECTURE.md do not need a new field explanation.
+// group map:
+// sm_70 m8n8k4 f16/f32 text presets cover original 8x8 tensor-core shapes.
+// sm_70 m8n8k4 f64 text presets use a later architecture range in the helper.
+// sm_75 m8n8k16 b8/s32 covers byte element input with s32 accumulators.
+// sm_75 m8n8k32 b4/s32 covers nibble element input with s32 accumulators.
+// sm_80 m8n8k128 b1/s32 covers bit element input with s32 accumulators.
+// sm_80 m16n8k4 tf32/f64 covers the first 16x8 input/output variants.
+// sm_80 m16n8k8 b16/tf32/f64 covers mixed element widths for 16x8x8.
+// sm_80 m16n8k16 b8/b16/f16/f64 covers byte and half-width 16x8x16 forms.
+// sm_80 m16n8k32 b4/b8/f16 covers wider K forms with several dtype aliases.
+// sm_80 m16n8k64 b2/b4 covers two-bit and four-bit element forms.
+// sm_80 m16n8k128 b1/b2 covers bit and two-bit element forms.
+// sm_80 m16n8k256 b1 covers the widest K bit form in this table.
+// C and D rows remain separate even when their basis rows are equal.
+// A and B rows may target [M,K], [K,N], or [N,K] depending on ISA layout.
+// comments array entries become notation comments, not TypeScript comments.
+// facets are normalized by linear-layout-preset-model.ts before the widget sees
+// them, so do not pre-expand selector aliases in this file.
+// the raw definitions are intentionally `satisfies`-checked before facet
+// expansion to catch malformed rows while preserving literal selector values.
+// the final export maps every raw row to a normalized preset with gpu arch
+// compatibility attached.
+// avoid helper functions here unless they remove repeated row logic across at
+// least three groups; otherwise keep the notation local to the data row.
+// rows copied from documents should stay as strings to avoid changing layout
+// meaning through formatter rewrites.
+// if a row needs a computed expression, prefer moving the whole family to a
+// generator like swizzle.ts rather than mixing computation into this table.
+// the goal is that an external contributor can add one row and rely on tests to
+// tell them whether selectors, parser notation, and matching are coherent.
+// common review mistakes:
+// forgetting to add both C and D accumulator entries.
+// using a title that does not match the generated layout name.
+// listing one concrete gpuArch where an array-valued facet is expected.
+// copying row-major A rows into B rows without swapping output axes.
+// omitting comments for dtype aliases such as b4 or b16.
+// treating `comments` as a TypeScript review note instead of user-visible text.
+// adding a selector value that is not reachable from DEFAULT_PRESET_FIELDS.
+// changing `mmaGpuArchs` in a way that narrows existing presets.
+// mixing AMD terminology into NVIDIA mma data.
+// adding a helper for two entries when repeated rows would be clearer inline.
+// removing old text presets before saved snapshots have a migration path.
+// putting a widget dependency in this data file.
+
+/**
+ * return layout spec text for the current viewer state.
+ */
 function layoutSpecText(signature: string, rows: string[]): string {
     return [signature, ...rows].join('\n');
 }
@@ -865,6 +963,9 @@ const MMA_RAW_PRESET_DEFINITIONS = [
     },
 ] satisfies ComposeLayoutPresetDefinition[];
 
+/**
+ * return mma gpu archs for the current viewer state.
+ */
 function mmaGpuArchs(preset: ComposeLayoutPresetDefinition): readonly string[] {
     const matrixSize = preset.matrixSize ?? '';
     const dtype = preset.dtype ?? '';

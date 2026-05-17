@@ -38,7 +38,13 @@ export type {
 } from './linear-layout-preset-model.js';
 export type { NamedLayoutSpec } from './linear-layout-parser.js';
 
+/**
+ * shape of compose channel data used by the viewer.
+ */
 export type ComposeChannel = 'H' | 'S' | 'L';
+/**
+ * shape of compose mapping value data used by the viewer.
+ */
 export type ComposeMappingValue = string | 'none';
 
 /** editable state owned by the sidebar before it is rendered into viewer data. */
@@ -53,11 +59,17 @@ export type ComposeLayoutState = {
     ranges: Record<ComposeChannel, [string, string]>;
 };
 
+/**
+ * shape of matrix axis data used by the viewer.
+ */
 export type MatrixAxis = {
     label: string;
     axis: number;
 };
 
+/**
+ * shape of matrix block data used by the viewer.
+ */
 export type MatrixBlock = {
     title: string;
     rows: MatrixAxis[];
@@ -115,6 +127,9 @@ type LayoutExpr =
     | { kind: 'product'; left: LayoutExpr; right: LayoutExpr }
     | { kind: 'apply'; outer: LayoutExpr; inner: LayoutExpr };
 
+/**
+ * shape of evaluated layout data used by the viewer.
+ */
 type EvaluatedLayout = {
     kind: LayoutExpr['kind'];
     exprText: string;
@@ -211,6 +226,9 @@ const BAKED_EXAMPLE_DEFINITIONS = [
 ] as const;
 // sync-linear-layout-examples:end
 
+/**
+ * return baked example for the current viewer state.
+ */
 function bakedExample(
     title: string,
     specsText: string,
@@ -239,10 +257,6 @@ const BAKED_EXAMPLES: ExampleState[] = [
     )),
 ];
 
-function bakedComposeLayoutCatalog(): ExampleState[] {
-    return BAKED_EXAMPLES;
-}
-
 /** return the startup compose-layout state used by the static demo.
  *
  * this is intentionally derived from the baked catalog instead of duplicating
@@ -250,7 +264,7 @@ function bakedComposeLayoutCatalog(): ExampleState[] {
  * of demo_linear_layout.py.
  */
 export function defaultComposeLayoutState(): ComposeLayoutState {
-    return autoColoredComposeLayoutState(cloneComposeLayoutState(bakedComposeLayoutCatalog()[0]!.state));
+    return autoColoredComposeLayoutState(cloneComposeLayoutState(BAKED_EXAMPLES[0]!.state));
 }
 
 /** return an empty but renderable layout editor state for newly-created tabs. */
@@ -270,12 +284,15 @@ export function emptyComposeLayoutState(): ComposeLayoutState {
 
 /** return cloned baked examples so callers can mutate sidebar state safely. */
 export function bakedComposeLayoutExamples(): ExampleState[] {
-    return bakedComposeLayoutCatalog().map(({ title, state }) => ({
+    return BAKED_EXAMPLES.map(({ title, state }) => ({
         title,
         state: autoColoredComposeLayoutState(cloneComposeLayoutState(state)),
     }));
 }
 
+/**
+ * clone compose layout state for the current viewer state.
+ */
 export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayoutState {
     // state is copied across tabs and snapshots, so clone nested structures to
     // keep one tab's widget edits from mutating another tab's saved state.
@@ -365,6 +382,9 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
     };
 }
 
+/**
+ * return auto color layout state for the current viewer state.
+ */
 export function autoColorLayoutState(
     specsText: string,
     operationText: string,
@@ -384,6 +404,9 @@ export function autoColorLayoutState(
     };
 }
 
+/**
+ * return auto colored compose layout state for the current viewer state.
+ */
 function autoColoredComposeLayoutState(state: ComposeLayoutState): ComposeLayoutState {
     const autoColor = autoColorLayoutState(state.specsText, state.operationText);
     return {
@@ -413,6 +436,7 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     let tempIndex = 0;
     // evaluation is memoized by AST node so matrix blocks and generated python
     // reuse the same temporary names for shared subexpressions.
+    /** evaluate one layout expression while recording python initialization code. */
     const evaluate = (expr: LayoutExpr): EvaluatedLayout => {
         const cached = tempRefs.get(expr as object);
         if (cached) return cached;
@@ -479,7 +503,7 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     const finalOutputLabels = finalLayout.outputs.slice();
     const finalOutputBitCounts = finalLayout.outputBitCounts.slice();
     const finalOutputShape = shapeFromBitCounts(finalOutputBitCounts);
-    const injective = isInjectiveLayout(finalLayout);
+    const injective = gf2Rank(finalLayout.matrix) === sum(finalLayout.inputBitCounts);
     const inputName = state.inputName.trim() || DEFAULT_INPUT_NAME;
     const visibleTensors = state.visibleTensors ?? {};
     // every intermediate tensor is indexed by the same root input space; this is
@@ -702,6 +726,9 @@ export function propagationLabels(
     return [runtime.inputLabels, runtime.inputShape];
 }
 
+/**
+ * return propagation coords for tensor for the current viewer state.
+ */
 function propagationCoordsForTensor(
     runtime: ComposeRuntime,
     tensor: ComposeTensorMeta,
@@ -717,6 +744,9 @@ function propagationCoordsForTensor(
     return coords;
 }
 
+/**
+ * parse operation for the current viewer state.
+ */
 function parseOperation(source: string): LayoutExpr {
     const parser = new OperationParser(source);
     const expr = parser.parse();
@@ -734,21 +764,33 @@ function parseOperation(source: string): LayoutExpr {
 class OperationParser {
     private index = 0;
 
-    public constructor(private readonly source: string) {}
+        /**
+     * create one initialized class instance with its required runtime state.
+     */
+public constructor(private readonly source: string) {}
 
-    public parse(): LayoutExpr {
+        /**
+     * parse for this class instance.
+     */
+public parse(): LayoutExpr {
         this.skipWhitespace();
         return this.parseProduct();
     }
 
-    public finish(): void {
+        /**
+     * handle finish for this class instance.
+     */
+public finish(): void {
         this.skipWhitespace();
         if (this.index < this.source.length) {
             throw new Error(`Unexpected token ${JSON.stringify(this.source[this.index])} in Layout Operation.`);
         }
     }
 
-    private parseProduct(): LayoutExpr {
+        /**
+     * parse product for this class instance.
+     */
+private parseProduct(): LayoutExpr {
         let expr = this.parseApplication();
         while (true) {
             this.skipWhitespace();
@@ -761,7 +803,10 @@ class OperationParser {
         }
     }
 
-    private parseApplication(): LayoutExpr {
+        /**
+     * parse application for this class instance.
+     */
+private parseApplication(): LayoutExpr {
         let expr = this.parseUnary();
         while (true) {
             this.skipWhitespace();
@@ -777,7 +822,10 @@ class OperationParser {
         }
     }
 
-    private parseUnary(): LayoutExpr {
+        /**
+     * parse unary for this class instance.
+     */
+private parseUnary(): LayoutExpr {
         this.skipWhitespace();
         if (this.peekWord('inv')) {
             this.index += 3;
@@ -791,7 +839,10 @@ class OperationParser {
         return this.parsePrimary();
     }
 
-    private parsePrimary(): LayoutExpr {
+        /**
+     * parse primary for this class instance.
+     */
+private parsePrimary(): LayoutExpr {
         this.skipWhitespace();
         if (this.consume('(')) {
             const expr = this.parseProduct();
@@ -804,7 +855,10 @@ class OperationParser {
         return { kind: 'name', name };
     }
 
-    private parseName(): string | null {
+        /**
+     * parse name for this class instance.
+     */
+private parseName(): string | null {
         this.skipWhitespace();
         const match = this.source.slice(this.index).match(/^[A-Za-z_][A-Za-z0-9_]*/);
         if (!match) return null;
@@ -812,28 +866,43 @@ class OperationParser {
         return match[0];
     }
 
-    private peekWord(word: string): boolean {
+        /**
+     * handle peek word for this class instance.
+     */
+private peekWord(word: string): boolean {
         return this.source.slice(this.index, this.index + word.length) === word
             && !/[A-Za-z0-9_]/.test(this.source[this.index + word.length] ?? '');
     }
 
-    private skipWhitespace(): void {
+        /**
+     * handle skip whitespace for this class instance.
+     */
+private skipWhitespace(): void {
         while (/\s/.test(this.source[this.index] ?? '')) this.index += 1;
     }
 
-    private consume(char: string): boolean {
+        /**
+     * handle consume for this class instance.
+     */
+private consume(char: string): boolean {
         if (this.source[this.index] !== char) return false;
         this.index += 1;
         return true;
     }
 
-    private expect(char: string): void {
+        /**
+     * handle expect for this class instance.
+     */
+private expect(char: string): void {
         if (!this.consume(char)) {
             throw new Error(`Expected ${JSON.stringify(char)} in Layout Operation.`);
         }
     }
 }
 
+/**
+ * return named layout for the current viewer state.
+ */
 function namedLayout(spec: NamedLayoutSpec): EvaluatedLayout {
     const inputBitCounts = spec.bases.map((bases) => bases.length);
     const outputBitCounts = outputBitCountsFromBases(spec.bases, spec.outputs.length);
@@ -850,6 +919,9 @@ function namedLayout(spec: NamedLayoutSpec): EvaluatedLayout {
     };
 }
 
+/**
+ * compose layouts for the current viewer state.
+ */
 function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText: string): EvaluatedLayout {
     if (!sameLabels(inner.outputs, outer.inputs)) {
         throw new Error(`${outer.exprText} expects [${outer.inputs.join(',')}] but received [${inner.outputs.join(',')}].`);
@@ -874,13 +946,16 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
     return layout;
 }
 
+/**
+ * return product layout for the current viewer state.
+ */
 function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: string): EvaluatedLayout {
-    const inputs = mergeAxisLabels(left.inputs, right.inputs);
+    const inputs = [...left.inputs, ...right.inputs.filter((label) => !left.inputs.includes(label))];
     const inputBitCounts = inputs.map((label) => (
         (left.inputBitCounts[left.inputs.indexOf(label)] ?? 0)
         + (right.inputBitCounts[right.inputs.indexOf(label)] ?? 0)
     ));
-    const outputs = mergeAxisLabels(left.outputs, right.outputs);
+    const outputs = [...left.outputs, ...right.outputs.filter((label) => !left.outputs.includes(label))];
     const outputBitCounts = outputs.map((label) => (
         (left.outputBitCounts[left.outputs.indexOf(label)] ?? 0)
         + (right.outputBitCounts[right.outputs.indexOf(label)] ?? 0)
@@ -922,6 +997,9 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
     return layout;
 }
 
+/**
+ * return invert layout for the current viewer state.
+ */
 function invertLayout(layout: EvaluatedLayout, exprText: string): EvaluatedLayout {
     if (!isBijective(layout)) {
         throw new Error(`${layout.exprText} is not bijective, so inv(${layout.exprText}) is invalid.`);
@@ -942,6 +1020,9 @@ function invertLayout(layout: EvaluatedLayout, exprText: string): EvaluatedLayou
     };
 }
 
+/**
+ * render steps for the current viewer state.
+ */
 function renderSteps(
     expr: LayoutExpr,
     evaluate: (expr: LayoutExpr) => EvaluatedLayout,
@@ -957,6 +1038,9 @@ function renderSteps(
     ];
 }
 
+/**
+ * return expr to string for the current viewer state.
+ */
 function exprToString(expr: LayoutExpr, parentPrecedence = 0): string {
     // stable expression text is used as tensor titles and matrix labels; avoid
     // extra parentheses except where precedence would change the operation.
@@ -979,6 +1063,9 @@ function exprToString(expr: LayoutExpr, parentPrecedence = 0): string {
     return precedence < parentPrecedence ? `(${text})` : text;
 }
 
+/**
+ * return matrix block for the current viewer state.
+ */
 function matrixBlock(title: string, layout: EvaluatedLayout): MatrixBlock {
     return {
         title,
@@ -988,16 +1075,18 @@ function matrixBlock(title: string, layout: EvaluatedLayout): MatrixBlock {
     };
 }
 
+/**
+ * return bit labels for the current viewer state.
+ */
 function bitLabels(labels: string[], bitCounts: number[]): MatrixAxis[] {
     return labels.flatMap((label, axis) => (
-        Array.from({ length: bitCounts[axis] ?? 0 }, (_entry, bit) => ({ label: indexedAxisLabel(label, bit), axis }))
+        Array.from({ length: bitCounts[axis] ?? 0 }, (_entry, bit) => ({ label: `${label}:${bit}`, axis }))
     ));
 }
 
-function indexedAxisLabel(label: string, index: number): string {
-    return `${label}:${index}`;
-}
-
+/**
+ * return python named layout for the current viewer state.
+ */
 function pythonNamedLayout(spec: NamedLayoutSpec): string[] {
     // emit verbose multiline code because contributors copy it into python
     // notebooks while checking new presets.
@@ -1019,6 +1108,9 @@ function pythonNamedLayout(spec: NamedLayoutSpec): string[] {
     ];
 }
 
+/**
+ * return matrix from bases for the current viewer state.
+ */
 function matrixFromBases(
     bases: number[][][],
     inputBitCounts: number[],
@@ -1046,6 +1138,9 @@ function matrixFromBases(
     return matrix;
 }
 
+/**
+ * map coord for the current viewer state.
+ */
 function mapCoord(
     inputCoord: number[],
     inputBitCounts: number[],
@@ -1059,12 +1154,18 @@ function mapCoord(
     return coordFromBits(outputBits, outputBitCounts);
 }
 
+/**
+ * return bits from coord for the current viewer state.
+ */
 function bitsFromCoord(coord: number[], bitCounts: number[]): number[] {
     return bitCounts.flatMap((count, axis) => (
         Array.from({ length: count }, (_entry, bit) => ((coord[axis] ?? 0) >> bit) & 1)
     ));
 }
 
+/**
+ * return coord from bits for the current viewer state.
+ */
 function coordFromBits(bits: number[], bitCounts: number[]): number[] {
     const result = new Array(bitCounts.length).fill(0);
     const axisOffsets = offsets(bitCounts);
@@ -1078,11 +1179,17 @@ function coordFromBits(bits: number[], bitCounts: number[]): number[] {
     return result;
 }
 
+/**
+ * return multiply matrix vector for the current viewer state.
+ */
 function multiplyMatrixVector(matrix: number[][], vector: number[]): number[] {
     // linear layouts operate over bits, so addition is xor and multiplication is and.
     return matrix.map((row) => row.reduce((value, cell, column) => value ^ (cell & (vector[column] ?? 0)), 0));
 }
 
+/**
+ * return multiply matrices for the current viewer state.
+ */
 function multiplyMatrices(left: number[][], right: number[][]): number[][] {
     const rows = left.length;
     const shared = left[0]?.length ?? 0;
@@ -1101,12 +1208,18 @@ function multiplyMatrices(left: number[][], right: number[][]): number[][] {
     ));
 }
 
+/**
+ * merge product matrices for the current viewer state.
+ */
 function mergeProductMatrices(left: number[][], right: number[][]): number[][] {
     // product matrices occupy disjoint bit lanes after embedding, so OR is the
     // merge operation rather than xor.
     return left.map((row, rowIndex) => row.map((value, columnIndex) => value | (right[rowIndex]?.[columnIndex] ?? 0)));
 }
 
+/**
+ * return embed product matrix for the current viewer state.
+ */
 function embedProductMatrix(
     layout: EvaluatedLayout,
     targetInputs: string[],
@@ -1144,10 +1257,9 @@ function embedProductMatrix(
     return matrix;
 }
 
-function mergeAxisLabels(left: string[], right: string[]): string[] {
-    return [...left, ...right.filter((label) => !left.includes(label))];
-}
-
+/**
+ * return invert square matrix for the current viewer state.
+ */
 function invertSquareMatrix(matrix: number[][]): number[][] | null {
     const size = matrix.length;
     if (size !== (matrix[0]?.length ?? 0)) return null;
@@ -1177,6 +1289,9 @@ function invertSquareMatrix(matrix: number[][]): number[][] | null {
     return rows.map((row) => row.slice(size));
 }
 
+/**
+ * return gf2 rank for the current viewer state.
+ */
 function gf2Rank(matrix: number[][]): number {
     if (matrix.length === 0) return 0;
     const rows = matrix.map((row) => row.slice());
@@ -1202,16 +1317,18 @@ function gf2Rank(matrix: number[][]): number {
     return rank;
 }
 
+/**
+ * return whether bijective for the current viewer state.
+ */
 function isBijective(layout: EvaluatedLayout): boolean {
     const inputBits = sum(layout.inputBitCounts);
     const outputBits = sum(layout.outputBitCounts);
     return inputBits === outputBits && gf2Rank(layout.matrix) === inputBits;
 }
 
-function isInjectiveLayout(layout: Pick<EvaluatedLayout, 'matrix' | 'inputBitCounts'>): boolean {
-    return gf2Rank(layout.matrix) === sum(layout.inputBitCounts);
-}
-
+/**
+ * return output bit counts from bases for the current viewer state.
+ */
 function outputBitCountsFromBases(bases: number[][][], outputCount: number): number[] {
     // output bit width is inferred from the largest set bit in the basis vectors;
     // explicit output sizes are not stored in compose-layout specs.
@@ -1219,13 +1336,17 @@ function outputBitCountsFromBases(bases: number[][][], outputCount: number): num
         let bits = 0;
         bases.forEach((axisBases) => {
             axisBases.forEach((basis) => {
-                bits = Math.max(bits, bitLength(basis[outputAxis] ?? 0));
+                const value = basis[outputAxis] ?? 0;
+                bits = Math.max(bits, value <= 0 ? 0 : Math.floor(Math.log2(value)) + 1);
             });
         });
         return bits;
     });
 }
 
+/**
+ * return trim output bit counts for the current viewer state.
+ */
 function trimOutputBitCounts(matrix: number[][], outputBitCounts: number[]): number[] {
     let rowOffset = 0;
     return outputBitCounts.map((bitCount) => {
@@ -1239,6 +1360,9 @@ function trimOutputBitCounts(matrix: number[][], outputBitCounts: number[]): num
     });
 }
 
+/**
+ * return trim matrix rows for the current viewer state.
+ */
 function trimMatrixRows(matrix: number[][], currentBitCounts: number[], nextBitCounts: number[]): number[][] {
     const currentOffsets = offsets(currentBitCounts);
     // keep only the still-live rows for each axis so matrix row layout stays aligned
@@ -1248,10 +1372,9 @@ function trimMatrixRows(matrix: number[][], currentBitCounts: number[], nextBitC
     ));
 }
 
-function bitLength(value: number): number {
-    return value <= 0 ? 0 : Math.floor(Math.log2(value)) + 1;
-}
-
+/**
+ * return offsets for the current viewer state.
+ */
 function offsets(values: number[]): number[] {
     let total = 0;
     return values.map((value) => {
@@ -1261,19 +1384,31 @@ function offsets(values: number[]): number[] {
     });
 }
 
+/**
+ * return shape from bit counts for the current viewer state.
+ */
 function shapeFromBitCounts(bitCounts: number[]): number[] {
     return bitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
 }
 
+/**
+ * return sum for the current viewer state.
+ */
 function sum(values: number[]): number {
     return values.reduce((total, value) => total + value, 0);
 }
 
+/**
+ * return same labels for the current viewer state.
+ */
 function sameLabels(leftLabels: string[], rightLabels: string[]): boolean {
     return leftLabels.length === rightLabels.length
         && leftLabels.every((label, index) => label === rightLabels[index]);
 }
 
+/**
+ * expand output rows for the current viewer state.
+ */
 function expandOutputRows(
     matrix: number[][],
     currentBitCounts: number[],
@@ -1291,6 +1426,9 @@ function expandOutputRows(
     ));
 }
 
+/**
+ * expand input columns for the current viewer state.
+ */
 function expandInputColumns(
     matrix: number[][],
     currentBitCounts: number[],
@@ -1308,6 +1446,9 @@ function expandInputColumns(
     )));
 }
 
+/**
+ * return rgb color for root coord for the current viewer state.
+ */
 function rgbColorForRootCoord(
     coord: number[],
     shape: number[],
@@ -1323,6 +1464,9 @@ function rgbColorForRootCoord(
     return hsvToRgb(hue, saturation, lightness);
 }
 
+/**
+ * return channel value for the current viewer state.
+ */
 function channelValue(
     channel: ComposeChannel,
     coord: number[],
@@ -1342,6 +1486,9 @@ function channelValue(
     return start + ((end - start) * position);
 }
 
+/**
+ * return hsv to rgb for the current viewer state.
+ */
 function hsvToRgb(hue: number, saturation: number, value: number): [number, number, number] {
     const scaledHue = ((((hue % 1) + 1) % 1) * 6);
     const sector = Math.floor(scaledHue);
@@ -1365,10 +1512,16 @@ function hsvToRgb(hue: number, saturation: number, value: number): [number, numb
     }
 }
 
+/**
+ * return flat index for the current viewer state.
+ */
 function flatIndex(coord: number[], shape: number[]): number {
     return coord.reduce((index, value, axis) => (index * shape[axis]!) + value, 0);
 }
 
+/**
+ * return persisted viewer settings for the current viewer state.
+ */
 function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): Partial<ViewerSnapshot> {
     if (!viewer) return { dimensionMappingScheme: 'contiguous' };
     // omit tensor snapshots here because createBundleManifest rebuilds tensors
@@ -1389,12 +1542,18 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
     };
 }
 
+/**
+ * return sanitize identifier for the current viewer state.
+ */
 function sanitizeIdentifier(value: string): string {
     // generated python and operation text both need identifiers, not arbitrary titles.
     const cleaned = value.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
     return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Layout_${cleaned || '1'}`;
 }
 
+/**
+ * parse legacy spec for the current viewer state.
+ */
 function parseLegacySpec(raw: unknown, fallbackTitle: string): {
     name: string;
     inputs: string[];
@@ -1454,6 +1613,9 @@ function parseLegacySpec(raw: unknown, fallbackTitle: string): {
     };
 }
 
+/**
+ * return canonical legacy label for the current viewer state.
+ */
 function canonicalLegacyLabel(name: string, axis: number): string {
     // preserve the old hardware-axis labels where possible so saved color
     // mappings still point at T/W/R after migration.
@@ -1464,6 +1626,9 @@ function canonicalLegacyLabel(name: string, axis: number): string {
     return axis === 0 ? base : `${base}${axis}`;
 }
 
+/**
+ * return canonical legacy output label for the current viewer state.
+ */
 function canonicalLegacyOutputLabel(name: string, axis: number): string {
     const match = name.match(/^([A-Za-z])([0-9]*)$/);
     if (match) return `${match[1]!.toUpperCase()}${match[2] ?? ''}`;
@@ -1471,6 +1636,9 @@ function canonicalLegacyOutputLabel(name: string, axis: number): string {
     return (firstLetter ?? String.fromCharCode(65 + axis)).toUpperCase();
 }
 
+/**
+ * return legacy axis order for the current viewer state.
+ */
 function legacyAxisOrder(label: string): number {
     if (label === 'T') return 0;
     if (label === 'W') return 1;
@@ -1478,6 +1646,9 @@ function legacyAxisOrder(label: string): number {
     return 3;
 }
 
+/**
+ * return legacy mapping for the current viewer state.
+ */
 function legacyMapping(
     labelMap: Map<string, string>,
     colorAxes: Record<string, string>,
@@ -1497,6 +1668,9 @@ function legacyMapping(
     return mapping;
 }
 
+/**
+ * return legacy ranges for the current viewer state.
+ */
 function legacyRanges(colorRanges: Record<string, [number, number]>): Record<ComposeChannel, [string, string]> {
     return {
         H: colorRanges.H ? [String(colorRanges.H[0]), String(colorRanges.H[1])] : [...DEFAULT_COLOR_RANGES.H],
@@ -1505,6 +1679,9 @@ function legacyRanges(colorRanges: Record<string, [number, number]>): Record<Com
     };
 }
 
+/**
+ * return auto color mapping for the current viewer state.
+ */
 function autoColorMapping(
     inputLabels: string[],
     inputShape: number[],
@@ -1521,6 +1698,9 @@ function autoColorMapping(
     return mapping;
 }
 
+/**
+ * return default color ranges for the current viewer state.
+ */
 function defaultColorRanges(): Record<ComposeChannel, [string, string]> {
     return {
         H: [...DEFAULT_COLOR_RANGES.H],

@@ -12,6 +12,8 @@ export type ControlSpec = {
 
 // dividers are keyed by control id instead of position so adding/removing
 // controls does not silently move visual groups.
+// if a new command starts a separate workflow, add its id here instead of
+// baking another divider into the render loop.
 const DIVIDER_BEFORE_IDS = new Set(['2d', 'dim-lines', 'gaps', 'mapping-contiguous']);
 
 /** shared dock/widget icons so controls can move without duplicating svg markup. */
@@ -90,6 +92,9 @@ export function renderControlDockControls(controlDock: HTMLElement, controls: Co
     }));
 }
 
+/**
+ * return control button for the current viewer state.
+ */
 function controlButton(control: ControlSpec): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';

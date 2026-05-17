@@ -20,6 +20,9 @@ import {
     normalizeCellTextState,
 } from './linear-layout-widget-shared.js';
 
+/**
+ * apply linear layout spec for the current viewer state.
+ */
 export async function applyLinearLayoutSpec(
     ctx: LinearLayoutUiContext,
     options: { replaceTabs?: boolean; silent?: boolean; preserveTensorViews?: boolean } = {},
@@ -67,6 +70,9 @@ export async function applyLinearLayoutSpec(
     }
 }
 
+/**
+ * upsert linear layout tab for the current viewer state.
+ */
 async function upsertLinearLayoutTab(
     ctx: LinearLayoutUiContext,
     document: ReturnType<typeof createComposeLayoutDocument>,

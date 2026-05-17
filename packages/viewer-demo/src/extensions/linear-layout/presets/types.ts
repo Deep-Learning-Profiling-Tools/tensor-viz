@@ -18,6 +18,9 @@ export type ComposeLayoutPresetFields = {
     facets?: ComposeLayoutPresetFacets;
 };
 
+/**
+ * shape of compose layout preset facet value data used by the viewer.
+ */
 export type ComposeLayoutPresetFacetValue = string | readonly string[];
 
 /** selector values that must match before a preset can be chosen.
@@ -49,11 +52,17 @@ export type ComposeLayoutPresetFamily = {
     presets: readonly ComposeLayoutPresetDefinition[];
 };
 
+/**
+ * shape of compose layout preset text definition data used by the viewer.
+ */
 export type ComposeLayoutPresetTextDefinition = ComposeLayoutPresetFields & {
     /** complete specs text for layouts that are clearer as hand-written notation. */
     specsText: string;
 };
 
+/**
+ * shape of compose layout preset named definition data used by the viewer.
+ */
 export type ComposeLayoutPresetNamedDefinition = ComposeLayoutPresetFields & {
     /** layout name used both in the generated signature and as the operation text. */
     name: string;
@@ -63,8 +72,14 @@ export type ComposeLayoutPresetNamedDefinition = ComposeLayoutPresetFields & {
     rows: Array<[label: string, bases: string]>;
 };
 
+/**
+ * shape of compose layout preset definition data used by the viewer.
+ */
 export type ComposeLayoutPresetDefinition = ComposeLayoutPresetTextDefinition | ComposeLayoutPresetNamedDefinition;
 
+/**
+ * shape of matrix transfer layout definition data used by the viewer.
+ */
 export type MatrixTransferLayoutDefinition = {
     name: string;
     gpuArch: string;

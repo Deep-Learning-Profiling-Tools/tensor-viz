@@ -11,6 +11,9 @@ export type MountedDemoApp = {
     destroy: () => void;
 };
 
+/**
+ * return safe iframe src for the current viewer state.
+ */
 function safeIframeSrc(src: string): string {
     const value = src.trim();
     const base = document.baseURI || globalThis.location?.href || 'http://localhost/';

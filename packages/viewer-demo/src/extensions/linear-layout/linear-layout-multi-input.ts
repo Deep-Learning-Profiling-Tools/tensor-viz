@@ -9,6 +9,9 @@ import {
 import { rootColorsForLayoutState } from './linear-layout.js';
 import { composeLayoutMetaForTab, type LinearLayoutSelectionMap, type LinearLayoutUiContext } from './linear-layout-state.js';
 
+/**
+ * shape of linear layout display model data used by the viewer.
+ */
 export type LinearLayoutDisplayModel = {
     rootIndexes: Set<number>;
     sliceRootIndexes: Set<number> | null;
@@ -17,12 +20,18 @@ export type LinearLayoutDisplayModel = {
     ghostRootIndexesByTensor: Map<string, Array<{ coord: number[]; rootIndex: number; layer: number }>>;
 };
 
+/**
+ * shape of linear layout multi input model data used by the viewer.
+ */
 export type LinearLayoutMultiInputModel = {
     focusedTensorId: string;
     value: number;
     size: number;
 } | null;
 
+/**
+ * return linear layout selection map for meta for the current viewer state.
+ */
 export function linearLayoutSelectionMapForMeta(
     tab: LoadedBundleDocument,
 ): LinearLayoutSelectionMap | null {
@@ -38,11 +47,11 @@ export function linearLayoutSelectionMapForMeta(
         if (!loadedTensorIds.has(tensorMeta.id)) return;
         const rootToTensorKeys = tensorMeta.rootToTensor.map((coord) => coordKey(coord));
         const coordKeyToFlatIndex = new Map<string, number>();
-        const cellRootIndexes = Array.from({ length: product(tensorMeta.shape) }, () => [] as number[]);
+        const cellRootIndexes = Array.from({ length: tensorMeta.shape.reduce((total, value) => total * value, 1) }, () => [] as number[]);
         // non-injective tensors can map many root inputs into one cell.  Keep
         // all roots by flat cell so hover, selection, and ghost layers agree.
         rootToTensorKeys.forEach((tensorKey, rootIndex) => {
-            const flat = flatIndex(coordFromKey(tensorKey), tensorMeta.shape);
+            const flat = coordFromKey(tensorKey).reduce((index, value, axis) => (index * tensorMeta.shape[axis]!) + value, 0);
             coordKeyToFlatIndex.set(tensorKey, flat);
             cellRootIndexes[flat]!.push(rootIndex);
         });
@@ -62,6 +71,9 @@ export function linearLayoutSelectionMapForMeta(
     };
 }
 
+/**
+ * return linear layout multi input model for the current viewer state.
+ */
 export function linearLayoutMultiInputModel(
     ctx: LinearLayoutUiContext,
     mapping: LinearLayoutSelectionMap | null,
@@ -80,6 +92,9 @@ export function linearLayoutMultiInputModel(
     return { focusedTensorId, value, size };
 }
 
+/**
+ * apply linear layout display for the current viewer state.
+ */
 export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
     const tab = ctx.getActiveTab();
     if (!tab) return;
@@ -124,6 +139,9 @@ export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
     });
 }
 
+/**
+ * return linear layout display model for the current viewer state.
+ */
 export function linearLayoutDisplayModel(
     ctx: LinearLayoutUiContext,
     mapping: LinearLayoutSelectionMap,
@@ -161,6 +179,9 @@ export function linearLayoutDisplayModel(
     return { rootIndexes, sliceRootIndexes: slicedRoots, displayedRootIndexByTensor, visibleCoordsByTensor, ghostRootIndexesByTensor };
 }
 
+/**
+ * return root indexes for coords for the current viewer state.
+ */
 export function rootIndexesForCoords(
     mapping: LinearLayoutSelectionMap,
     tensorId: string,
@@ -174,6 +195,9 @@ export function rootIndexesForCoords(
     }));
 }
 
+/**
+ * return coords for root indexes for the current viewer state.
+ */
 export function coordsForRootIndexes(
     mapping: LinearLayoutSelectionMap,
     tensorId: string,
@@ -189,6 +213,9 @@ export function coordsForRootIndexes(
     });
 }
 
+/**
+ * return displayed root index for coord for the current viewer state.
+ */
 export function displayedRootIndexForCoord(
     display: LinearLayoutDisplayModel,
     mapping: LinearLayoutSelectionMap,
@@ -202,6 +229,9 @@ export function displayedRootIndexForCoord(
     return display.displayedRootIndexByTensor.get(tensorId)?.[flat] ?? null;
 }
 
+/**
+ * return focused root indexes for the current viewer state.
+ */
 function focusedRootIndexes(
     mapping: LinearLayoutSelectionMap,
     focusedTensorId: string,
@@ -219,6 +249,9 @@ function focusedRootIndexes(
     }));
 }
 
+/**
+ * return slice visible root indexes by tensor for the current viewer state.
+ */
 function sliceVisibleRootIndexesByTensor(
     ctx: LinearLayoutUiContext,
     mapping: LinearLayoutSelectionMap,
@@ -229,6 +262,9 @@ function sliceVisibleRootIndexesByTensor(
     }).filter(([_tensorId, roots]) => roots.size > 0));
 }
 
+/**
+ * return intersect root indexes for the current viewer state.
+ */
 function intersectRootIndexes(sets: Iterable<Set<number>>, rootCount: number): Set<number> | null {
     let intersection: Set<number> | null = null;
     for (const set of sets) {
@@ -240,6 +276,9 @@ function intersectRootIndexes(sets: Iterable<Set<number>>, rootCount: number): S
     return null;
 }
 
+/**
+ * return sliced tensor coords for the current viewer state.
+ */
 function slicedTensorCoords(ctx: LinearLayoutUiContext, tensorId: string): number[][] | null {
     const status = ctx.viewer.getTensorStatus(tensorId);
     const snapshot = ctx.viewer.getTensorView(tensorId);
@@ -252,14 +291,9 @@ function slicedTensorCoords(ctx: LinearLayoutUiContext, tensorId: string): numbe
     return !parsed.ok ? null : visibleTensorCoords(parsed.spec);
 }
 
-function flatIndex(coord: number[], shape: number[]): number {
-    return coord.reduce((index, value, axis) => (index * shape[axis]!) + value, 0);
-}
-
-function product(values: number[]): number {
-    return values.reduce((total, value) => total * value, 1);
-}
-
+/**
+ * return unravel index for the current viewer state.
+ */
 function unravelIndex(index: number, shape: number[]): number[] {
     if (shape.length === 0) return [];
     const coord = new Array(shape.length).fill(0);
@@ -272,6 +306,9 @@ function unravelIndex(index: number, shape: number[]): number[] {
     return coord;
 }
 
+/**
+ * return linear layout ghost text for the current viewer state.
+ */
 function linearLayoutGhostText(coord: number[], labels: string[], state: Record<string, boolean>): string | null {
     const text = labels
         .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}:${coord[axis] ?? 0}`] : []))
@@ -279,18 +316,26 @@ function linearLayoutGhostText(coord: number[], labels: string[], state: Record<
     return text || null;
 }
 
+/**
+ * return propagated coord for root for the current viewer state.
+ */
 function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number[] {
     const key = propagateOutputs ? mapping.rootToFinalKeys[rootIndex] : mapping.rootKeys[rootIndex];
     return coordFromKey(key ?? '');
 }
 
+/**
+ * return propagated index for root for the current viewer state.
+ */
 function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number {
-    return flatIndex(
-        propagatedCoordForRoot(mapping, rootIndex, propagateOutputs),
-        propagateOutputs ? mapping.finalOutputShape : mapping.rootInputShape,
-    );
+    const shape = propagateOutputs ? mapping.finalOutputShape : mapping.rootInputShape;
+    return propagatedCoordForRoot(mapping, rootIndex, propagateOutputs)
+        .reduce((index, value, axis) => (index * shape[axis]!) + value, 0);
 }
 
+/**
+ * return linear layout selection map for tab for the current viewer state.
+ */
 function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = ctx.state.linearLayoutSelectionMaps.get(tab.id);
     if (cached) return cached;

@@ -29,11 +29,17 @@ export type ViewerOptions = {
     requestTensorData?: (tensor: TensorStatus, reason: TensorDataRequestReason) => Promise<NumericArray | null | undefined> | NumericArray | null | undefined;
 };
 
+/**
+ * shape of mesh meta data used by the viewer.
+ */
 export type MeshMeta = {
     tensorId: string;
     instanceShape: number[];
 };
 
+/**
+ * shape of pick mesh data used by the viewer.
+ */
 export type PickMesh = {
     tensorId: string;
     mesh: InstancedMesh;
@@ -46,6 +52,9 @@ export type PickMesh = {
     };
 };
 
+/**
+ * shape of selection drag state data used by the viewer.
+ */
 export type SelectionDragState = {
     source: '2d' | '3d';
     mode: 'replace' | 'add' | 'remove';
@@ -57,6 +66,9 @@ export type SelectionDragState = {
     previewSelections: Map<string, Set<string>>;
 };
 
+/**
+ * shape of selection preview uniforms data used by the viewer.
+ */
 export type SelectionPreviewUniforms = {
     selectionPreviewActive: { value: number };
     selectionPreviewBounds: { value: Vector4 };
@@ -64,12 +76,18 @@ export type SelectionPreviewUniforms = {
     selectionColor: { value: Color };
 };
 
+/**
+ * return log event for the current viewer state.
+ */
 export function logEvent(event: string, details?: unknown): void {
     if (!LOG_ENABLED) return;
     if (details === undefined) console.log(LOG_PREFIX, event);
     else console.log(LOG_PREFIX, event, details);
 }
 
+/**
+ * normalize canvas zoom for the current viewer state.
+ */
 export function normalizeCanvasZoom(value: number): number {
     if (Number.isNaN(value) || value <= 0) return MIN_CANVAS_ZOOM;
     return Math.min(Number.MAX_VALUE, value);

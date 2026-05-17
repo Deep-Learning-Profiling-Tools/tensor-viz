@@ -1,3 +1,4 @@
+// widget barrel used by the extension and tests.
 export * from './widgets/linear-layout-cell-text-widget.js';
 export * from './widgets/linear-layout-color-widget.js';
 export * from './widgets/linear-layout-editor-widgets.js';

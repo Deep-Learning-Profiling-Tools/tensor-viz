@@ -8,6 +8,9 @@ const DTYPE_TO_ARRAY = {
     uint8: Uint8Array,
 } satisfies Record<DType, new (buffer: ArrayBuffer) => NumericArray>;
 
+// this table is the only place where persisted dtype strings become platform
+// typed-array constructors; validation keeps unsupported strings out earlier.
+
 /** Construct the viewer's typed-array wrapper for one dtype and raw buffer. */
 export function createTypedArray(dtype: DType, buffer: ArrayBuffer): NumericArray {
     if (!isDType(dtype)) throw new Error(`Unsupported dtype ${String(dtype)}.`);

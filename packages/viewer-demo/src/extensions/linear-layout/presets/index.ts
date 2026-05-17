@@ -7,6 +7,15 @@ import type { ComposeLayoutPresetFamily, ComposeLayoutPresetFieldDefinition } fr
 import { WGMMA_PRESET_DEFINITIONS } from './wgmma.js';
 export { PRESET_GPU_ARCHS } from './gpu-archs.js';
 
+// these fields are shared by every current preset family.
+// families can still contribute additional facet fields, but common hardware
+// selectors stay here so the preset widget renders them in one stable order.
+// required fields are always visible; optional fields appear only when their
+// dependency path is active and matching presets have values for that field.
+// the model layer merges these definitions with facet keys found in data, so a
+// new architecture family can add metadata without changing widget code.
+// keep `order` sparse enough that external families can insert fields between
+// existing concepts without renumbering this file.
 const DEFAULT_PRESET_FIELDS = [
     {
         key: 'gpuArch',

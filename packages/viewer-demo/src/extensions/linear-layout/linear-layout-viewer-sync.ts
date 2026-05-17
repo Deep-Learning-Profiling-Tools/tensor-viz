@@ -24,11 +24,17 @@ import {
 } from './linear-layout-state.js';
 import { rootColorsForLayoutState } from './linear-layout.js';
 
+/**
+ * shape of linear layout hover popup entry data used by the viewer.
+ */
 export type LinearLayoutHoverPopupEntry = {
     color: string;
     text: string;
 };
 
+/**
+ * return preserved linear layout tensor views for the current viewer state.
+ */
 export function preservedLinearLayoutTensorViews(
     ctx: LinearLayoutUiContext,
     tabId: string | null = ctx.getActiveTabId(),
@@ -40,6 +46,9 @@ export function preservedLinearLayoutTensorViews(
     return { ...stored, ...snapshotTensorViews(ctx.viewer.getSnapshot()) };
 }
 
+/**
+ * return linear layout selection map for tab for the current viewer state.
+ */
 export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = ctx.state.linearLayoutSelectionMaps.get(tab.id);
     if (cached) return cached;
@@ -51,6 +60,9 @@ export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: 
     return map;
 }
 
+/**
+ * return inspector coord entries for the current viewer state.
+ */
 export function inspectorCoordEntries(
     _ctx: LinearLayoutUiContext,
     hover: ReturnType<TensorViewer['getHover']>,
@@ -82,6 +94,9 @@ export function inspectorCoordEntries(
     });
 }
 
+/**
+ * apply linear layout cell text for the current viewer state.
+ */
 export function applyLinearLayoutCellText(ctx: LinearLayoutUiContext): void {
     const tab = activeLinearLayoutTab(ctx);
     if (!tab) {
@@ -99,6 +114,9 @@ export function applyLinearLayoutCellText(ctx: LinearLayoutUiContext): void {
     });
 }
 
+/**
+ * return linear layout hover popup entries for the current viewer state.
+ */
 export function linearLayoutHoverPopupEntries(
     ctx: LinearLayoutUiContext,
     hover: ReturnType<TensorViewer['getHover']>,
@@ -119,19 +137,25 @@ export function linearLayoutHoverPopupEntries(
     );
     return (tensor.cellRootIndexes[flat] ?? []).map((rootIndex) => {
         const coord = propagatedCoordForRoot(linearLayout, rootIndex, ctx.state.linearLayoutState.propagateOutputs);
+        const color: [number, number, number] = (
+            rootColors[propagatedIndexForRoot(linearLayout, rootIndex, ctx.state.linearLayoutState.propagateOutputs)] ?? [0, 0, 0]
+        );
         return {
-            color: cssColor(rootColors[propagatedIndexForRoot(linearLayout, rootIndex, ctx.state.linearLayoutState.propagateOutputs)] ?? [0, 0, 0]),
+            color: `rgb(${color.map((value) => Math.round(value * 255)).join(' ')})`,
             text: linearLayoutCellTextForCoord(
                 coord,
                 ctx.state.linearLayoutState.propagateOutputs ? linearLayout.finalOutputLabels : linearLayout.rootInputLabels,
                 ctx.state.linearLayoutCellTextState,
             ) || (
                 ctx.state.linearLayoutState.propagateOutputs ? linearLayout.finalOutputLabels : linearLayout.rootInputLabels
-            ).map((label, axis) => indexedAxisLabel(label, coord[axis] ?? 0)).join('\n'),
+            ).map((label, axis) => `${label}:${coord[axis] ?? 0}`).join('\n'),
         };
     });
 }
 
+/**
+ * sync linear layout view filters for the current viewer state.
+ */
 export function syncLinearLayoutViewFilters(ctx: LinearLayoutUiContext): void {
     const tab = ctx.getActiveTab();
     if (!tab || !isLinearLayoutTab(tab)) return;
@@ -141,6 +165,9 @@ export function syncLinearLayoutViewFilters(ctx: LinearLayoutUiContext): void {
     applyLinearLayoutCellText(ctx);
 }
 
+/**
+ * sync linear layout selection for the current viewer state.
+ */
 export function syncLinearLayoutSelection(ctx: LinearLayoutUiContext, selection: SelectionCoords): void {
     if (ctx.state.syncingLinearLayoutSelection) return;
     const tab = ctx.getActiveTab();
@@ -156,6 +183,9 @@ export function syncLinearLayoutSelection(ctx: LinearLayoutUiContext, selection:
     ctx.state.syncingLinearLayoutSelection = false;
 }
 
+/**
+ * sync linear layout selection preview for the current viewer state.
+ */
 export function syncLinearLayoutSelectionPreview(ctx: LinearLayoutUiContext, selection: SelectionCoords): void {
     const tab = ctx.getActiveTab();
     if (!tab || !isLinearLayoutTab(tab)) {
@@ -166,22 +196,24 @@ export function syncLinearLayoutSelectionPreview(ctx: LinearLayoutUiContext, sel
     ctx.viewer.setPreviewSelectedCoords(mapping ? mappedSelectionFromSource(ctx, selection, mapping) : selection);
 }
 
+/**
+ * return active linear layout tab for the current viewer state.
+ */
 function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleDocument | null {
     const tab = ctx.getActiveTab();
     return tab && isLinearLayoutTab(tab) ? tab : null;
 }
 
-function selectionKeys(coords: number[][]): Set<string> {
-    return new Set(coords.map((coord) => coordKey(coord)));
-}
-
+/**
+ * return selections match for the current viewer state.
+ */
 function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>): boolean {
     if (left.size !== right.size) return false;
     for (const [tensorId, coords] of right) {
         const leftCoords = left.get(tensorId);
         if (!leftCoords) return false;
-        const leftKeys = selectionKeys(leftCoords);
-        const rightKeys = selectionKeys(coords);
+        const leftKeys = new Set(leftCoords.map((coord) => coordKey(coord)));
+        const rightKeys = new Set(coords.map((coord) => coordKey(coord)));
         if (leftKeys.size !== rightKeys.size) return false;
         for (const key of rightKeys) {
             if (!leftKeys.has(key)) return false;
@@ -190,6 +222,9 @@ function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>):
     return true;
 }
 
+/**
+ * return selection source tensor id for the current viewer state.
+ */
 function selectionSourceTensorId(ctx: LinearLayoutUiContext, selection: SelectionCoords, mapping: LinearLayoutSelectionMap): string | null {
     const nonEmpty = mapping.orderedTensorIds.filter((tensorId) => (selection.get(tensorId)?.length ?? 0) > 0);
     if (nonEmpty.length === 0) return null;
@@ -198,6 +233,9 @@ function selectionSourceTensorId(ctx: LinearLayoutUiContext, selection: Selectio
     return activeId && nonEmpty.includes(activeId) ? activeId : nonEmpty[0]!;
 }
 
+/**
+ * return mapped selection from source for the current viewer state.
+ */
 function mappedSelectionFromSource(
     ctx: LinearLayoutUiContext,
     selection: SelectionCoords,
@@ -217,20 +255,18 @@ function mappedSelectionFromSource(
     return nextSelection;
 }
 
+/**
+ * return linear layout cell text for coord for the current viewer state.
+ */
 function linearLayoutCellTextForCoord(coord: number[], labels: string[], state: LinearLayoutCellTextState): string {
     return labels
-        .flatMap((label, axis) => (state[label] && axis < coord.length ? [indexedAxisLabel(label, coord[axis] ?? 0)] : []))
+        .flatMap((label, axis) => (state[label] && axis < coord.length ? [`${label}:${coord[axis] ?? 0}`] : []))
         .join('\n');
 }
 
-function indexedAxisLabel(label: string, index: number): string {
-    return `${label}:${index}`;
-}
-
-function cssColor(color: [number, number, number]): string {
-    return `rgb(${color.map((value) => Math.round(value * 255)).join(' ')})`;
-}
-
+/**
+ * return linear layout cell labels for tab for the current viewer state.
+ */
 function linearLayoutCellLabelsForTab(
     ctx: LinearLayoutUiContext,
     tab: LoadedBundleDocument,
@@ -258,11 +294,17 @@ function linearLayoutCellLabelsForTab(
     });
 }
 
+/**
+ * return propagated coord for root for the current viewer state.
+ */
 function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number[] {
     const key = propagateOutputs ? mapping.rootToFinalKeys[rootIndex] : mapping.rootKeys[rootIndex];
     return coordFromKey(key ?? '');
 }
 
+/**
+ * return propagated index for root for the current viewer state.
+ */
 function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number {
     const coord = propagatedCoordForRoot(mapping, rootIndex, propagateOutputs);
     const shape = propagateOutputs ? mapping.finalOutputShape : mapping.rootInputShape;

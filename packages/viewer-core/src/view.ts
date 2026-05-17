@@ -11,6 +11,9 @@ import { normalizeTensorViewEditor, VIEWER_LIMITS } from './validation.js';
 
 const TENSOR_VIEW_EDITOR_PREFIX = 'tv2:';
 
+/**
+ * return axis label for the current viewer state.
+ */
 function axisLabel(index: number): string {
     // labels must stay deterministic because saved tensor-view strings refer to
     // them when a session is restored without explicit axis names.
@@ -19,6 +22,9 @@ function axisLabel(index: number): string {
     return `${String.fromCharCode(65 + ((index - 26) % 26))}${suffix}`;
 }
 
+/**
+ * parse axis labels for the current viewer state.
+ */
 function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): {
     ok: true;
     axisLabels: string[];
@@ -73,6 +79,9 @@ export function normalizeShape(shape: number[]): number[] {
     });
 }
 
+/**
+ * return flatten axes index for the current viewer state.
+ */
 function flattenAxesIndex(axes: number[], values: number[], shape: number[]): number {
     let linear = 0;
     axes.forEach((axis) => {
@@ -81,6 +90,9 @@ function flattenAxesIndex(axes: number[], values: number[], shape: number[]): nu
     return linear;
 }
 
+/**
+ * return unflatten axes index for the current viewer state.
+ */
 function unflattenAxesIndex(axes: number[], linearIndex: number, shape: number[]): number[] {
     const out = new Array(axes.length).fill(0);
     let remaining = linearIndex;
@@ -97,10 +109,16 @@ export function expandGroupedIndex(axes: number[], linearIndex: number, shape: n
     return unflattenAxesIndex(axes, linearIndex, normalizeShape(shape));
 }
 
+/**
+ * return unflatten linear index for the current viewer state.
+ */
 function unflattenLinearIndex(linearIndex: number, shape: number[]): number[] {
     return unflattenAxesIndex(Array.from({ length: shape.length }, (_entry, index) => index), linearIndex, shape);
 }
 
+/**
+ * return default editor dims for the current viewer state.
+ */
 function defaultEditorDims(shape: number[], axisLabels: string[]): TensorViewEditorDim[] {
     return shape.map((size, axis) => ({
         id: `axis-${axis}`,
@@ -109,14 +127,16 @@ function defaultEditorDims(shape: number[], axisLabels: string[]): TensorViewEdi
     }));
 }
 
+/**
+ * format view tensor input for the current viewer state.
+ */
 function formatViewTensorInput(baseDims: TensorViewEditorDim[]): string {
     return `[${baseDims.map((dim) => `${dim.label}=${dim.size}`).join(', ')}]`;
 }
 
-function formatFinalViewInputFromTokens(tokens: ViewToken[]): string {
-    return `[${tokens.map((token) => token.kind === 'singleton' ? '1' : `${token.label}=${token.size}`).join(', ')}]`;
-}
-
+/**
+ * parse view label token for the current viewer state.
+ */
 function parseViewLabelToken(part: string): { ok: true; label: string; sizeText?: string } | { ok: false } {
     const anonymous = part.match(/^((?:\*A|\*|_)\d+)(?:\s*=\s*(-?\d+))?$/);
     if (anonymous) return { ok: true, label: anonymous[1]!, sizeText: anonymous[2] };
@@ -125,6 +145,9 @@ function parseViewLabelToken(part: string): { ok: true; label: string; sizeText?
     return { ok: true, label: explicit[1]!.trim(), sizeText: explicit[2] };
 }
 
+/**
+ * parse explicit view input for the current viewer state.
+ */
 function parseExplicitViewInput(
     input: string,
     totalElements: number,
@@ -191,14 +214,9 @@ function parseExplicitViewInput(
     return { ok: true, dims };
 }
 
-function editorTokenKey(dimIds: string[]): string {
-    return `group:${dimIds.join('+')}`;
-}
-
-function editorSingletonKey(singletonId: string): string {
-    return `singleton:${singletonId}`;
-}
-
+/**
+ * return same base as tensor for the current viewer state.
+ */
 function sameBaseAsTensor(baseDims: TensorViewEditorDim[], shape: number[], axisLabels: string[]): boolean {
     return baseDims.length === shape.length && baseDims.every((dim, axis) => (
         dim.size === shape[axis]
@@ -207,6 +225,9 @@ function sameBaseAsTensor(baseDims: TensorViewEditorDim[], shape: number[], axis
     ));
 }
 
+/**
+ * build editor spec for the current viewer state.
+ */
 function buildEditorSpec(
     tensorShape: number[],
     axisLabels: string[],
@@ -246,7 +267,7 @@ function buildEditorSpec(
             const axes = currentGroup.map((groupDim) => baseIndexById.get(groupDim.id) ?? -1).filter((axis) => axis >= 0);
             groups.push({
                 kind: 'axis_group',
-                key: editorTokenKey(currentGroup.map((groupDim) => groupDim.id)),
+                key: `group:${currentGroup.map((groupDim) => groupDim.id).join('+')}`,
                 visible: true,
                 label: currentGroup.map((groupDim) => groupDim.label).join(''),
                 axes,
@@ -258,7 +279,7 @@ function buildEditorSpec(
             const axes = currentGroup.map((groupDim) => baseIndexById.get(groupDim.id) ?? -1).filter((axis) => axis >= 0);
             groups.push({
                 kind: 'axis_group',
-                key: editorTokenKey(currentGroup.map((groupDim) => groupDim.id)),
+                key: `group:${currentGroup.map((groupDim) => groupDim.id).join('+')}`,
                 visible: true,
                 label: currentGroup.map((groupDim) => groupDim.label).join(''),
                 axes,
@@ -272,7 +293,7 @@ function buildEditorSpec(
             .forEach((singleton) => {
                 tokens.splice(Math.max(0, Math.min(tokens.length, singleton.position)), 0, {
                     kind: 'singleton',
-                    key: editorSingletonKey(singleton.id),
+                    key: `singleton:${singleton.id}`,
                     visible: true,
                     label: '1',
                     axes: [],
@@ -328,6 +349,9 @@ function buildEditorSpec(
     };
 }
 
+/**
+ * parse view tensor input for the current viewer state.
+ */
 function parseViewTensorInput(
     tensorShape: number[],
     axisLabels: string[],
@@ -401,6 +425,9 @@ function parseViewTensorInput(
     return { ok: true, baseDims, canonicalInput: formatViewTensorInput(baseDims) };
 }
 
+/**
+ * normalize editor for the current viewer state.
+ */
 function normalizeEditor(
     tensorShape: number[],
     axisLabels: string[],
@@ -453,6 +480,9 @@ function normalizeEditor(
     };
 }
 
+/**
+ * return default editor for the current viewer state.
+ */
 function defaultEditor(shape: number[], axisLabels: string[]): TensorViewEditor {
     const baseDims = defaultEditorDims(shape, axisLabels);
     return {
@@ -507,6 +537,9 @@ export function clearTensorViewSlices(editor: TensorViewEditor): TensorViewEdito
     };
 }
 
+/**
+ * serialize tensor view editor for the current viewer state.
+ */
 export function serializeTensorViewEditor(editor: TensorViewEditor): string {
     // the prefix distinguishes structured editor snapshots from legacy ad-hoc
     // view strings while still fitting into the existing string API.
@@ -571,6 +604,9 @@ export function visibleTensorCoords(spec: TensorViewSpec): number[][] {
     return coords;
 }
 
+/**
+ * map view coord to full layout coord for the current viewer state.
+ */
 function mapViewCoordToFullLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
     const layoutCoord: number[] = [];
     let viewAxis = 0;
@@ -672,6 +708,9 @@ export function supportsContiguousSelectionFastPath2D(spec: TensorViewSpec, coll
     return xVisibleAxes.every((axis, index) => axis === firstXAxis + index);
 }
 
+/**
+ * build tensor view expression for the current viewer state.
+ */
 export function buildTensorViewExpression(spec: TensorViewSpec): string {
     const viewInput = spec.editor.viewTensorInput.trim().replace(/^\[/, '').replace(/\]$/, '');
     const finalViewInput = spec.editor.finalViewInput?.trim().replace(/^\[/, '').replace(/\]$/, '') ?? '';

@@ -21,6 +21,21 @@ import {
     settleInitialLayout,
 } from './linear-layout-widget-shared.js';
 
+// this widget owns the editable linear-layout notation.
+// parser/model files own semantic validation; this file only moves text between
+// form controls, examples, tabs, and apply/copy actions.
+// keeping the examples close to the UI matters because contributors use these
+// strings as executable documentation while debugging new preset families.
+// render actions preserve tensor views by default because tensor-view edits are
+// often made after the layout spec itself is already correct.
+// textarea sizing is repeated after content changes so long notation examples
+// do not leave stale scroll heights in collapsed/expanded widgets.
+// notices are split between this widget and Visible Tensors because rebuilding
+// hidden tensors has a different failure recovery path than parser failures.
+
+/**
+ * return linear layout specs help html for the current viewer state.
+ */
 function linearLayoutSpecsHelpHtml(): string {
     return `
       <details class="usage-guide">
@@ -93,6 +108,9 @@ function linearLayoutSpecsHelpHtml(): string {
     `;
 }
 
+/**
+ * return linear layout operation help html for the current viewer state.
+ */
 function linearLayoutOperationHelpHtml(): string {
     return `
       <details class="usage-guide">
@@ -170,9 +188,14 @@ function linearLayoutOperationHelpHtml(): string {
     `;
 }
 
+/**
+ * render linear layout widget for the current viewer state.
+ */
 export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     const showLocalStatus = ctx.state.linearLayoutNotice?.text !== VISIBLE_TENSORS_ERROR;
     const statusClass = ctx.state.linearLayoutNotice?.tone === 'success' ? 'success-box' : 'error-box';
+    // visible-tensor errors are rendered next to the toggles that caused them;
+    // parser/apply/copy messages stay here by the text fields they refer to.
     const status = showLocalStatus && ctx.state.linearLayoutNotice ? `<div class="${statusClass}">${escapeInfo(ctx.state.linearLayoutNotice.text)}</div>` : '';
     const matrixBlock = !ctx.state.showLinearLayoutMatrix
         ? ''
@@ -211,8 +234,12 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     const apply = ctx.linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-apply');
     const copy = ctx.linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-copy');
     const matrix = ctx.linearLayoutWidget.querySelector<HTMLButtonElement>('#linear-layout-matrix');
+    // initial autosize runs after innerHTML so browser layout has real textareas
+    // to measure; doing this before render would read stale nodes.
     if (specsInput) autosizeTextarea(specsInput);
     if (operationInput) autosizeTextarea(operationInput);
+    // save text on every keystroke so snapshot/export actions cannot race a
+    // focused textarea that has not emitted blur yet.
     specsInput?.addEventListener('input', () => {
         ctx.state.linearLayoutState.specsText = specsInput.value;
         autosizeTextarea(specsInput);
@@ -225,6 +252,8 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
         ctx.state.linearLayoutState.inputName = inputNameInput.value;
     });
     apply?.addEventListener('click', async () => {
+        // editor widgets depend on rebuilt compose metadata, so refresh them
+        // only after the async apply step has updated the active document.
         await applyLinearLayoutSpec(ctx);
         ctx.renderLinearLayoutEditorWidgets();
     });
@@ -238,11 +267,15 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
         renderLinearLayoutWidget(ctx);
     });
     matrix?.addEventListener('click', () => {
+        // matrix preview is derived text, not persisted document state.
         ctx.state.showLinearLayoutMatrix = !ctx.state.showLinearLayoutMatrix;
         renderLinearLayoutWidget(ctx);
     });
 }
 
+/**
+ * load baked linear layout tabs for the current viewer state.
+ */
 export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Promise<boolean> {
     const examples = bakedComposeLayoutExamples();
     if (examples.length === 0) return false;

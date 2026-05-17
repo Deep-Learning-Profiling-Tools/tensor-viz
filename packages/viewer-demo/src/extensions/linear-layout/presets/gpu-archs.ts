@@ -1,3 +1,8 @@
+// architecture selector values are deliberately centralized.
+// preset families import these ranges instead of spelling support matrices by
+// hand, which keeps future NVIDIA/AMD family edits local to one file.
+// architecture suffixes such as "a" and "f" are treated as distinct UI values
+// because instruction availability can differ between otherwise adjacent chips.
 export const PRESET_GPU_ARCHS = [
     'sm_70',
     'sm_75',
