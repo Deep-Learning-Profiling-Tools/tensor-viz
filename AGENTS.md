@@ -14,7 +14,7 @@ Good comments are artifacts to the state of the codebase, constraints, and roadm
   - NOTE: Avoid helper functions to separate code logic. Only add a helper function if the logic is used 3 times or more.
 - When introducing an abstraction, add a docstring explaining 1) the purpose of the abstraction, 2) **at least** two examples of instances of the abstraction (add more examples if two examples don't adequately cover the whole abstraction surface), and 3) how the abstraction handles shared attributes of the instances.
 - Directories should contain their own `ARCHITECTURE.md`, containing a high-level overview of the architecture. They should be written to a lay audience, not an audience that already know the fundamental design decisions and need a technical refresher. This means that a rhetorical style may be best, in that it should convince a reader step-by-step that the current design decisions are inevitable if they seek to re-implement the project from scratch.
-  
+
 # Code Quality
 The test for good code quality is: "If I throw a reader in a random part of the code, in 30 seconds they can 1) understand what the code immediately does, 2) how the code directly affects the end user, and 3) the code is necessary". A reader should be able to go to a random point of code and roughly think "Ah, so _this_ how feature XXX in the app works". Examples of bad code:
 - uncommented code (violates point 1)
@@ -22,5 +22,5 @@ The test for good code quality is: "If I throw a reader in a random part of the 
 - needlessly complicated chained operations (violates point 1)
 - extensive helper functions (violates point 2)
 - overabstraction (violates point 2)
-- over-defensive code, e.g. validation checks that aren't specified in interface specs (violates point 3) 
+- over-defensive code, e.g. validation checks that aren't specified in interface specs (violates point 3)
 - dead/hard-to-test code (violates point 3)
