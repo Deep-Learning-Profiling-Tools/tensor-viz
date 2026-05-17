@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 
@@ -86,6 +86,8 @@ function parseArgs(rawArgs) {
         limit: null,
         printPrompt: false,
         failOnError: false,
+        apply: false,
+        stageApplied: false,
         includeDirectHelpers: false,
         maxOutputTokens: Number(process.env.OPENAI_DOC_AUDIT_MAX_OUTPUT_TOKENS ?? DEFAULT_MAX_OUTPUT_TOKENS),
     };
@@ -96,6 +98,8 @@ function parseArgs(rawArgs) {
         else if (arg === '--diff') config.mode = 'diff';
         else if (arg === '--print-prompt') config.printPrompt = true;
         else if (arg === '--fail-on-error') config.failOnError = true;
+        else if (arg === '--apply') config.apply = true;
+        else if (arg === '--stage-applied') config.stageApplied = true;
         else if (arg === '--include-direct-helpers') config.includeDirectHelpers = true;
         else if (arg === '--base') config.base = requiredValue(rawArgs, index += 1, arg);
         else if (arg.startsWith('--base=')) config.base = arg.slice('--base='.length);
@@ -113,6 +117,7 @@ function parseArgs(rawArgs) {
         else config.paths.push(arg);
     }
     if (config.paths.length > 0 && config.mode === 'safe-staged') config.mode = 'explicit';
+    if (config.stageApplied && !config.apply) throw new Error('--stage-applied requires --apply.');
     if (!Number.isInteger(config.batchSize) || config.batchSize < 1) throw new Error('--batch-size must be a positive integer.');
     if (config.limit !== null && (!Number.isInteger(config.limit) || config.limit < 1)) throw new Error('--limit must be a positive integer.');
     if (!Number.isInteger(config.maxOutputTokens) || config.maxOutputTokens < 1) throw new Error('--max-output-tokens must be a positive integer.');
@@ -746,6 +751,60 @@ function runCost(usage, pricing) {
     };
 }
 
+/** apply structured JSDoc replacements to worktree files.
+ *
+ * @param replacements - LLM replacement objects keyed by file, line, and symbol.
+ * @param targets - Parsed declarations that were included in the audit prompts.
+ * @param config - Parsed CLI configuration.
+ * @param scope - Audit scope describing where source text was read from.
+ * @returns Count and file list for replacements written to disk.
+ * @throws Error when a replacement cannot be matched safely or when the scope is index-backed.
+ * @example
+ * const applied = applyReplacements(replacements, targets, config, scope);
+ */
+function applyReplacements(replacements, targets, config, scope) {
+    if (!config.apply) return { enabled: false, replacements: 0, files: [], staged: false };
+    if (scope.readMode !== 'worktree') {
+        throw new Error('--apply writes worktree files and cannot be combined with --staged index-backed audits.');
+    }
+    const targetByKey = new Map(targets.map((target) => [`${target.file}:${target.line}:${target.symbol}`, target]));
+    const textByFile = new Map(targets.map((target) => [target.file, target.record.text]));
+    const seen = new Set();
+    const editsByFile = new Map();
+    for (const replacement of replacements) {
+        const file = repoPath(replacement.file);
+        const key = `${file}:${replacement.line}:${replacement.symbol}`;
+        if (seen.has(key)) throw new Error(`Duplicate replacement for ${key}.`);
+        seen.add(key);
+        const target = targetByKey.get(key);
+        if (!target) throw new Error(`Replacement did not match an audited declaration: ${key}.`);
+        const jsdoc = String(replacement.replacementJsdoc ?? '').trim();
+        if (!jsdoc.startsWith('/**') || !jsdoc.endsWith('*/')) {
+            throw new Error(
+                `Replacement for ${replacement.file}:${replacement.line} ${replacement.symbol} is not a standalone JSDoc block.`,
+            );
+        }
+        if (!editsByFile.has(file)) editsByFile.set(file, []);
+        editsByFile.get(file).push({
+            pos: target.jsdoc.pos,
+            end: target.jsdoc.end,
+            jsdoc,
+        });
+    }
+    for (const [file, edits] of editsByFile) {
+        const originalText = textByFile.get(file) ?? readFileSync(resolve(ROOT, file), 'utf8');
+        const sorted = edits.sort((left, right) => right.pos - left.pos);
+        const nextText = sorted.reduce(
+            (text, edit) => `${text.slice(0, edit.pos)}${edit.jsdoc}${text.slice(edit.end)}`,
+            originalText,
+        );
+        writeFileSync(resolve(ROOT, file), nextText);
+    }
+    const files = Array.from(editsByFile.keys()).sort();
+    if (config.stageApplied && files.length > 0) execFileSync('git', ['add', '--', ...files], { cwd: ROOT });
+    return { enabled: true, replacements: replacements.length, files, staged: config.stageApplied };
+}
+
 /** run one LLM audit request for a prompt batch.
  *
  * @param prompt - Fully assembled audit prompt for one batch.
@@ -800,6 +859,9 @@ async function runAuditRequest(prompt, config) {
 async function main() {
     const config = parseArgs(process.argv.slice(2));
     const scope = auditScope(config);
+    if (config.apply && scope.readMode !== 'worktree') {
+        throw new Error('--apply writes worktree files and cannot be combined with --staged index-backed audits.');
+    }
     const records = scope.files.map((file) => parseSourceRecord(file, scope.readMode));
     const targets = selectedTargets(records.flatMap(collectTargets), config);
     const batches = chunks(targets, config.batchSize);
@@ -816,9 +878,10 @@ async function main() {
     if (targets.length === 0) {
         console.log(JSON.stringify({
             scope,
-            summary: { targets: 0, batches: 0, errors: 0, warnings: 0, replacements: 0 },
+            summary: { targets: 0, batches: 0, errors: 0, warnings: 0, replacements: 0, appliedReplacements: 0 },
             issues: [],
             replacements: [],
+            applied: { enabled: config.apply, replacements: 0, files: [], staged: config.stageApplied },
             audits: [],
             run: {
                 usage: {
@@ -862,6 +925,7 @@ async function main() {
     }
     const issues = audits.flatMap((audit) => audit.audit.issues);
     const replacements = audits.flatMap((audit) => audit.audit.replacements);
+    const applied = applyReplacements(replacements, targets, config, scope);
     const output = {
         scope,
         summary: {
@@ -870,9 +934,11 @@ async function main() {
             errors: issues.filter((issue) => issue.severity === 'error').length,
             warnings: issues.filter((issue) => issue.severity === 'warning').length,
             replacements: replacements.length,
+            appliedReplacements: applied.replacements,
         },
         issues,
         replacements,
+        applied,
         audits,
         run: { usage: totalUsage, cost: runCost(totalUsage, pricing) },
     };
