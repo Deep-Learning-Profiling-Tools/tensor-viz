@@ -125,6 +125,8 @@ const TENSOR_NAME_FONT_FAMILY = '"IBM Plex Sans", "Segoe UI", sans-serif';
 /** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
 export class TensorViewer {
     private readonly container: HTMLElement;
+    // the webgl scene owns tensor meshes in both modes; 2d still renders meshes
+    // first, then paints text/markers into a pixel canvas overlay.
     private readonly scene = new Scene();
     private readonly renderer: WebGLRenderer;
     private readonly flatCanvas: HTMLCanvasElement;
@@ -156,6 +158,8 @@ export class TensorViewer {
     private readonly hoverListeners = new Set<(hover: HoverInfo | null) => void>();
     private readonly selectionListeners = new Set<(selection: SelectionCoords) => void>();
     private readonly selectionPreviewListeners = new Set<(selection: SelectionCoords) => void>();
+    // pick meshes are rebuilt with tensor meshes so hit testing cannot use stale
+    // bounds after a view, gap, slice, or display-mode change.
     private readonly pickMeshes: PickMesh[] = [];
     private readonly resizeObserver?: ResizeObserver;
     private readonly state: ViewerState = {
@@ -265,6 +269,8 @@ export class TensorViewer {
     }
 
     private normalizeInteractionMode(): void {
+        // selection currently depends on contiguous 2d screen order; normalize here
+        // so callers can request a mode without checking every display constraint.
         if (this.state.displayMode === '2d') {
             if (this.state.interactionMode === 'rotate') this.state.interactionMode = 'pan';
             if (this.state.interactionMode === 'select' && !this.selectionEnabled()) this.state.interactionMode = 'pan';
@@ -324,6 +330,8 @@ export class TensorViewer {
         this.orthographicCamera.updateProjectionMatrix();
         if (this.state.displayMode === '2d') {
             if (this.tensors.size !== 0) {
+                // browser resizes should keep the same world point under the viewport
+                // center; otherwise window chrome changes visibly shove the tensor.
                 this.canvasPan.x += (previousWidth - nextWidth) / 2;
                 this.canvasPan.y += (previousHeight - nextHeight) / 2;
             }
@@ -370,6 +378,8 @@ export class TensorViewer {
     }
 
     private meshContext() {
+        // viewer-mesh is deliberately stateless; this context is the narrow bridge
+        // that lets mesh construction ask the viewer for current render settings.
         return {
             cubeGeometry: this.cubeGeometry,
             planeGeometry: this.planeGeometry,
@@ -410,6 +420,8 @@ export class TensorViewer {
     }
 
     private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
+        // new tensors are placed to the right of the current world extent so demos
+        // can append tensors without manually managing offsets.
         const spacing = mode === '3d' ? DEFAULT_TENSOR_SPACING * 2 : DEFAULT_TENSOR_SPACING;
         const [width] = this.tensorExtentForMode(tensor, mode);
         let maxRight = Number.NEGATIVE_INFINITY;
@@ -436,6 +448,8 @@ export class TensorViewer {
             maxRight = Math.max(maxRight, tensor.offset[0] + width / 2);
         });
         const previousCenter = Number.isFinite(minLeft) && Number.isFinite(maxRight) ? (minLeft + maxRight) / 2 : 0;
+        // preserve the visual center while recomputing spacing, otherwise toggling
+        // 2d/3d or gaps makes the whole scene jump under the camera.
         const widths = tensors.map((tensor) => this.tensorExtentForMode(tensor, mode)[0]);
         const totalWidth = widths.reduce((sum, width) => sum + width, 0) + spacing * (tensors.length - 1);
         let left = previousCenter - totalWidth / 2;
@@ -513,6 +527,8 @@ export class TensorViewer {
                     && point.y <= entry.rect2D.maxY);
             })()
             : this.pickMeshes.filter((entry) => this.raycaster.ray.intersectsBox(entry.bounds));
+        // overlapping tensors should keep interacting with the current or active
+        // tensor instead of flickering between candidates as the pointer moves.
         candidates.sort((left, right) => {
             const leftPriority = left.tensorId === currentTensorId ? 2 : left.tensorId === activeTensorId ? 1 : 0;
             const rightPriority = right.tensorId === currentTensorId ? 2 : right.tensorId === activeTensorId ? 1 : 0;
@@ -720,6 +736,8 @@ export class TensorViewer {
         tensor: TensorRecord,
         box: { left: number; right: number; top: number; bottom: number },
     ): Set<string> | null {
+        // contiguous 2d views form monotonic rows/columns, so large selections can
+        // avoid scanning every cell; hidden masks and z-order layouts break that.
         if (tensor.visibleCoords) return null;
         if (!supportsContiguousSelectionFastPath2D(tensor.view, this.state.collapseHiddenAxes)) return null;
         const split = Math.floor(tensor.view.tokens.length / 2);
@@ -986,6 +1004,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         const bottom = box ? this.canvasPixelToWorld(0, box.bottom).y : 0;
         const top = box ? this.canvasPixelToWorld(0, box.top).y : 0;
         const mode = !drag ? 0 : drag.mode === 'add' ? 1 : drag.mode === 'remove' ? 2 : 0;
+        // shader previews keep drag feedback cheap for large tensors; the committed
+        // selection attribute remains the source of truth after pointerup.
         this.tensorMeshes.forEach((group, tensorId) => {
             const mesh = group.children[0];
             if (!(mesh instanceof InstancedMesh)) return;
@@ -1055,6 +1075,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         clientY: number,
     ): void {
         if (!this.selectionEnabled()) return;
+        // store both client and world coordinates because 2d panning/zooming can
+        // change the projection while the drag overlay still uses screen pixels.
         const startPosition = source === '2d' ? this.canvasPointerToWorld(clientX, clientY) : null;
         this.selectionDrag = {
             source,
@@ -1446,6 +1468,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         if (this.renderPending) return;
         this.renderPending = true;
         requestAnimationFrame(() => {
+            // coalescing all state changes into one animation frame prevents slider
+            // drags and selection previews from queueing redundant full scene renders.
             this.renderPending = false;
             if (this.state.displayMode === '2d') {
                 this.render2D();
@@ -1510,6 +1534,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             this.scene.add(group);
             const mesh = group.children[0];
             if (mesh instanceof InstancedMesh) {
+                // hit testing uses a cheap coarse bounds pass before per-cell math,
+                // so it must be regenerated whenever meshes are rebuilt.
                 const shape = this.layoutShape(tensor.view);
                 const extent2D = displayExtent2D(shape, this.layoutGapMultiple(), this.state.dimensionMappingScheme);
                 const bounds = (mesh.boundingBox ?? new Box3().setFromObject(mesh)).clone();
@@ -1548,6 +1574,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
                 && token.visible
                 && token.axes.length === 1
                 && token.axes[0] === index);
+        // custom colors and non-identity views require per-cell coordinate mapping;
+        // the direct buffer writer is only correct for plain affine grids.
         if (!isIdentityView || tensor.customColors.size !== 0 || !colorArray) return false;
 
         // default 1d/2d views are affine grids, so write instance buffers directly.
@@ -1776,6 +1804,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     }
 
     private render2D(): void {
+        // 2d is a hybrid render: webgl draws cells for speed, then canvas draws
+        // labels and annotations that would be expensive as thousands of meshes.
         this.sync2DCamera();
         this.syncSelectionPreviewState();
         this.renderer.render(this.scene, this.camera);
@@ -2113,6 +2143,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.flatOverlay.style.display = 'none';
         this.controls.target.copy(previousTarget);
         if (mode === '3d') {
+            // keep the same orbit target when switching modes so the user lands on
+            // the tensor they were already inspecting.
             this.camera.position.set(previousTarget.x + 20, previousTarget.y + 16, previousTarget.z + 24);
             this.camera.lookAt(previousTarget);
             return;
@@ -2155,6 +2187,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.applyDisplayMode(snapshot.displayMode);
 
         if (snapshot.displayMode === '2d') {
+            // snapshots store camera position in world coordinates, while the 2d
+            // renderer drives pan in canvas pixels.
             this.canvasZoom = normalizeCanvasZoom(snapshot.camera.zoom);
             this.canvasPan = {
                 x: -snapshot.camera.position[0] * CANVAS_WORLD_SCALE * this.canvasZoom,
@@ -2176,6 +2210,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             this.assignTensorView(tensor, serializeTensorViewEditor(entry.view.editor), entry.view.hiddenIndices);
         });
         let slicedTensorId: string | null = null;
+        // old snapshots may contain multiple sliced tensors; the current inspector
+        // model allows one active slice set, so the last saved sliced tensor wins.
         for (let index = snapshot.tensors.length - 1; index >= 0; index -= 1) {
             const tensorId = snapshot.tensors[index]!.id;
             const tensor = this.tensors.get(tensorId);
@@ -2191,6 +2227,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     }
 
     private shouldAutoFitSnapshot(snapshot: ViewerSnapshot): boolean {
+        // generated demos historically wrote the default camera even when the view
+        // had never been fitted, so treat that exact pose as "no camera saved".
         return snapshot.camera.zoom === 1
             && snapshot.camera.position[0] === 0
             && snapshot.camera.position[1] === 0
@@ -2212,6 +2250,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         this.state.hover = hover;
         if (hover) this.state.lastHover = hover;
         const hoverKey = hover ? `${hover.tensorId}:${hover.tensorCoord.join(',')}:${hover.value}` : null;
+        // logging every pointermove floods tests and devtools, but value changes on
+        // the same coord should still be visible after async tensor data arrives.
         if (hoverKey !== this.lastHoverLogKey) {
             this.lastHoverLogKey = hoverKey;
             logEvent(`${source}:hover`, hover ?? 'none');
@@ -2794,6 +2834,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         if (!this.requestTensorDataCallback) return false;
         const pending = this.pendingTensorDataRequests.get(tensorId);
         if (pending) return pending;
+        // dedupe concurrent heatmap/hover/explicit requests so the host cannot race
+        // two payloads into the same metadata-only tensor.
         const request = Promise.resolve(this.requestTensorDataCallback(this.tensorStatus(tensor), reason))
             .then((data) => {
                 const current = this.tensors.get(tensorId);
@@ -3006,6 +3048,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
             tensor.markerCoords = entry.markerCoords ? new Set(entry.markerCoords.map((coord) => coordKey(coord))) : null;
             if (entry.colorInstructions?.length) this.applyColorInstructions(entry.id, entry.colorInstructions);
         });
+        // restore after insertion because tensor views and active ids reference ids
+        // that only exist once the manifest tensors have been created.
         this.applySnapshot(safeManifest.viewer);
         this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
     }
