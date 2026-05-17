@@ -8,6 +8,18 @@ const TARGET_FILE = 'packages/viewer-demo/src/extensions/linear-layout/linear-la
 const TARGET_SYMBOL = 'parseLayoutSpecs';
 const MODEL = process.env.OPENAI_DOC_AUDIT_MODEL ?? 'gpt-5.5';
 const REASONING_EFFORT = process.env.OPENAI_DOC_AUDIT_REASONING ?? 'low';
+const MILLION = 1_000_000;
+const STANDARD_TEXT_PRICE_USD_PER_MILLION = {
+    // standard openai text token prices, checked 2026-05-17.
+    'gpt-5.5': { input: 5, cachedInput: 0.5, output: 30 },
+    'gpt-5.4': { input: 2.5, cachedInput: 0.25, output: 15 },
+    'gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, output: 4.5 },
+};
+const PRICE_OVERRIDE_ENV = {
+    input: 'OPENAI_DOC_AUDIT_INPUT_USD_PER_1M',
+    cachedInput: 'OPENAI_DOC_AUDIT_CACHED_INPUT_USD_PER_1M',
+    output: 'OPENAI_DOC_AUDIT_OUTPUT_USD_PER_1M',
+};
 
 const args = new Set(process.argv.slice(2));
 const printPrompt = args.has('--print-prompt');
@@ -255,7 +267,64 @@ async function main() {
         throw new Error(`Responses API failed with ${response.status}: ${JSON.stringify(payload)}`);
     }
     const result = JSON.parse(responseOutputText(payload));
-    console.log(JSON.stringify(result, null, 2));
+
+    // usage mirrors the Responses API billing fields so the script output can be pasted into review notes.
+    const responseUsage = payload.usage ?? {};
+    const inputTokens = Number(responseUsage.input_tokens ?? 0);
+    const outputTokens = Number(responseUsage.output_tokens ?? 0);
+    const cachedInputTokens = Number(responseUsage.input_tokens_details?.cached_tokens ?? 0);
+    const usage = {
+        inputTokens,
+        cachedInputTokens,
+        uncachedInputTokens: Math.max(0, inputTokens - cachedInputTokens),
+        outputTokens,
+        reasoningOutputTokens: Number(responseUsage.output_tokens_details?.reasoning_tokens ?? 0),
+        totalTokens: Number(responseUsage.total_tokens ?? inputTokens + outputTokens),
+    };
+
+    // env overrides let a caller price batch, flex, priority, or models not in this small example table.
+    const rawPriceOverrides = Object.fromEntries(
+        Object.entries(PRICE_OVERRIDE_ENV).map(([kind, name]) => [kind, process.env[name]]),
+    );
+    const hasPriceOverride = Object.values(rawPriceOverrides).some((price) => price !== undefined);
+    let pricing = null;
+    if (hasPriceOverride) {
+        const missingPrice = Object.entries(rawPriceOverrides).find(([, price]) => price === undefined)?.[0];
+        if (missingPrice) throw new Error(`Missing ${PRICE_OVERRIDE_ENV[missingPrice]}.`);
+        pricing = {
+            model: MODEL,
+            ratesUsdPerMillionTokens: {
+                input: Number(rawPriceOverrides.input),
+                cachedInput: Number(rawPriceOverrides.cachedInput),
+                output: Number(rawPriceOverrides.output),
+            },
+            source: 'environment overrides',
+        };
+        const invalidPrice = Object
+            .entries(pricing.ratesUsdPerMillionTokens)
+            .find(([, price]) => !Number.isFinite(price))?.[0];
+        if (invalidPrice) throw new Error(`${PRICE_OVERRIDE_ENV[invalidPrice]} must be a finite number.`);
+    } else if (STANDARD_TEXT_PRICE_USD_PER_MILLION[MODEL]) {
+        pricing = {
+            model: MODEL,
+            ratesUsdPerMillionTokens: STANDARD_TEXT_PRICE_USD_PER_MILLION[MODEL],
+            source: 'standard OpenAI text token rates',
+        };
+    }
+    const cost = pricing
+        ? {
+            usd: Number(((
+                usage.uncachedInputTokens * pricing.ratesUsdPerMillionTokens.input
+                + usage.cachedInputTokens * pricing.ratesUsdPerMillionTokens.cachedInput
+                + usage.outputTokens * pricing.ratesUsdPerMillionTokens.output
+            ) / MILLION).toFixed(6)),
+            pricing,
+        }
+        : {
+            usd: null,
+            note: 'No price table is configured for this model. Set OPENAI_DOC_AUDIT_*_USD_PER_1M environment variables.',
+        };
+    console.log(JSON.stringify({ audit: result, run: { usage, cost } }, null, 2));
     if (failOnError && result.issues.some((issue) => issue.severity === 'error')) process.exitCode = 1;
 }
 
