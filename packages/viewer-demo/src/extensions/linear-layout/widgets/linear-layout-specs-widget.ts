@@ -34,12 +34,15 @@ import {
 // hidden tensors has a different failure recovery path than parser failures.
 
 /**
- * return linear layout specs help html for the current viewer state.
+ * Produces the collapsible help panel shown beside the Layouts textarea, including compose-layout signature rules and single-, multi-, and non-surjective layout examples.
  *
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns HTML string for a `<details class="usage-guide">` block that the specs widget injects above the layout specification textarea.
+ * @noThrows Returns a static template literal and performs no DOM access, parsing, interpolation from user input, or validation.
  * @example
- * linearLayoutSpecsHelpHtml();
+ * const html = linearLayoutSpecsHelpHtml();
+ *
+ * html.includes('<summary>How do I use this?</summary>'); // true
+ * html.includes('Tile2x1: [T,W] -&gt; [Y,X]'); // true
  */
 function linearLayoutSpecsHelpHtml(): string {
     return `
@@ -114,12 +117,15 @@ function linearLayoutSpecsHelpHtml(): string {
 }
 
 /**
- * return linear layout operation help html for the current viewer state.
+ * Builds the static disclosure block that teaches users how to write a Layout Operation expression.
  *
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns HTML for the Layout Operation help panel, including supported operators, precedence, reference layout specs, and copyable example expressions.
+ * @noThrows The block is assembled from a fixed template string and does not read viewer state, query the DOM, or call helpers that can reject.
  * @example
- * linearLayoutOperationHelpHtml();
+ * const html = linearLayoutOperationHelpHtml();
+ * console.assert(html.includes('Supported operators'));
+ * console.assert(html.includes('Swizzle(Tile2x1)'));
+ * console.assert(html.includes('inv(GetT * GetW * GetR)(inv(Block))'));
  */
 function linearLayoutOperationHelpHtml(): string {
     return `
@@ -199,13 +205,23 @@ function linearLayoutOperationHelpHtml(): string {
 }
 
 /**
- * render linear layout widget for the current viewer state.
+ * Renders the Layout Specs sidebar controls and wires them to the active linear-layout editing state.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Linear-layout UI context containing the specs widget element, the editable specs/operation/input-name state, matrix-preview state, notice text, render callbacks, and clipboard/apply dependencies used by the button handlers.
+ * @returns Nothing. The function replaces `ctx.linearLayoutWidget.innerHTML`, autosizes the specs and operation textareas, and attaches input/click handlers that keep `ctx.state.linearLayoutState` synchronized with the form.
+ * @noThrows The render pass only interpolates escaped state into DOM markup, queries the nodes it just created, and attaches optional listeners; failures from async apply/copy button actions are handled inside their event callbacks instead of being thrown by the initial render call.
  * @example
+ * const ctx = makeLinearLayoutUiContext({
+ *   specsText: 'Tile2x1: [T,W] -> [Y,X]\nT: [[0,1],[0,2]]\nW: [[1,0]]',
+ *   operationText: 'Tile2x1',
+ *   inputName: 'Input',
+ * });
+ *
  * renderLinearLayoutWidget(ctx);
+ *
+ * console.assert(ctx.linearLayoutWidget.querySelector('#linear-layout-specs')?.textContent?.includes('Tile2x1'));
+ * console.assert(ctx.linearLayoutWidget.querySelector('#linear-layout-operation') instanceof HTMLTextAreaElement);
+ * console.assert(ctx.linearLayoutWidget.querySelector('#linear-layout-apply')?.textContent === 'Render Layout');
  */
 export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     const showLocalStatus = ctx.state.linearLayoutNotice?.text !== VISIBLE_TENSORS_ERROR;
@@ -290,13 +306,18 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
 }
 
 /**
- * load baked linear layout tabs for the current viewer state.
+ * Replaces the session with the built-in compose-layout examples and opens the first fallback tab.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Linear-layout UI context with session-tab setters/loaders plus the per-tab linear-layout, cell-text, multi-input, tensor-view, and selection-map state stores that must be reset for baked examples.
+ * @returns A promise that resolves to `true` after at least one baked example is installed, loaded, silently applied, and re-rendered; resolves to `false` when no baked examples are available or no initial tab can be selected.
+ * @throws Propagates rejections from loading the first tab, settling its initial layout, or silently applying the baked layout specification.
  * @example
- * loadBakedLinearLayoutTabs(ctx);
+ * const ctx = makeLinearLayoutUiContext();
+ *
+ * await expect(loadBakedLinearLayoutTabs(ctx)).resolves.toBe(true);
+ * console.assert(ctx.getSessionTabs().length > 0);
+ * console.assert(ctx.getSessionTabs()[0]?.id === 'tab-1');
+ * console.assert(ctx.renderLinearLayoutEditorWidgetsCalls === 1);
  */
 export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Promise<boolean> {
     const examples = bakedComposeLayoutExamples();

@@ -103,14 +103,19 @@ import type { ComposeLayoutPresetDefinition } from './types.js';
 // putting a widget dependency in this data file.
 
 /**
- * return layout spec text for the current viewer state.
+ * Builds the hand-written compose-layout text block stored on MMA presets whose
+ * signature and basis rows are clearer as notation than as structured row data.
  *
- * @param signature - signature input used by this operation (string).
- * @param rows - rows input used by this operation (string[]).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param signature - First line of the preset text, including the layout name and input-to-output axis signature.
+ * @param rows - Compose-layout row definitions, such as `T: [[1,0],[2,0]]`, appended in display order after the signature.
+ * @returns Newline-delimited preset text that can be assigned to a preset's `specsText` field.
+ * @noThrows The helper only concatenates caller-provided strings with newline separators; it performs no parsing or validation.
  * @example
- * layoutSpecText(signature, rows);
+ * layoutSpecText('MMA_m8n8k4_A_row_major_f16: [T,R] -> [M,K]', [
+ *     'T: [[1,0],[2,0],[0,0],[0,0],[4,0]]',
+ *     'R: [[0,1],[0,2]]',
+ * ]);
+ * // 'MMA_m8n8k4_A_row_major_f16: [T,R] -> [M,K]\nT: [[1,0],[2,0],[0,0],[0,0],[4,0]]\nR: [[0,1],[0,2]]'
  */
 function layoutSpecText(signature: string, rows: string[]): string {
     return [signature, ...rows].join('\n');
@@ -971,13 +976,19 @@ const MMA_RAW_PRESET_DEFINITIONS = [
 ] satisfies ComposeLayoutPresetDefinition[];
 
 /**
- * return mma gpu archs for the current viewer state.
+ * Infers the NVIDIA SM architecture selector values for an MMA preset from its
+ * matrix shape and element-width family so the catalog can keep compatibility
+ * rules in one place.
  *
- * @param preset - Preset data used by this operation.
- * @returns Text entries formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param preset - MMA preset definition whose legacy `matrixSize` and optional `dtype` fields identify the instruction variant.
+ * @returns Read-only GPU architecture values used for the preset's `facets.gpuArch` selector.
+ * @noThrows Missing `matrixSize` or `dtype` fields are treated as empty strings, and the helper only compares those strings against known MMA cases.
  * @example
- * mmaGpuArchs(preset);
+ * mmaGpuArchs({ matrixSize: 'm8n8k4', dtype: 'f64' } as ComposeLayoutPresetDefinition);
+ * // GPU_ARCHS_SM80_PLUS
+ *
+ * mmaGpuArchs({ matrixSize: 'm16n8k32', dtype: 'f16' } as ComposeLayoutPresetDefinition);
+ * // GPU_ARCHS_SM120_ONLY
  */
 function mmaGpuArchs(preset: ComposeLayoutPresetDefinition): readonly string[] {
     const matrixSize = preset.matrixSize ?? '';

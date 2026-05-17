@@ -2,7 +2,11 @@
  * Construction-time options for mounting the full demo app in an iframe.
  *
  * @example
- * const value: DemoAppOptions = {} as DemoAppOptions;
+ * const options: DemoAppOptions = {
+ *     src: '/demo/?manifest=/fixtures/linear-layout.json',
+ *     title: 'Tensor Viz linear-layout demo',
+ *     className: 'embedded-demo-frame',
+ * };
  */
 export type DemoAppOptions = {
     src?: string;
@@ -11,10 +15,20 @@ export type DemoAppOptions = {
 };
 
 /**
- * Handle returned by {@link mountDemoApp} for lifecycle control.
+ * Lifecycle handle for an iframe-mounted tensor-viz demo embedded into a host element.
+ *
+ * The handle exposes the created iframe so embedders can inspect or style it, and a
+ * destroy callback that removes that iframe from the original container when the
+ * embed is no longer needed.
  *
  * @example
- * const value: MountedDemoApp = {} as MountedDemoApp;
+ * const container = document.createElement('div');
+ * const mounted = mountDemoApp(container, { src: '/viewer', title: 'tensor-viz demo' });
+ *
+ * console.assert(mounted.iframe.tagName === 'IFRAME');
+ * console.assert(container.firstElementChild === mounted.iframe);
+ * mounted.destroy();
+ * console.assert(container.childElementCount === 0);
  */
 export type MountedDemoApp = {
     iframe: HTMLIFrameElement;
@@ -22,13 +36,18 @@ export type MountedDemoApp = {
 };
 
 /**
- * return safe iframe src for the current viewer state.
+ * Normalizes an iframe source for the embedded demo and rejects protocols that could
+ * execute inline script or load non-web content.
  *
- * @param src - src input used by this operation (string).
- * @returns Text formatted for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param src - Absolute or document-relative iframe URL supplied by the embedder.
+ * @returns The trimmed source string to assign to HTMLIFrameElement.src after it resolves to an http or https URL.
+ * @throws Error when src resolves against the current document base to a protocol other than http: or https:, such as javascript: or data:.
  * @example
- * safeIframeSrc(src);
+ * safeIframeSrc('  /viewer  ');
+ * // '/viewer'
+ *
+ * @example
+ * expect(() => safeIframeSrc('javascript:alert(1)')).toThrow(/Unsafe iframe src javascript:alert\(1\)\./);
  */
 function safeIframeSrc(src: string): string {
     const value = src.trim();
@@ -39,14 +58,32 @@ function safeIframeSrc(src: string): string {
 }
 
 /**
- * Mount the full demo page as an embeddable iframe-backed widget.
+ * Mounts the tensor-viz demo shell into a host element by replacing the host's
+ * children with a sandboxed iframe.
  *
- * @param container - container input used by this operation (HTMLElement).
- * @param options - Options that tune this operation.
- * @returns Computed MountedDemoApp value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param container - Host DOM element whose existing children are replaced by the demo iframe.
+ * @param options - Optional iframe configuration, including src, title, and className values for the embedded demo.
+ * @returns A lifecycle handle containing the created iframe and a destroy callback that removes it from the original container.
+ * @throws Error when options.src resolves to a non-http(s) URL such as javascript: or data:.
  * @example
- * mountDemoApp(container, options);
+ * const container = document.createElement('section');
+ * const mounted = mountDemoApp(container, {
+ *   src: '/viewer',
+ *   title: 'tensor-viz demo',
+ *   className: 'demo-frame',
+ * });
+ *
+ * console.assert(container.firstElementChild === mounted.iframe);
+ * console.assert(mounted.iframe.getAttribute('sandbox') === 'allow-downloads allow-same-origin allow-scripts');
+ * console.assert(mounted.iframe.title === 'tensor-viz demo');
+ * console.assert(mounted.iframe.className === 'demo-frame');
+ *
+ * mounted.destroy();
+ * console.assert(container.childElementCount === 0);
+ *
+ * @example
+ * const container = document.createElement('div');
+ * expect(() => mountDemoApp(container, { src: 'data:text/html,<script></script>' })).toThrow(/Unsafe iframe src/);
  */
 export function mountDemoApp(container: HTMLElement, options: DemoAppOptions = {}): MountedDemoApp {
     const iframe = document.createElement('iframe');

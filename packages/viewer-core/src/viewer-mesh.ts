@@ -36,13 +36,37 @@ import type { TensorRecord, TensorViewSpec, ViewerState, Vec3 } from './types.js
 const MULTI_INPUT_Z_STEP = 1.15;
 
 /**
- * narrow rendering interface supplied by TensorViewer.
+ * Rendering boundary that `viewer-mesh` needs from `TensorViewer` to build tensor geometry.
  *
- * keeping this context explicit makes mesh-building testable without creating
- * a WebGL renderer, and it marks the boundary between scene state and geometry.
+ * The context keeps mesh construction downstream of viewer state and coordinate
+ * math while allowing tests to provide a small fake instead of constructing a
+ * WebGL renderer. Implementations supply shared geometries, tensor visibility
+ * and selection queries, color mapping, layout conversion, render invalidation,
+ * and event emission hooks.
  *
  * @example
- * const value: MeshViewerContext = {} as MeshViewerContext;
+ * const context = {
+ *   cubeGeometry: new BoxGeometry(1, 1, 1),
+ *   planeGeometry: new BufferGeometry(),
+ *   state: viewerState,
+ *   tensorMeshes: new Map(),
+ *   instanceShape: spec => spec.shape,
+ *   layoutShape: spec => spec.shape,
+ *   layoutAxisLabels: spec => spec.axes.map(String),
+ *   layoutGapMultiple: () => 1,
+ *   mapViewCoordToLayoutCoord: coord => coord,
+ *   selectionStateAttribute: () => null,
+ *   installSelectionPreviewShader: () => undefined,
+ *   heatmapNormalizedValue: (value, min, max) => (value - min) / (max - min),
+ *   baseCellColor: () => ({ r: 1, g: 1, b: 1 }),
+ *   tensorCoordVisible: () => true,
+ *   isSelectedCell: () => false,
+ *   selectedColor: color => color.clone().lerp({ r: 1, g: 1, b: 0 }, 0.35),
+ *   linearIndex: (coord, shape) => coord.reduce((index, value, axis) => index * shape[axis] + value, 0),
+ *   clearHover: () => undefined,
+ *   requestRender: () => undefined,
+ *   emit: () => undefined,
+ * } satisfies MeshViewerContext;
  */
 type MeshViewerContext = {
     cubeGeometry: BoxGeometry;
@@ -77,17 +101,24 @@ type MeshViewerContext = {
 };
 
 /**
- * populate fast mesh2 d for the current viewer state.
+ * Writes instance transforms, base or heatmap colors, and optional selection flags for the conservative 2D identity-view mesh path.
  *
- * @param viewer - viewer input used by this operation (MeshViewerContext).
- * @param tensor - Tensor record used by this operation.
- * @param mesh - mesh input used by this operation (InstancedMesh).
- * @param instanceShape - Tensor shape used by this operation.
- * @param heatmapRange - heatmap range input used by this operation ({ min: number; max: number } | null).
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * @param viewer - Mesh viewer context whose state is in 2D mode and whose helpers provide layout spacing, heatmap normalization, and selected-cell lookup.
+ * @param tensor - Tensor record being rendered; the fast path only accepts unsliced, unpermuted identity axis-group views with no custom colors or hidden coordinates.
+ * @param mesh - Instanced mesh whose instanceMatrix buffer is writable and whose instanceColor buffer must already exist for the fast path to run.
+ * @param instanceShape - Rendered tensor shape for the identity 1D or 2D grid; vectors are written as a single row and matrices as row/column cells.
+ * @param heatmapRange - Numeric min/max range used to convert tensor values to grayscale, or null to write the viewer base color into every instance.
+ * @returns True when the mesh buffers were populated directly; false when the tensor/view/mesh requires the caller to fall back to the generic coordinate-mapping renderer.
+ * @noThrows The helper only performs guard checks and writes numeric buffer entries; unsupported views return false instead of raising an error.
  * @example
- * populateFastMesh2D(viewer, tensor, mesh, instanceShape, heatmapRange);
+ * const usedFastPath = populateFastMesh2D(viewer, tensor, mesh, [2, 3], { min: 0, max: 1 });
+ * expect(usedFastPath).toBe(true);
+ * expect(mesh.instanceMatrix.array[12]).toBeCloseTo(tensor.offset[0] - extent.x / 2 + 0.5);
+ * expect(mesh.instanceColor?.array[0]).toBe(viewer.heatmapNormalizedValue(tensor.data[0], 0, 1));
+ *
+ * @example
+ * tensor.view.sliceTokens = [{ axis: 0, index: 1 }];
+ * expect(populateFastMesh2D(viewer, tensor, mesh, [3], null)).toBe(false);
  */
 function populateFastMesh2D(
     viewer: MeshViewerContext,
@@ -176,14 +207,16 @@ function populateFastMesh2D(
 }
 
 /**
- * build outline for the current viewer state.
+ * Creates the 3D box-edge outline that frames an instanced tensor block in the scene.
  *
- * @param extent - extent input used by this operation (Vector3).
- * @param offset - offset input used by this operation (Vec3).
- * @returns Computed LineSegments value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param extent - Width, height, and depth of the rendered tensor block before the outline padding is added.
+ * @param offset - Tensor world-space origin used to position the outline around the block.
+ * @returns A LineSegments object with padded box-edge geometry, the standard outline material color, and its position copied from the tensor offset.
+ * @noThrows The helper constructs Three.js geometry from the supplied numeric extent and offset and does not branch into validation or I/O that would throw under normal viewer inputs.
  * @example
- * buildOutline(extent, offset);
+ * const outline = buildOutline(new Vector3(4, 2, 3), [10, 20, 30]);
+ * expect(outline).toBeInstanceOf(LineSegments);
+ * expect(outline.position.toArray()).toEqual([10, 20, 30]);
  */
 function buildOutline(extent: Vector3, offset: Vec3): LineSegments {
     // 3d outlines use box edges so depth sorting and camera rotation stay
@@ -197,14 +230,16 @@ function buildOutline(extent: Vector3, offset: Vec3): LineSegments {
 }
 
 /**
- * build outline2 d for the current viewer state.
+ * Creates the flat rectangular outline used to frame a 2D tensor grid and SVG-export-compatible geometry.
  *
- * @param extent - extent input used by this operation ({ x: number; y: number }).
- * @param offset - offset input used by this operation (Vec3).
- * @returns Computed Line value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param extent - Rendered grid width and height in world units.
+ * @param offset - Tensor world-space origin where the rectangle outline is placed.
+ * @returns A closed Line tracing the grid perimeter at z=0.02, positioned at the supplied tensor offset.
+ * @noThrows The helper derives five rectangle vertices from numeric dimensions and copies the provided offset without performing validation or external operations.
  * @example
- * buildOutline2D(extent, offset);
+ * const outline = buildOutline2D({ x: 6, y: 4 }, [1, 2, 0]);
+ * expect(outline).toBeInstanceOf(Line);
+ * expect(outline.position.toArray()).toEqual([1, 2, 0]);
  */
 function buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
     // 2d outlines are lines instead of box edges because SVG export mirrors this
@@ -223,20 +258,23 @@ function buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
 }
 
 /**
- * build dimension guides2 d for the current viewer state.
+ * Builds the 2D dimension-line overlay that shows each tensor axis extent and label beside the rendered grid.
  *
- * @param viewer - viewer input used by this operation (MeshViewerContext).
- * @param shape - Tensor shape used by this operation.
- * @param offset - offset input used by this operation (Vec3).
- * @param labels - labels input used by this operation (string[]).
- * @param guideOffset - guide offset input used by this operation (number).
- * @param linearStep - linear step input used by this operation (number).
- * @param labelOffset - label offset input used by this operation (number).
- * @param labelScale - label scale input used by this operation (number).
- * @returns Computed Group value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param viewer - Mesh viewer context whose dimension-mapping scheme and layout gap determine each axis family and display coordinate.
+ * @param shape - Tensor axis sizes used to compute guide extents and label text such as "Rows: 4".
+ * @param offset - Tensor world-space origin added to every guide endpoint and label position.
+ * @param labels - Axis labels from the tensor metadata; missing entries fall back to "X".
+ * @param guideOffset - Distance from the tensor edge to the first guide line in world units.
+ * @param linearStep - Extra spacing between stacked guides when multiple logical axes share the same rendered x or y family.
+ * @param labelOffset - Distance from each guide segment to its text label.
+ * @param labelScale - Scalar applied to each generated text label mesh.
+ * @returns A Group containing, for each tensor axis, two connector lines, one extent line, and one scaled text label positioned according to the 2D mapping scheme.
+ * @noThrows The helper computes guide geometry from in-memory shape, labels, and viewer layout state; absent labels are handled with a fallback instead of throwing.
  * @example
- * buildDimensionGuides2D(viewer, shape, offset, labels, guideOffset, linearStep, labelOffset, labelScale);
+ * const guides = buildDimensionGuides2D(viewer, [2, 3], [0, 0, 0], ['Rows', 'Columns'], 0.8, 0.35, 0.2, 0.1);
+ * expect(guides).toBeInstanceOf(Group);
+ * expect(guides.children).toHaveLength(8);
+ * expect(guides.children.some((child) => child.type.includes('Line'))).toBe(true);
  */
 function buildDimensionGuides2D(
     viewer: MeshViewerContext,
@@ -296,17 +334,23 @@ function buildDimensionGuides2D(
 }
 
 /**
- * build dimension guides for the current viewer state.
+ * Creates the 3D dimension-line overlay for a tensor block.
  *
- * @param viewer - viewer input used by this operation (MeshViewerContext).
- * @param extent - extent input used by this operation (Vector3).
- * @param shape - Tensor shape used by this operation.
- * @param offset - offset input used by this operation (Vec3).
- * @param labels - labels input used by this operation (string[]).
- * @returns Computed Group value for the caller.
- * @noThrows This function has no direct throw path.
+ * The returned group contains extension segments, dimension spans, and text labels for each layout axis,
+ * offset just outside the supplied tensor outline and then translated to the tensor's world offset.
+ *
+ * @param viewer - Mesh rendering context that supplies the current dimension mapping scheme and layout gap used to map tensor axes into world X/Y/Z families.
+ * @param extent - World-space size of the tensor outline that the guides should sit outside.
+ * @param shape - Layout-axis sizes for the tensor view; each entry produces one labeled guide.
+ * @param offset - Tensor world offset applied to the completed guide group.
+ * @param labels - Axis labels matching `shape`; missing entries fall back to `X` in the rendered label text.
+ * @returns Three.js group containing the guide lines and text labels, positioned at `offset`, ready to add beside the tensor outline.
+ * @noThrows Uses normalized viewer layout state and creates Three.js objects without explicit validation; unsupported or degenerate axis spans fall back to unit X/Y/Z guide directions instead of throwing.
  * @example
- * buildDimensionGuides(viewer, extent, shape, offset, labels);
+ * const guides = buildDimensionGuides(viewer, new Vector3(4, 3, 2), [2, 3, 4], [10, 0, 0], ['batch', 'row', 'col']);
+ * expect(guides.position.toArray()).toEqual([10, 0, 0]);
+ * expect(guides.children.length).toBeGreaterThan(0);
+ * expect(guides.children.some((child) => child.type === 'Sprite')).toBe(true);
  */
 function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape: number[], offset: Vec3, labels: string[]): Group {
     const group = new Group();
@@ -390,17 +434,20 @@ function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape:
 }
 
 /**
- * build the three.js group for one tensor record.
+ * Builds all Three.js objects needed to render one tensor in the current viewer mode.
  *
- * rendering changes should start here when they affect per-cell geometry,
- * labels, outlines, or guides; viewer.ts owns orchestration and event state.
+ * The group starts with an instanced cell mesh and may also include selection attributes, ghost-layer cells,
+ * tensor outlines, dimension guides, and tensor-name labels according to viewer state.
  *
- * @param viewer - viewer input used by this operation (MeshViewerContext).
- * @param tensor - Tensor record used by this operation.
- * @returns Computed Group value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param viewer - Mesh rendering context that provides geometry templates, viewer state, layout helpers, coloring, selection lookup, and render hooks.
+ * @param tensor - Normalized tensor record containing id, data, shape, view, offset, value range, and optional ghost-layer metadata for the tensor being rendered.
+ * @returns Three.js group for the tensor; callers add it to the scene and store it by tensor id for picking, updates, and later removal.
+ * @noThrows Expects the tensor record and viewer context to have already been normalized by the viewer model; incompatible visibility or fast-path cases are represented in mesh buffers rather than by explicit throws.
  * @example
- * buildTensorGroup(viewer, tensor);
+ * const group = buildTensorGroup(meshContext('0,1'), tensorRecord({ id: 'weights', shape: [2, 2] }));
+ * const mesh = group.children.find((child): child is InstancedMesh => child instanceof InstancedMesh);
+ * expect(mesh?.count).toBe(4);
+ * expect(mesh?.userData.meta).toMatchObject({ tensorId: 'weights', instanceShape: [2, 2] });
  */
 export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord): Group {
     const group = new Group();
@@ -572,15 +619,24 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
 }
 
 /**
- * update only colors/positions when a slice value changes without changing shape.
+ * Recolors and repositions an existing tensor instanced mesh after a slice-only view change.
  *
- * @param viewer - viewer input used by this operation (MeshViewerContext).
- * @param tensor - Tensor record used by this operation.
- * @param previousView - previous view input used by this operation (TensorViewSpec).
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * The fast path is used only when the canonical view and layout shape are unchanged and the hidden-index
+ * values changed; otherwise callers should rebuild the tensor group.
+ *
+ * @param viewer - Mesh rendering context that owns the existing tensor mesh map, layout state, selection state, hover state, and render/event hooks.
+ * @param tensor - Tensor record after the slice change; its id is used to find the existing mesh and its current view/data drive the new colors.
+ * @param previousView - Tensor view before the slice change, used to verify fast-path eligibility and compute the anchor-position delta.
+ * @returns `true` when the existing instanced mesh was updated in place and render/event notifications were sent; `false` when the view change or mesh state requires a full rebuild.
+ * @noThrows Ineligible view changes, missing tensor groups, and non-instanced meshes are returned as `false`; the function performs no explicit error throwing for those states.
  * @example
- * updateSliceMesh(viewer, tensor, previousView);
+ * const updated = updateSliceMesh(viewer, tensorWithHiddenIndexChanged, previousView);
+ * expect(updated).toBe(true);
+ * expect(viewer.requestRender).toHaveBeenCalled();
+ * expect(viewer.emit).toHaveBeenCalled();
+ *
+ * const needsRebuild = updateSliceMesh(viewer, tensorWithDifferentViewShape, previousView);
+ * expect(needsRebuild).toBe(false);
  */
 export function updateSliceMesh(viewer: MeshViewerContext, tensor: TensorRecord, previousView: TensorViewSpec): boolean {
     if (previousView.canonical !== tensor.view.canonical) return false;

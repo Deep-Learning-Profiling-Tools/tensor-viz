@@ -15,12 +15,16 @@ import {
 } from './linear-layout-widget-shared.js';
 
 /**
- * return linear layout color help html for the current viewer state.
+ * Builds the static usage-guide markup shown above the linear-layout color mapper.
  *
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns HTML for the collapsible guide that explains dragging propagated axes onto H/S/L channels, clearing or swapping channel chips, and applying Propagate Outputs changes with Recolor Layout.
+ * @noThrows The helper returns a fixed template literal and has no inputs, DOM access, parsing, or asynchronous work.
  * @example
- * linearLayoutColorHelpHtml();
+ * const html = linearLayoutColorHelpHtml();
+ *
+ * console.assert(html.includes('<details class="usage-guide">'));
+ * console.assert(html.includes('Drag a propagated axis'));
+ * console.assert(html.includes('Recolor Layout'));
  */
 function linearLayoutColorHelpHtml(): string {
     return `
@@ -42,13 +46,19 @@ function linearLayoutColorHelpHtml(): string {
 }
 
 /**
- * return linear layout propagate outputs info for the current viewer state.
+ * Chooses the explanatory copy for the Propagate Outputs control based on
+ * whether the active linear-layout mapping is injective.
  *
- * @param injective - injective input used by this operation (boolean).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param injective - `true` when each output coordinate maps back to a single input coordinate; `false` when the layout can have multi-input or ghost-layer behavior.
+ * @returns Help text for the toolbar or info button that tells users how turning Propagate Outputs on changes the coordinate space used for colors and cell labels.
+ * @noThrows The helper only branches on the supplied boolean and returns one of two fixed strings.
  * @example
- * linearLayoutPropagateOutputsInfo(injective);
+ * console.assert(
+ *   linearLayoutPropagateOutputsInfo(true).includes('flow backward'),
+ * );
+ * console.assert(
+ *   linearLayoutPropagateOutputsInfo(false).includes('multi-input behavior'),
+ * );
  */
 export function linearLayoutPropagateOutputsInfo(injective: boolean): string {
     return injective
@@ -57,13 +67,26 @@ export function linearLayoutPropagateOutputsInfo(injective: boolean): string {
 }
 
 /**
- * toggle linear layout propagate outputs for the current viewer state.
+ * Flips the Propagate Outputs setting, rebuilds the H/S/L color mapping for the
+ * new propagation space, synchronizes cell-text labels for the active tab, then
+ * reapplies the linear-layout spec and refreshes the editor widgets.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Linear-layout UI context containing the current `linearLayoutState` spec and operation text, per-tab cell-text state, active-tab lookup data, and the apply/render callbacks used by the sidebar.
+ * @returns A promise that resolves after the silent spec reapply completes and the linear-layout editor widgets have been rendered again.
+ * @noThrows This wrapper performs no explicit validation and throws no errors itself; failures can only surface from the parsing, application, or rendering helpers it awaits or calls.
  * @example
- * toggleLinearLayoutPropagateOutputs(ctx);
+ * const ctx = makeLinearLayoutUiContext({
+ *   propagateOutputs: false,
+ *   specsText: 'layout = identity',
+ *   operationText: 'out = input',
+ * });
+ *
+ * await toggleLinearLayoutPropagateOutputs(ctx);
+ *
+ * console.assert(ctx.state.linearLayoutState.propagateOutputs === true);
+ * console.assert(ctx.applyLinearLayoutSpecCalls[0].silent === true);
+ * console.assert(ctx.applyLinearLayoutSpecCalls[0].preserveTensorViews === true);
+ * console.assert(ctx.renderLinearLayoutEditorWidgetsCalls === 1);
  */
 export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiContext): Promise<void> {
     ctx.state.linearLayoutState.propagateOutputs = !ctx.state.linearLayoutState.propagateOutputs;
@@ -87,13 +110,21 @@ export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiCont
 }
 
 /**
- * render linear layout color widget for the current viewer state.
+ * Rebuilds the linear-layout color sidebar controls for propagated axis labels, H/S/L channel assignments, numeric color ranges, and the Propagate Outputs toggle.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * The render replaces the widget body, marks already-assigned axes as unavailable in the drag source pool, binds checkbox/drag/drop/range/recolor handlers, and restores focus for an input that survived the repaint.
+ *
+ * @param ctx - Linear-layout UI context containing the color widget element, widget title renderer, active linear-layout state, per-tab cell-text state, and viewer repaint helpers.
+ * @returns Void; callers observe the refreshed `ctx.linearLayoutColorWidget` DOM and subsequent user events mutating `ctx.state.linearLayoutState` or `ctx.state.linearLayoutCellTextState`.
+ * @noThrows For a valid mounted linear-layout UI context, the render uses optional DOM lookups for controls that may be absent and treats missing active tabs as a no-op for tab persistence.
  * @example
+ * ```ts
  * renderLinearLayoutColorWidget(ctx);
+ *
+ * expect(ctx.linearLayoutColorWidget.querySelector('#linear-layout-recolor')?.textContent).toBe('Recolor Layout');
+ * expect(ctx.linearLayoutColorWidget.querySelector('[data-channel="H"] [data-axis="i"]')).not.toBeNull();
+ * expect(ctx.linearLayoutColorWidget.querySelector('.mapping-pool')?.textContent).not.toContain('i');
+ * ```
  */
 export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
     const activeElement = document.activeElement;
@@ -177,12 +208,21 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         await toggleLinearLayoutPropagateOutputs(ctx);
     });
     /**
- * write checkbox state into tab-local cell-text settings and repaint labels.
+ * Copies the checked state of the rendered per-axis Cell Text checkboxes into the active tab's linear-layout label-visibility settings, then reapplies cell labels to the viewer.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Void; callers observe `ctx.state.linearLayoutCellTextState`, the active tab's saved cell-text state, and the rendered cell labels reflecting the checked boxes.
+ * @noThrows Checkbox lookups are optional and default missing axis controls to `false`, while a missing active tab only skips tab-local persistence.
  * @example
+ * ```ts
+ * ctx.linearLayoutColorWidget.innerHTML = '<input id="cell-text-i" type="checkbox" checked><input id="cell-text-j" type="checkbox">';
+ * labels = ['i', 'j'];
+ *
  * syncCellText();
+ *
+ * expect(ctx.state.linearLayoutCellTextState).toEqual({ i: true, j: false });
+ * expect(ctx.state.linearLayoutCellTextStates.get(activeTab.id)).toEqual({ i: true, j: false });
+ * expect(applyLinearLayoutCellText).toHaveBeenCalledWith(ctx);
+ * ```
  */
     const syncCellText = (): void => {
         ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
@@ -200,14 +240,23 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
     });
 
     /**
- * store a drag payload under a private type plus text fallback for browsers.
+ * Serializes a color-mapping drag payload into the drag event so drop zones can distinguish pooled axes from already-assigned color channels.
  *
- * @param event - Browser event that triggered this handler.
- * @param payload - payload input used by this operation (Record<string, string>).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param event - `dragstart` event from a mapping chip; when `event.dataTransfer` exists, it receives both the private linear-layout MIME payload and a `text/plain` fallback.
+ * @param payload - String-valued drag description, such as `{ kind: 'axis', axis: 'i' }` from the available-axis pool or `{ kind: 'channel', channel: 'H', axis: 'i' }` from an assigned H/S/L chip.
+ * @returns Void; callers observe the JSON payload stored on `event.dataTransfer` and `effectAllowed` set to `move`.
+ * @noThrows Linear-layout callers pass plain string records that `JSON.stringify` can serialize, and the helper skips all DataTransfer writes when the browser did not provide a transfer object.
  * @example
- * writeDragPayload(event, payload);
+ * ```ts
+ * const transfer = new DataTransfer();
+ * const event = new DragEvent('dragstart', { dataTransfer: transfer });
+ *
+ * writeDragPayload(event, { kind: 'channel', channel: 'H', axis: 'i' });
+ *
+ * expect(transfer.getData('application/x-linear-layout-mapping')).toBe('{"kind":"channel","channel":"H","axis":"i"}');
+ * expect(transfer.getData('text/plain')).toBe('{"kind":"channel","channel":"H","axis":"i"}');
+ * expect(transfer.effectAllowed).toBe('move');
+ * ```
  */
     const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
         event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));
@@ -215,13 +264,21 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
     };
     /**
- * parse one color-channel drag payload, returning null for unrelated drags.
+ * Reads a linear-layout color-mapping drag payload from the private MIME slot, falling back to `text/plain`, and ignores drags that are empty or not valid JSON.
  *
- * @param event - Browser event that triggered this handler.
- * @returns Computed value, or null when no value is available.
- * @noThrows This function has no direct throw path.
+ * @param event - Drop or dragover `DragEvent` whose `dataTransfer` may contain a serialized mapping-chip payload.
+ * @returns Parsed string record for a dragged axis/channel chip, or `null` when the transfer has no payload or contains malformed JSON from an unrelated drag source.
+ * @noThrows Malformed JSON is caught and converted to `null`, and missing `dataTransfer` is handled with optional access.
  * @example
- * readDragPayload(event);
+ * ```ts
+ * const transfer = new DataTransfer();
+ * transfer.setData('application/x-linear-layout-mapping', '{"kind":"axis","axis":"j"}');
+ *
+ * expect(readDragPayload(new DragEvent('drop', { dataTransfer: transfer }))).toEqual({ kind: 'axis', axis: 'j' });
+ *
+ * transfer.setData('application/x-linear-layout-mapping', 'not json');
+ * expect(readDragPayload(new DragEvent('drop', { dataTransfer: transfer }))).toBeNull();
+ * ```
  */
     const readDragPayload = (event: DragEvent): Record<string, string> | null => {
         const raw = event.dataTransfer?.getData('application/x-linear-layout-mapping') || event.dataTransfer?.getData('text/plain');

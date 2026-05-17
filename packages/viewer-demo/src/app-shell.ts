@@ -1,8 +1,15 @@
 /**
- * concrete dom references returned after the demo shell has been mounted.
+ * DOM handles for the mounted demo shell, including the viewer viewport, sidebar chrome, command palette, and registered widget containers.
  *
  * @example
- * const value: AppShellRefs = {} as AppShellRefs;
+ * const refs = mountAppShell(appRoot, [
+ *   { id: 'selection' },
+ *   { id: 'linear-layout-color', beforeHeader: true },
+ * ]);
+ * refs.viewport.id;
+ * // 'viewport'
+ * refs.widgets.selection.dataset.widgetId;
+ * // 'selection'
  */
 export type AppShellRefs = {
     app: HTMLDivElement;
@@ -20,10 +27,16 @@ export type AppShellRefs = {
 };
 
 /**
- * one widget placeholder requested by core app code or an extension factory.
+ * Declares a shell-managed widget container that core app code or an extension wants `mountAppShell` to create.
  *
  * @example
- * const value: AppShellWidgetSlot = {} as AppShellWidgetSlot;
+ * const sidebarSlot: AppShellWidgetSlot = { id: 'selection' };
+ * const commandPanelSlot: AppShellWidgetSlot = { id: 'linear-layout-color', beforeHeader: true };
+ *
+ * sidebarSlot.id;
+ * // 'selection'
+ * commandPanelSlot.beforeHeader;
+ * // true
  */
 export type AppShellWidgetSlot = {
     id: string;
@@ -31,15 +44,22 @@ export type AppShellWidgetSlot = {
 };
 
 /**
- * return one required element or fail during startup instead of later event binding.
+ * Finds a required element inside the mounted shell so startup fails immediately when expected markup is missing.
  *
- * @param root - Root DOM element used by this operation.
- * @param selector - selector input used by this operation (string).
- * @param name - name input used by this operation (string).
- * @returns Computed T value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param root - DOM subtree to search, usually the application root after `mountAppShell` has written its template.
+ * @param selector - CSS selector for the required shell element, such as `#viewport` or `.sidebar-header`.
+ * @param name - Human-readable element name included in the startup error message when the selector has no match.
+ * @returns The first element matching `selector`, typed as the element kind requested by the caller for later event binding or rendering.
+ * @throws Error when `root.querySelector(selector)` returns `null`; the message is `Missing ${name}.`.
  * @example
- * requireElement(root, selector, name);
+ * const root = document.createElement('div');
+ * root.innerHTML = '<div id="viewport"></div>';
+ *
+ * requireElement<HTMLDivElement>(root, '#viewport', 'viewport').id;
+ * // 'viewport'
+ *
+ * expect(() => requireElement(root, '#command-palette', 'command palette'))
+ *   .toThrow(new Error('Missing command palette.'));
  */
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
     const element = root.querySelector<T>(selector);
@@ -48,12 +68,30 @@ function requireElement<T extends Element>(root: ParentNode, selector: string, n
 }
 
 /**
- * return the root node where the demo app replaces index.html's empty shell.
+ * Finds the Vite `#app` mount element that the demo shell replaces during startup.
  *
- * @returns Computed HTMLDivElement value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @returns The `HTMLDivElement` with id `app`, used as the root for the WebGL fallback view or the full tensor-viewer shell.
+ * @throws {Error} When `document` does not contain an element matching `#app`; the error message is `Missing app root.`.
  * @example
- * getAppRoot();
+ * ```ts
+ * document.body.innerHTML = '<div id="app"></div>';
+ *
+ * const app = getAppRoot();
+ *
+ * console.assert(app.id === 'app');
+ * ```
+ *
+ * @example
+ * ```ts
+ * document.body.innerHTML = '';
+ *
+ * try {
+ *   getAppRoot();
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'Missing app root.');
+ * }
+ * ```
  */
 export function getAppRoot(): HTMLDivElement {
     const app = document.querySelector<HTMLDivElement>('#app');
@@ -62,12 +100,16 @@ export function getAppRoot(): HTMLDivElement {
 }
 
 /**
- * check for a usable webgl context before constructing three.js renderer state.
+ * Probes the browser for a WebGL2, WebGL, or experimental WebGL canvas context before the demo creates its three.js renderer.
  *
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * @returns `true` when a canvas context can be created for WebGL rendering; `false` when WebGL globals are unavailable, context creation returns `null`, or context probing fails.
+ * @noThrows Canvas context creation is wrapped in a `try`/`catch`, so browser probing failures are reported as `false` instead of escaping to startup code.
  * @example
- * supportsWebGL();
+ * ```ts
+ * if (!supportsWebGL()) {
+ *   renderWebglUnavailable(app);
+ * }
+ * ```
  */
 export function supportsWebGL(): boolean {
     const canvas = document.createElement('canvas');
@@ -83,13 +125,20 @@ export function supportsWebGL(): boolean {
 }
 
 /**
- * render the only startup view that does not require a tensor viewer instance.
+ * Replaces the demo mount point with the startup notice shown when tensors cannot be rendered because WebGL is unavailable.
  *
- * @param app - Application root element used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param app - The demo `#app` root element whose existing contents should be replaced by the WebGL-disabled message.
+ * @returns No value; callers observe the fallback view through `app.innerHTML`.
+ * @noThrows The function only assigns fixed fallback markup to the provided element and performs no DOM queries or renderer initialization.
  * @example
+ * ```ts
+ * const app = document.createElement('div');
+ *
  * renderWebglUnavailable(app);
+ *
+ * console.assert(app.querySelector('.startup-note') !== null);
+ * console.assert(app.textContent?.includes('This viewer needs WebGL to render tensors'));
+ * ```
  */
 export function renderWebglUnavailable(app: HTMLDivElement): void {
     app.innerHTML = `
@@ -101,19 +150,26 @@ export function renderWebglUnavailable(app: HTMLDivElement): void {
 }
 
 /**
- * mount the reusable demo frame and return typed references to all moving parts.
+ * Builds the demo application's reusable chrome: ribbon menus, tab strip, viewport host, control dock, sidebar widgets, and command palette.
  *
- * widget slots are supplied up front because extensions need real dom hosts
- * before their lifecycle hooks run. for example, linear-layout asks for preset
- * and spec widgets before the core tensor-view widget, while the plain demo
- * still receives the same command palette and viewport refs.
+ * Widget slots are supplied before extension lifecycle hooks run so extensions receive real DOM hosts. Slots with `beforeHeader` are rendered above the sidebar header for extension-owned command panels; all other slots are rendered in the normal widgets section.
  *
- * @param app - Application root element used by this operation.
- * @param widgetSlots - widget slots input used by this operation (AppShellWidgetSlot[]).
- * @returns Computed AppShellRefs value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param app - The demo `#app` root element whose contents should be replaced with the full shell markup.
+ * @param widgetSlots - Widget host declarations; each slot id becomes a `[data-widget-id="..."]` section and `beforeHeader` controls whether it appears above the sidebar header.
+ * @returns References to the generated shell elements, including the viewport, tab strip, control dock, sidebar, command palette nodes, and a `widgets` map keyed by widget slot id.
+ * @noThrows The shell markup is generated in one assignment and includes the fixed elements that are looked up before returning; with valid widget slot ids, there is no expected startup throw path.
  * @example
- * mountAppShell(app, widgetSlots);
+ * ```ts
+ * const app = document.createElement('div');
+ * const refs = mountAppShell(app, [
+ *   { id: 'preset-selector', beforeHeader: true },
+ *   { id: 'inspector' },
+ * ]);
+ *
+ * console.assert(refs.viewport.id === 'viewport');
+ * console.assert(refs.widgets['preset-selector'].dataset.widgetId === 'preset-selector');
+ * console.assert(refs.widgets.inspector.closest('.sidebar') === refs.sidebar);
+ * ```
  */
 export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[]): AppShellRefs {
     // widgets before the header are extension-owned command panels; sidebar

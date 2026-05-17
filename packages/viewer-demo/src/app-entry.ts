@@ -111,12 +111,20 @@ const SESSION_MAX_TENSORS = VIEWER_LIMITS.maxTensors;
 const SESSION_MAX_TENSOR_BYTES = VIEWER_LIMITS.maxPayloadBytes;
 
 /**
- * return session api token for the current viewer state.
+ * Reads the optional demo session API token from the browser URL, preferring the query string over
+ * hash parameters so hosted links can pass `?token=...` or `#token=...`.
  *
- * @returns Computed value, or null when no value is available.
- * @noThrows This function has no direct throw path.
+ * @returns The token string from `window.location.search` or `window.location.hash`, or `null` when neither location contains a `token` parameter.
+ * @noThrows URLSearchParams is constructed from the browser-provided search and hash strings and the function performs no network or storage access.
  * @example
- * sessionApiToken();
+ * history.replaceState(null, '', '/demo?token=abc123');
+ * expect(sessionApiToken()).toBe('abc123');
+ *
+ * history.replaceState(null, '', '/demo#token=from-hash');
+ * expect(sessionApiToken()).toBe('from-hash');
+ *
+ * history.replaceState(null, '', '/demo');
+ * expect(sessionApiToken()).toBeNull();
  */
 function sessionApiToken(): string | null {
     return new URLSearchParams(window.location.search).get('token')
@@ -127,10 +135,19 @@ const sessionToken = sessionApiToken();
 
 // extension host services
 /**
- * shape of inspector refs data used by the viewer.
+ * DOM element handles for the sidebar hover inspector: tensor name and coordinate rows are written to
+ * divs, while scalar metadata such as hovered value, tensor shape, and rank are written to spans.
  *
  * @example
- * const value: InspectorRefs = {} as InspectorRefs;
+ * const refs: InspectorRefs = {
+ *   hoveredTensor: document.createElement('div'),
+ *   coordList: document.createElement('div'),
+ *   hoveredTensorValue: document.createElement('span'),
+ *   tensorShapeValue: document.createElement('span'),
+ *   rankValue: document.createElement('span'),
+ * };
+ * refs.hoveredTensorValue.textContent = '0.75';
+ * expect(refs.hoveredTensorValue.textContent).toBe('0.75');
  */
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
@@ -162,10 +179,11 @@ const extensionContext: DemoExtensionContext = {
 };
 
 /**
- * shape of sidebar widget id data used by the viewer.
+ * String key assigned by a registered sidebar widget spec and reused to look up that widget's DOM node, label, icon, order, collapse state, and drag state.
  *
  * @example
- * const value: SidebarWidgetId = {} as SidebarWidgetId;
+ * const widgetId: SidebarWidgetId = 'advanced-settings';
+ * sidebarWidgets[widgetId].classList.toggle('collapsed', collapsedWidgets.has(widgetId));
  */
 type SidebarWidgetId = string;
 
@@ -239,14 +257,26 @@ const collapsedWidgets = new Set<SidebarWidgetId>(widgetSpecs.filter((spec) => s
 
 // tooltip plumbing
 /**
- * return log ui for the current viewer state.
+ * Writes a tensor-viz demo UI telemetry line to the developer console with a stable `[tensor-viz-ui]` prefix.
  *
- * @param event - Browser event that triggered this handler.
- * @param details - details input used by this operation (unknown).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param event - Colon-delimited UI action name such as `tab:rename`, `tensor-select`, or `advanced-settings:log-scale`.
+ * @param details - Optional payload that describes the selected value or changed entity for the event; omitted events log only the prefix and event name.
+ * @returns Nothing; callers observe the emitted `console.log` call.
+ * @noThrows The function performs no validation and only forwards its arguments to `console.log`, so the demo code does not create an application-level error path.
  * @example
- * logUi(event, details);
+ * const calls: unknown[][] = [];
+ * const originalLog = console.log;
+ * console.log = (...args: unknown[]) => calls.push(args);
+ *
+ * logUi('tab:rename', { tabId: 'tab-1', title: 'Attention scores' });
+ * logUi('tensor-select');
+ *
+ * console.log = originalLog;
+ * calls;
+ * // => [
+ * //   ['[tensor-viz-ui]', 'tab:rename', { tabId: 'tab-1', title: 'Attention scores' }],
+ * //   ['[tensor-viz-ui]', 'tensor-select'],
+ * // ]
  */
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
@@ -254,12 +284,20 @@ function logUi(event: string, details?: unknown): void {
 }
 
 /**
- * hide info tooltip for the current viewer state.
+ * Clears the active info target and marks the shared info tooltip element as hidden.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Nothing; callers observe `activeInfoTarget` becoming `null` and `infoTooltip` receiving the `hidden` class.
+ * @noThrows During normal app startup `infoTooltip` is a resolved shell element, and the function only assigns module state and adds a CSS class.
  * @example
+ * activeInfoTarget = document.createElement('button');
+ * infoTooltip.classList.remove('hidden');
+ *
  * hideInfoTooltip();
+ *
+ * activeInfoTarget;
+ * // => null
+ * infoTooltip.classList.contains('hidden');
+ * // => true
  */
 function hideInfoTooltip(): void {
     activeInfoTarget = null;
@@ -267,13 +305,34 @@ function hideInfoTooltip(): void {
 }
 
 /**
- * place info tooltip for the current viewer state.
+ * Shows the shared info tooltip for an element with `data-info`, copies the trimmed help text, and positions the tooltip inside the viewport near that element.
  *
- * @param target - target input used by this operation (HTMLElement).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param target - Hovered or focused control/label element whose `data-info` attribute contains the tooltip copy and whose bounding box anchors the tooltip position.
+ * @returns Nothing; callers observe `activeInfoTarget`, `infoTooltip.textContent`, visibility classes, and `left`/`top` styles being updated, or the tooltip being hidden when `data-info` is empty.
+ * @noThrows The function treats missing or whitespace-only `data-info` as a hide request and otherwise uses standard DOM geometry/style APIs on the supplied element.
  * @example
+ * const target = document.createElement('button');
+ * target.dataset.info = 'Show tensor metadata';
+ * target.getBoundingClientRect = () => ({ left: 20, top: 40, right: 120, bottom: 64, width: 100, height: 24, x: 20, y: 40, toJSON: () => ({}) });
+ * infoTooltip.getBoundingClientRect = () => ({ left: 0, top: 0, right: 80, bottom: 30, width: 80, height: 30, x: 0, y: 0, toJSON: () => ({}) });
+ *
  * placeInfoTooltip(target);
+ *
+ * activeInfoTarget === target;
+ * // => true
+ * infoTooltip.textContent;
+ * // => 'Show tensor metadata'
+ * infoTooltip.classList.contains('hidden');
+ * // => false
+ * infoTooltip.style.left;
+ * // => '40px'
+ * infoTooltip.style.top;
+ * // => '74px'
+ *
+ * target.dataset.info = '   ';
+ * placeInfoTooltip(target);
+ * infoTooltip.classList.contains('hidden');
+ * // => true
  */
 function placeInfoTooltip(target: HTMLElement): void {
     const text = target.dataset.info?.trim();
@@ -300,12 +359,18 @@ function placeInfoTooltip(target: HTMLElement): void {
 }
 
 /**
- * hide control tooltip for the current viewer state.
+ * Clears the active control-button anchor and hides the shared control tooltip used by hover, focus, resize, and scroll handlers.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Void; after the call `activeControlButton` is `null` and `controlTooltip` has the `hidden` class.
+ * @noThrows Only resets a module-local reference and adds a CSS class to the already-created tooltip element; those operations have no expected failure path in the mounted demo shell.
  * @example
+ * activeControlButton = zoomInButton;
+ * controlTooltip.classList.remove('hidden');
+ *
  * hideControlTooltip();
+ *
+ * console.assert(activeControlButton === null);
+ * console.assert(controlTooltip.classList.contains('hidden'));
  */
 function hideControlTooltip(): void {
     activeControlButton = null;
@@ -313,13 +378,31 @@ function hideControlTooltip(): void {
 }
 
 /**
- * place control tooltip for the current viewer state.
+ * Shows the shared control tooltip for a dock button by reading its tooltip label, description, and shortcut metadata, then clamps the tooltip position inside the viewport.
  *
- * @param button - button input used by this operation (HTMLButtonElement).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param button - Control-dock button whose `data-tooltip-label`, `data-tooltip-description`, and `data-tooltip-shortcut` attributes supply the tooltip content.
+ * @returns Void; populated buttons make `controlTooltip` visible, update its HTML, record `activeControlButton`, and write pixel `left`/`top` styles. Buttons missing any tooltip metadata hide the tooltip instead.
+ * @noThrows Uses optional dataset reads, string escaping, class changes, and element geometry from the provided button and shared tooltip element; normal connected `HTMLButtonElement` controls do not create an expected exception path.
  * @example
+ * const button = document.createElement('button');
+ * button.dataset.tooltipLabel = 'Zoom in';
+ * button.dataset.tooltipDescription = 'Increase the tensor canvas scale.';
+ * button.dataset.tooltipShortcut = '+';
+ * button.getBoundingClientRect = () => ({ left: 100, top: 80, right: 124, bottom: 104, width: 24, height: 24, x: 100, y: 80, toJSON: () => ({}) });
+ * controlTooltip.getBoundingClientRect = () => ({ left: 0, top: 0, right: 160, bottom: 48, width: 160, height: 48, x: 0, y: 0, toJSON: () => ({}) });
+ *
  * placeControlTooltip(button);
+ *
+ * console.assert(activeControlButton === button);
+ * console.assert(!controlTooltip.classList.contains('hidden'));
+ * console.assert(controlTooltip.textContent?.includes('Zoom in'));
+ * console.assert(controlTooltip.textContent?.includes('Shortcut: +'));
+ * console.assert(controlTooltip.style.left.endsWith('px'));
+ * console.assert(controlTooltip.style.top.endsWith('px'));
+ *
+ * const incompleteButton = document.createElement('button');
+ * placeControlTooltip(incompleteButton);
+ * console.assert(controlTooltip.classList.contains('hidden'));
  */
 function placeControlTooltip(button: HTMLButtonElement): void {
     const label = button.dataset.tooltipLabel?.trim();
@@ -423,14 +506,18 @@ controlDock.addEventListener('scroll', () => {
 
 // command palette
 /**
- * return selection count value for the current viewer state.
+ * Formats the Selection widget's highlighted-cell count from the viewer selection summary.
  *
- * @param summary - summary input used by this operation (ReturnType<TensorViewer['getSelectionSummary']>).
- * @param enabled - enabled input used by this operation (boolean).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param summary - Selection summary returned by `TensorViewer.getSelectionSummary()`, including total highlighted cells and how many of those cells have loaded numeric values.
+ * @param enabled - Whether selection statistics are available for the current tensor mapping; false means the widget should display an unavailable state.
+ * @returns The text shown in the Highlighted Cells row: `Unavailable` when disabled, `0` for an empty selection, the total count when every selected cell has a loaded value, or `N (M with values)` when some selected cells lack values.
+ * @noThrows Reads numeric fields from a viewer-produced summary and performs deterministic string formatting without parsing or DOM access.
  * @example
- * selectionCountValue(summary, enabled);
+ * const summary = { count: 8, availableCount: 5, stats: null } as ReturnType<TensorViewer['getSelectionSummary']>;
+ *
+ * console.assert(selectionCountValue(summary, true) === '8 (5 with values)');
+ * console.assert(selectionCountValue({ ...summary, count: 5, availableCount: 5 }, true) === '5');
+ * console.assert(selectionCountValue(summary, false) === 'Unavailable');
  */
 function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
     if (!enabled) return 'Unavailable';
@@ -439,15 +526,23 @@ function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSumma
 }
 
 /**
- * return selection stat value for the current viewer state.
+ * Formats one numeric statistic for the Selection widget's min, percentile, max, mean, or standard-deviation rows.
  *
- * @param summary - summary input used by this operation (ReturnType<TensorViewer['getSelectionSummary']>).
- * @param enabled - enabled input used by this operation (boolean).
- * @param key - key input used by this operation (keyof NonNullable<ReturnType<TensorViewer['getSelectionSummary']>['stats']>).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param summary - Selection summary returned by `TensorViewer.getSelectionSummary()`, with an optional `stats` object computed from selected cells that have loaded numeric values.
+ * @param enabled - Whether selection statistics are supported for the current tensor mapping; false suppresses statistic values.
+ * @param key - Statistic field to display, such as `min`, `p50`, `max`, `mean`, or `std`.
+ * @returns An em dash when statistics are disabled or absent; otherwise the selected statistic formatted with the same range-value formatter used elsewhere in the sidebar.
+ * @noThrows For viewer-produced summaries and the compile-time-limited statistic key, the function only checks field presence and delegates formatting for an existing numeric statistic.
  * @example
- * selectionStatValue(summary, enabled, key);
+ * const summary = {
+ *   count: 4,
+ *   availableCount: 4,
+ *   stats: { min: 1, p25: 2, p50: 3, p75: 4, max: 5, mean: 3, std: 1.25 }
+ * } as ReturnType<TensorViewer['getSelectionSummary']>;
+ *
+ * console.assert(selectionStatValue(summary, true, 'p50') === formatRangeValue(3));
+ * console.assert(selectionStatValue(summary, false, 'p50') === '—');
+ * console.assert(selectionStatValue({ ...summary, stats: null }, true, 'p50') === '—');
  */
 function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean, key: keyof NonNullable<ReturnType<TensorViewer['getSelectionSummary']>['stats']>): string {
     if (!enabled || !summary.stats) return '—';
@@ -455,12 +550,14 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
 }
 
 /**
- * return command actions for the current viewer state.
+ * Builds the command-palette entries for the demo shell's built-in viewer controls, then appends any actions contributed by registered extensions.
  *
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns Command actions whose `action` IDs are dispatched by the palette, with display labels, keyboard shortcut hints, and searchable keywords for viewer display, tab, widget, and export commands.
+ * @noThrows Builds plain command descriptors from in-memory extension registrations without parsing user input or touching the DOM.
  * @example
- * commandActions();
+ * const actions = commandActions();
+ * actions.some((entry) => entry.action === 'save-svg' && entry.label === 'Save as SVG'); // true
+ * actions.some((entry) => entry.action === 'heatmap' && entry.shortcut === 'Ctrl+H'); // true
  */
 function commandActions(): CommandAction[] {
     return [
@@ -488,12 +585,18 @@ function commandActions(): CommandAction[] {
 }
 
 /**
- * return tab actions for the current viewer state.
+ * Converts the current session tab list into command-palette entries that switch directly to a tab and mark the active tab as current.
  *
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns One `tab:<id>` action per session tab, using the tab title as the label, `Current` as the shortcut hint for the active tab, and tab-title keywords for palette search.
+ * @noThrows Maps already-loaded tab state into plain action objects without parsing user input, touching the DOM, or performing I/O.
  * @example
+ * // Given sessionTabs = [{ id: 'main', title: 'Main' }, { id: 'compare', title: 'Comparison' }]
+ * // and activeTabId = 'main':
  * tabActions();
+ * // [
+ * //   { action: 'tab:main', label: 'Main', shortcut: 'Current', keywords: 'tab Main' },
+ * //   { action: 'tab:compare', label: 'Comparison', shortcut: '', keywords: 'tab Comparison' },
+ * // ]
  */
 function tabActions(): CommandAction[] {
     return sessionTabs.map((tab) => ({
@@ -505,26 +608,31 @@ function tabActions(): CommandAction[] {
 }
 
 /**
- * return palette actions for the current viewer state.
+ * Selects the action source for the command palette, returning tab-navigation entries in tab mode and the full viewer command list otherwise.
  *
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns The tab action list when `commandPaletteMode` is `'tabs'`; otherwise the built-in and extension command actions shown by the normal command palette.
+ * @noThrows Reads current palette mode and already-loaded action arrays; it does not perform DOM work or validate external input.
  * @example
- * paletteActions();
+ * // When commandPaletteMode === 'tabs', the palette contains tab-switching actions such as:
+ * paletteActions().every((entry) => entry.action.startsWith('tab:')); // true
+ *
+ * // In the default command mode, entries include viewer commands such as Save as SVG.
+ * paletteActions().some((entry) => entry.action === 'save-svg'); // true
  */
 function paletteActions(): CommandAction[] {
     return commandPaletteMode === 'tabs' ? tabActions() : commandActions();
 }
 
 /**
- * return fuzzy score for the current viewer state.
+ * Scores how well normalized command-palette search text matches a candidate label and keyword string as an in-order character subsequence.
  *
- * @param candidate - candidate input used by this operation (string).
- * @param query - query input used by this operation (string).
- * @returns Computed value, or null when no value is available.
- * @noThrows This function has no direct throw path.
+ * @param candidate - Lower-cased searchable text built from a command action's label and keywords.
+ * @param query - Lower-cased, whitespace-normalized palette query whose characters must appear in `candidate` in order.
+ * @returns A numeric relevance score when every query character is found; higher scores favor word-boundary and consecutive matches, while `null` tells callers to filter out non-matching actions.
+ * @noThrows Scans JavaScript strings with bounded index arithmetic only; unmatched queries return `null` instead of raising an error.
  * @example
- * fuzzyScore(candidate, query);
+ * fuzzyScore('save as svg file save export svg vector image 2d', 'svg') !== null; // true
+ * fuzzyScore('toggle heatmap display heatmap colors', 'xyz'); // null
  */
 function fuzzyScore(candidate: string, query: string): number | null {
     let score = 0;
@@ -547,12 +655,20 @@ function fuzzyScore(candidate: string, query: string): number | null {
 }
 
 /**
- * return filtered command actions for the current viewer state.
+ * Builds the command-palette action list for the text currently typed in the palette search box.
  *
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * The search text is trimmed, lowercased, and whitespace-normalized before matching against each action's label and keywords.
+ * An empty search returns the full palette action list; a non-empty search returns fuzzy matches sorted by descending score
+ * and then alphabetically by label.
+ *
+ * @returns Command actions that should be rendered or executed for the current palette query, in display order.
+ * @noThrows Reads the palette input value and filters in-memory action metadata; empty and non-matching queries are represented as arrays rather than errors.
  * @example
- * filteredCommandActions();
+ * // With a palette containing labels "Open Tensor", "Toggle Sidebar", and "Reset View":
+ * commandPaletteInput.value = '  tog   side ';
+ * const actions = filteredCommandActions();
+ * actions.map((action) => action.label);
+ * // => ['Toggle Sidebar']
  */
 function filteredCommandActions(): CommandAction[] {
     const query = commandPaletteInput.value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -570,13 +686,20 @@ function filteredCommandActions(): CommandAction[] {
 
 // sidebar widget lifecycle
 /**
- * return visible sidebar widgets for the current viewer state.
+ * Selects the sidebar widgets whose registered visibility predicates allow them for a viewer snapshot.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * The returned IDs keep the user's current sidebar drag order so widgets can be hidden without losing their order,
+ * collapsed state, or DOM nodes.
+ *
+ * @param snapshot - Snapshot from the viewer containing the active tensor/viewer state passed to extension widget visibility callbacks.
+ * @returns Sidebar widget IDs that should be shown for the supplied snapshot, ordered according to the current widgetOrder array.
+ * @noThrows Missing widget specs and predicates that decline visibility are treated as hidden through the optional-chain/nullish fallback.
  * @example
- * visibleSidebarWidgets(snapshot);
+ * const snapshot = viewer.getSnapshot();
+ * const visible = visibleSidebarWidgets(snapshot);
+ * // If only the tensor view and inspector predicates accept this snapshot:
+ * visible;
+ * // => ['tensor-view', 'inspector']
  */
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
     // widget visibility is derived from the active tab and viewer state instead
@@ -585,14 +708,22 @@ function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
 }
 
 /**
- * return widget title for the current viewer state.
+ * Renders the shared header markup used at the top of a sidebar widget.
  *
- * @param widgetId - Stable identifier used by this operation.
- * @param info - info input used by this operation (string).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * The header includes the localized widget label, collapse/expand button state, the widget icon, an info button using
+ * the provided help text, and the drag handle attributes used by sidebar reordering.
+ *
+ * @param widgetId - Registered sidebar widget ID used to look up the display label/icon and to stamp collapse and drag data attributes.
+ * @param info - Help text displayed by the widget header's info button tooltip/popover.
+ * @returns HTML string that widget renderers prepend to their widget body to get the standard title, info, collapse, and drag controls.
+ * @noThrows For registered sidebar widget IDs, the function only reads in-memory label/collapse state and interpolates a markup string.
  * @example
- * widgetTitle(widgetId, info);
+ * collapsedWidgets.add('tensor-view');
+ * const html = widgetTitle('tensor-view', 'Visualize tensor views, permutations, and slices.');
+ * html.includes('aria-label="Expand Tensor View"');
+ * // => true
+ * html.includes('data-widget-handle="tensor-view"');
+ * // => true
  */
 function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
     const title = sidebarWidgetLabels[widgetId];
@@ -615,12 +746,18 @@ function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
 }
 
 /**
- * apply sidebar order for the current viewer state.
+ * Reorders the sidebar DOM to match the current widgetOrder array.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * The sidebar header stays first, every widget element is reinserted in widgetOrder order, and the scroll pad stays last.
+ * After replacing the children, drag affordances are synchronized with the newly applied order.
+ *
+ * @returns Nothing; mutates the sidebar element's child order and refreshes sidebar drag state.
+ * @noThrows Uses already-created sidebar/header/widget/scroll-pad DOM nodes and does not validate external input; DOM replacement represents the state change.
  * @example
+ * widgetOrder = ['inspector', 'tensor-view'];
  * applySidebarOrder();
+ * Array.from(sidebar.children).map((child) => child.id);
+ * // => [sidebarHeader.id, sidebarWidgets.inspector.id, sidebarWidgets['tensor-view'].id, sidebarScrollPad.id]
  */
 function applySidebarOrder(): void {
     sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]), sidebarScrollPad);
@@ -628,14 +765,18 @@ function applySidebarOrder(): void {
 }
 
 /**
- * sync widget header state for the current viewer state.
+ * Updates one sidebar widget header so its collapse button matches the widget's stored collapsed state.
  *
- * @param widgetId - Stable identifier used by this operation.
- * @param widget - widget input used by this operation (HTMLElement).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param widgetId - Sidebar widget key used in collapsedWidgets, sidebarWidgetLabels, and the header data attributes.
+ * @param widget - Rendered sidebar widget element that may contain matching data-widget-collapse and data-widget-chevron controls.
+ * @returns No value; when both controls are present, mutates the chevron text plus the button's aria-label and aria-expanded attributes.
+ * @noThrows Missing header controls are treated as a no-op, and the function only reads the collapsed set and writes DOM text/attributes for a known widget id.
  * @example
- * syncWidgetHeaderState(widgetId, widget);
+ * collapsedWidgets.add('inspector');
+ * syncWidgetHeaderState('inspector', sidebarWidgets.inspector);
+ * expect(sidebarWidgets.inspector.querySelector('[data-widget-chevron="inspector"]')?.textContent).toBe('▸');
+ * expect(sidebarWidgets.inspector.querySelector('[data-widget-collapse="inspector"]')?.getAttribute('aria-label')).toBe('Expand Inspector');
+ * expect(sidebarWidgets.inspector.querySelector('[data-widget-collapse="inspector"]')?.getAttribute('aria-expanded')).toBe('false');
  */
 function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): void {
     const collapsed = collapsedWidgets.has(widgetId);
@@ -648,12 +789,16 @@ function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): 
 }
 
 /**
- * sync sidebar drag state for the current viewer state.
+ * Refreshes sidebar drag-and-drop CSS markers for the widget currently being reordered.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns No value; removes stale drop-marker classes from every sidebar widget, marks the dragged widget, and adds the before/after drop class to the visible target slot.
+ * @noThrows The function exits when there is no drop slot or no visible widget, and clamps the pending slot before indexing the visible widget list.
  * @example
+ * draggedWidgetId = 'inspector';
+ * draggedWidgetSlot = 0;
  * syncSidebarDragState();
+ * expect(sidebarWidgets.inspector.classList.contains('widget-dragging')).toBe(true);
+ * expect(sidebarWidgets[visibleSidebarWidgets(viewer.getSnapshot())[0]].classList.contains('widget-drop-before')).toBe(true);
  */
 function syncSidebarDragState(): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
@@ -669,13 +814,17 @@ function syncSidebarDragState(): void {
 }
 
 /**
- * toggle widget collapse for the current viewer state.
+ * Toggles a sidebar widget between expanded and collapsed, re-renders the sidebar, and keeps the widget header anchored in the scroll viewport.
  *
- * @param widgetId - Stable identifier used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param widgetId - Sidebar widget key whose entry in collapsedWidgets should be added or removed.
+ * @returns No value; mutates collapsedWidgets, triggers render, and may adjust the sidebar scroll padding and scrollTop to preserve the header position.
+ * @noThrows Missing header elements before or after render are guarded with early returns; normal calls use an existing sidebar widget id from the rendered sidebar controls.
  * @example
- * toggleWidgetCollapse(widgetId);
+ * collapsedWidgets.delete('inspector');
+ * toggleWidgetCollapse('inspector');
+ * expect(collapsedWidgets.has('inspector')).toBe(true);
+ * expect(sidebarWidgets.inspector.classList.contains('collapsed')).toBe(true);
+ * expect(sidebarWidgets.inspector.querySelector('[data-widget-collapse="inspector"]')?.getAttribute('aria-expanded')).toBe('false');
  */
 function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
     const header = sidebarWidgets[widgetId].querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
@@ -698,13 +847,15 @@ function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
 }
 
 /**
- * return sidebar widget slot for the current viewer state.
+ * Converts a pointer's viewport Y coordinate into the insertion slot for reordering visible sidebar widgets.
  *
- * @param clientY - client y input used by this operation (number).
- * @returns Computed value, or null when no value is available.
- * @noThrows This function has no direct throw path.
+ * @param clientY - PointerEvent.clientY value measured in viewport pixels during a sidebar drag.
+ * @returns Zero-based insertion index before the first visible widget whose vertical midpoint is at or below clientY, visible.length for a drop after the last widget, or null when no widgets are visible.
+ * @noThrows The function returns null for an empty visible-widget list and otherwise only reads bounding rectangles from registered visible sidebar widget elements.
  * @example
- * sidebarWidgetSlot(clientY);
+ * vi.spyOn(sidebarWidgets.inspector, 'getBoundingClientRect').mockReturnValue({ top: 100, height: 40 } as DOMRect);
+ * expect(sidebarWidgetSlot(110)).toBe(0); // before inspector because 110 is above its midpoint at 120
+ * expect(sidebarWidgetSlot(500)).toBe(visibleSidebarWidgets(viewer.getSnapshot()).length);
  */
 function sidebarWidgetSlot(clientY: number): number | null {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
@@ -717,14 +868,19 @@ function sidebarWidgetSlot(clientY: number): number | null {
 }
 
 /**
- * move sidebar widget to slot for the current viewer state.
+ * Reorders a visible sidebar widget to the requested drop slot and reapplies the sidebar order.
  *
- * @param widgetId - Stable identifier used by this operation.
- * @param slot - slot input used by this operation (number).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param widgetId - Sidebar widget id from the current visible widget list; ids that are not currently visible leave the order unchanged.
+ * @param slot - Requested zero-based insertion slot among visible widgets; values below zero move to the front and values beyond the list move to the end.
+ * @returns Nothing; updates the module-level widget order and refreshes the sidebar layout through `applySidebarOrder()`.
+ * @noThrows Missing widgets are ignored and out-of-range slots are clamped before the order array is rewritten, so normal drag-drop inputs have no expected throw path.
  * @example
- * moveSidebarWidgetToSlot(widgetId, slot);
+ * // With visible widgets ordered as ['summary', 'inspector', 'settings']:
+ * moveSidebarWidgetToSlot('summary', 2);
+ * // The visible order becomes ['inspector', 'summary', 'settings'].
+ *
+ * moveSidebarWidgetToSlot('settings', -1);
+ * // The visible order becomes ['settings', 'inspector', 'summary'] because the slot is clamped to 0.
  */
 function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
@@ -742,12 +898,17 @@ function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void 
 }
 
 /**
- * clear sidebar drag state for the current viewer state.
+ * Cancels the active sidebar drag bookkeeping and refreshes the sidebar drag styling.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Nothing; sets the dragged widget id, drop slot, and pointer id to `null`, then calls `syncSidebarDragState()`.
+ * @noThrows The function only clears nullable module-level drag fields and runs the existing drag-state synchronizer, so ending or cancelling a pointer drag has no expected throw path.
  * @example
+ * // During a sidebar drag:
+ * // draggedWidgetId = 'inspector'; draggedWidgetSlot = 1; draggedWidgetPointerId = 42;
  * clearSidebarDragState();
+ * // draggedWidgetId === null
+ * // draggedWidgetSlot === null
+ * // draggedWidgetPointerId === null
  */
 function clearSidebarDragState(): void {
     draggedWidgetId = null;
@@ -757,25 +918,38 @@ function clearSidebarDragState(): void {
 }
 
 /**
- * return widget icon for the current viewer state.
+ * Looks up the text icon displayed beside a sidebar widget title.
  *
- * @param widgetId - Stable identifier used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param widgetId - Sidebar widget id used as the key into the registered sidebar icon map.
+ * @returns The configured icon text for the widget, or an empty string when the widget has no registered icon.
+ * @noThrows Unknown or iconless widget ids use the empty-string fallback instead of throwing for a missing map entry.
  * @example
- * widgetIcon(widgetId);
+ * // When sidebarWidgetIcons.inspector is 'ⓘ':
+ * widgetIcon('inspector');
+ * // => 'ⓘ'
+ *
+ * // When a widget has no icon mapping:
+ * widgetIcon('custom-widget' as SidebarWidgetId);
+ * // => ''
  */
 function widgetIcon(widgetId: SidebarWidgetId): string {
     return sidebarWidgetIcons[widgetId] ?? '';
 }
 
 /**
- * render command palette for the current viewer state.
+ * Rebuilds the command palette list for the current filter text and selected command index.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Nothing; when the palette is open, replaces the list DOM with matching command buttons or an empty-state message and clamps `commandPaletteIndex` to a valid action.
+ * @noThrows A closed palette returns before touching the DOM, empty results render a fixed empty message, and out-of-range selection indexes are clamped before item classes are applied.
  * @example
+ * // With the palette open, filter text matching "Open file", and commandPaletteIndex = 0:
  * renderCommandPalette();
+ * // commandPaletteList contains a `.command-palette-item.active` button labeled "Open file".
+ *
+ * // With the palette open and no matching actions:
+ * renderCommandPalette();
+ * // commandPaletteIndex === 0
+ * // commandPaletteList.innerHTML === '<div class="command-palette-empty">No matching commands.</div>'
  */
 function renderCommandPalette(): void {
     if (!commandPaletteOpen) return;
@@ -804,12 +978,17 @@ function renderCommandPalette(): void {
 }
 
 /**
- * open command palette for the current viewer state.
+ * Shows the command palette in action-search mode so keyboard shortcuts and menu commands can be chosen.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns No value; the palette is made visible, reset to the first action result, cleared, rendered, and focused.
+ * @noThrows Uses already-created palette DOM nodes and synchronous state assignments; invalid command text is not read during opening.
  * @example
  * openCommandPalette();
+ *
+ * console.assert(commandPaletteOpen === true);
+ * console.assert(commandPaletteMode === 'actions');
+ * console.assert(commandPaletteInput.placeholder === 'Type a command');
+ * console.assert(!commandPalette.classList.contains('hidden'));
  */
 function openCommandPalette(): void {
     commandPaletteMode = 'actions';
@@ -824,12 +1003,17 @@ function openCommandPalette(): void {
 }
 
 /**
- * open tab palette for the current viewer state.
+ * Shows the command palette in tab-selection mode so the user can switch to another open demo tab.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns No value; the palette is made visible, reset to the first tab result, cleared, rendered, and focused.
+ * @noThrows Uses already-created palette DOM nodes and synchronous state assignments; tab lookup happens later when a result is chosen.
  * @example
  * openTabPalette();
+ *
+ * console.assert(commandPaletteOpen === true);
+ * console.assert(commandPaletteMode === 'tabs');
+ * console.assert(commandPaletteInput.placeholder === 'Select a tab');
+ * console.assert(!commandPalette.classList.contains('hidden'));
  */
 function openTabPalette(): void {
     commandPaletteMode = 'tabs';
@@ -844,12 +1028,22 @@ function openTabPalette(): void {
 }
 
 /**
- * close command palette for the current viewer state.
+ * Hides the command palette and clears its transient search UI after backdrop clicks, Escape, or action selection.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns No value; an open palette is hidden, reset to action mode, emptied, and its rendered result list is removed.
+ * @noThrows Closing is idempotent: when the palette is already closed the function returns before touching the DOM, otherwise it only mutates existing palette elements.
  * @example
+ * commandPaletteOpen = true;
+ * commandPaletteInput.value = 'save';
+ * commandPaletteList.replaceChildren(document.createElement('li'));
+ *
  * closeCommandPalette();
+ *
+ * console.assert(commandPaletteOpen === false);
+ * console.assert(commandPaletteMode === 'actions');
+ * console.assert(commandPalette.classList.contains('hidden'));
+ * console.assert(commandPaletteInput.value === '');
+ * console.assert(commandPaletteList.children.length === 0);
  */
 function closeCommandPalette(): void {
     if (!commandPaletteOpen) return;
@@ -861,13 +1055,17 @@ function closeCommandPalette(): void {
 }
 
 /**
- * set sidebar width for the current viewer state.
+ * Applies a requested sidebar width to the app shell, clamping it to the space left beside the splitter and resizing the viewer canvas.
  *
- * @param width - width input used by this operation (number).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param width - Requested sidebar width in CSS pixels, such as the drag distance from the right edge or the default maximum width.
+ * @returns No value; updates the `--sidebar-width` CSS custom property and notifies the viewer to recompute its layout.
+ * @noThrows Negative and oversized widths are clamped into the available app width instead of being rejected; the remaining work is synchronous style mutation and viewer resizing.
  * @example
- * setSidebarWidth(width);
+ * // With app.clientWidth = 800 and sidebarSplitter.offsetWidth = 8:
+ * setSidebarWidth(1000);
+ *
+ * console.assert(app.style.getPropertyValue('--sidebar-width') === '792px');
+ * console.assert(viewer.resizeCalls === 1);
  */
 function setSidebarWidth(width: number): void {
     const maxWidth = Math.max(0, app.clientWidth - sidebarSplitter.offsetWidth);
@@ -885,24 +1083,34 @@ window.addEventListener('resize', () => {
 
 // tab documents
 /**
- * return active tab for the current viewer state.
+ * Finds the loaded session tab that is currently selected in the demo tab strip.
  *
- * @returns Computed LoadedBundleDocument | undefined value for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns The `LoadedBundleDocument` whose `id` matches `activeTabId`, or `undefined` when no tab is active or the active id no longer exists in `sessionTabs`.
+ * @noThrows Performs only an in-memory array lookup against `sessionTabs` and does not parse, clone, or load tab contents.
  * @example
- * activeTab();
+ * sessionTabs = [layoutATab, layoutBTab];
+ * activeTabId = layoutBTab.id;
+ *
+ * const tab = activeTab();
+ *
+ * console.assert(tab === layoutBTab);
  */
 function activeTab(): LoadedBundleDocument | undefined {
     return sessionTabs.find((tab) => tab.id === activeTabId);
 }
 
 /**
- * return next tab title for the current viewer state.
+ * Chooses the first available default title for a newly created layout tab.
  *
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns A `Layout N` title using the lowest positive integer that is not already present in `sessionTabs`, suitable for displaying in the tab strip.
+ * @noThrows Reads existing tab titles into a `Set` and increments a local counter; normal session-tab records already contain string titles.
  * @example
- * nextTabTitle();
+ * sessionTabs = [
+ *     { ...loadedTab, id: 'tab-1', title: 'Layout 1' },
+ *     { ...loadedTab, id: 'tab-2', title: 'Layout 3' },
+ * ];
+ *
+ * console.assert(nextTabTitle() === 'Layout 2');
  */
 function nextTabTitle(): string {
     const used = new Set(sessionTabs.map((tab) => tab.title));
@@ -912,15 +1120,28 @@ function nextTabTitle(): string {
 }
 
 /**
- * clone tab document for the current viewer state.
+ * Creates an independent copy of a loaded tab document for the Add Tab workflow.
  *
- * @param tab - Session tab used by this operation.
- * @param id - Stable identifier used by this operation.
- * @param title - title input used by this operation (string).
- * @returns Computed LoadedBundleDocument value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param tab - Source session tab whose manifest and tensor byte arrays should be duplicated.
+ * @param id - Identifier to assign to the new tab entry.
+ * @param title - Display title to show for the new tab in the tab strip.
+ * @returns A `LoadedBundleDocument` with the supplied `id` and `title`, a structured-cloned manifest, and a new tensor map whose array values are sliced copies of the source tensors.
+ * @noThrows Has no validation branch; it expects the source tab to contain structured-cloneable manifest data and tensor values that support `slice()`.
  * @example
- * cloneTabDocument(tab, id, title);
+ * const source = {
+ *     id: 'tab-1',
+ *     title: 'Layout 1',
+ *     manifest,
+ *     tensors: new Map([['weights', new Float32Array([1, 2, 3])]]),
+ * };
+ *
+ * const clone = cloneTabDocument(source, 'tab-2', 'Layout 2');
+ *
+ * console.assert(clone.id === 'tab-2');
+ * console.assert(clone.title === 'Layout 2');
+ * console.assert(clone.manifest !== source.manifest);
+ * console.assert(clone.tensors.get('weights') !== source.tensors.get('weights'));
+ * console.assert(clone.tensors.get('weights')?.[0] === 1);
  */
 function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string): LoadedBundleDocument {
     return {
@@ -932,14 +1153,33 @@ function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string):
 }
 
 /**
- * return normalized tensor view snapshot for the current viewer state.
+ * Selects a loadable tensor-view snapshot for a tensor before restoring it into the viewer.
  *
- * @param tensor - Tensor record used by this operation.
- * @param views - views input used by this operation (Array<ViewerSnapshot['tensors'][number]['view'] | undefined>).
- * @returns Computed ViewerSnapshot['tensors'][number]['view'] value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param tensor - Manifest tensor entry whose `shape` and optional `axisLabels` define the valid dimensions and labels for tensor-view parsing.
+ * @param views - Candidate saved views, tried in order, such as the incoming snapshot view, the previous tab view, and the manifest's default view.
+ * @returns A normalized view containing the parsed editor spec and a copied `hiddenIndices` array; callers can store it in the viewer snapshot without sharing the candidate array instance.
+ * @throws Error with message `Tensor view editor state is invalid.` when every supplied candidate view is missing or unparsable and the generated default editor also cannot be parsed for the tensor shape.
  * @example
- * normalizedTensorViewSnapshot(tensor, views);
+ * const tensor = { id: 'activations', shape: [2, 3], axisLabels: [['row0', 'row1'], ['col0', 'col1', 'col2']] };
+ * const savedView = {
+ *     editor: { mode: 'expression', expression: '[:, col1]' },
+ *     hiddenIndices: [0],
+ * };
+ *
+ * const view = normalizedTensorViewSnapshot(tensor, savedView);
+ *
+ * console.assert(view.hiddenIndices !== savedView.hiddenIndices);
+ * console.assert(view.hiddenIndices[0] === 0);
+ *
+ * @example
+ * const tensor = { id: 'broken', shape: [], axisLabels: [] };
+ *
+ * try {
+ *     normalizedTensorViewSnapshot(tensor, { editor: { mode: 'expression', expression: '[' }, hiddenIndices: [] });
+ * } catch (error) {
+ *     console.assert(error instanceof Error);
+ *     console.assert(error.message === 'Tensor view editor state is invalid.');
+ * }
  */
 function normalizedTensorViewSnapshot(
     tensor: BundleManifest['tensors'][number],
@@ -968,14 +1208,33 @@ function normalizedTensorViewSnapshot(
 }
 
 /**
- * normalize viewer snapshot for the current viewer state.
+ * Reconciles a saved or freshly captured viewer snapshot with the tab manifest before the
+ * snapshot is persisted or loaded back into the viewer.
  *
- * @param tab - Session tab used by this operation.
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Computed ViewerSnapshot value for the caller.
- * @noThrows This function has no direct throw path.
+ * Each tensor entry keeps its non-view fields, but entries whose id exists in the tab
+ * manifest receive a normalized tensor-view snapshot using the manifest tensor definition,
+ * the tab's previous saved view, and the tensor's default view. Entries for tensors that are
+ * no longer present in the manifest are preserved unchanged.
+ *
+ * @param tab - Loaded session tab whose manifest supplies the tensor definitions, previous viewer tensor views, and tensor defaults used for normalization.
+ * @param snapshot - Viewer snapshot captured from the live viewer or read from the tab manifest, including the tensor entries to reconcile by id.
+ * @returns A new viewer snapshot object suitable for storing on `tab.manifest.viewer` or passing to the viewer; matching tensor entries contain normalized `view` values.
+ * @noThrows The function performs no explicit validation and leaves snapshot entries without matching manifest tensors unchanged instead of raising an error.
  * @example
- * normalizeViewerSnapshot(tab, snapshot);
+ * const normalized = normalizeViewerSnapshot(tab, {
+ *   ...tab.manifest.viewer,
+ *   tensors: [{ id: 'activation', view: { expression: '0:4, :' } }],
+ * });
+ *
+ * expect(normalized.tensors[0]?.id).toBe('activation');
+ * expect(normalized.tensors[0]?.view).toEqual(
+ *   normalizedTensorViewSnapshot(
+ *     tab.manifest.tensors.find((tensor) => tensor.id === 'activation')!,
+ *     { expression: '0:4, :' },
+ *     tab.manifest.viewer.tensors.find((tensor) => tensor.id === 'activation')?.view,
+ *     tab.manifest.tensors.find((tensor) => tensor.id === 'activation')!.view,
+ *   ),
+ * );
  */
 function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnapshot): ViewerSnapshot {
     return {
@@ -993,24 +1252,37 @@ function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnap
 }
 
 /**
- * clear tab title edit for the current viewer state.
+ * Ends any in-progress tab title rename so the tab strip returns to its normal label view.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Nothing; `editingTab` is reset to `null`.
+ * @noThrows Clearing the edit marker is a single assignment and does not inspect DOM state or validate tab data.
  * @example
+ * editingTab = sessionTabs[0]!;
  * clearTabTitleEdit();
+ *
+ * expect(editingTab).toBeNull();
  */
 function clearTabTitleEdit(): void {
     editingTab = null;
 }
 
 /**
- * capture active tab snapshot for the current viewer state.
+ * Saves the live viewer state into the active session tab before switching, cloning, closing,
+ * or rendering tab-specific UI.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * The raw viewer snapshot is offered to extensions first so extension-owned metadata can be
+ * captured while it still matches the visible viewer. The tab manifest then receives the
+ * normalized snapshot used for later reloads. If no tab is active, the function is a no-op.
+ *
+ * @returns Nothing; when an active tab exists, `activeTab().manifest.viewer` is replaced with the normalized viewer snapshot.
+ * @noThrows The app-level control flow has no explicit error branch: a missing active tab returns early, and the remaining work delegates to optional extension hooks before assigning the normalized snapshot.
  * @example
+ * activeTabId = 'tab-a';
+ * viewer.getSnapshot = () => ({ tensors: [{ id: 'weights', view: { expression: ':' } }] });
+ *
  * captureActiveTabSnapshot();
+ *
+ * expect(sessionTabs.find((tab) => tab.id === 'tab-a')!.manifest.viewer.tensors[0]?.id).toBe('weights');
  */
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
@@ -1026,13 +1298,30 @@ function captureActiveTabSnapshot(): void {
 }
 
 /**
- * close tab for the current viewer state.
+ * Removes a session tab and updates the surrounding viewer shell state.
  *
- * @param tabId - Stable identifier used by this operation.
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * Closing the active tab first captures its current viewer snapshot, notifies extensions to
+ * discard tab-scoped data, removes the tab from `sessionTabs`, and loads the previous
+ * neighboring tab when one remains. Closing the final tab clears the active id, seeds the
+ * fallback demo tensor, and renders the empty-tab state. Unknown tab ids are ignored.
+ *
+ * @param tabId - Identifier of the session tab to remove from `sessionTabs`; ids not present in the current session are treated as no-ops.
+ * @returns A promise that resolves with no value after any replacement active tab has finished loading and the tab strip/viewer state has been refreshed.
+ * @noThrows The function performs no explicit validation: missing tab ids return immediately, and the final-tab case is handled by reseeding and rendering instead of throwing.
  * @example
- * closeTab(tabId);
+ * sessionTabs = [firstTab, secondTab];
+ * activeTabId = secondTab.id;
+ *
+ * await closeTab(secondTab.id);
+ *
+ * expect(sessionTabs.map((tab) => tab.id)).toEqual([firstTab.id]);
+ * expect(activeTabId).toBe(firstTab.id);
+ *
+ * @example
+ * sessionTabs = [firstTab];
+ * await closeTab('missing-tab');
+ *
+ * expect(sessionTabs).toEqual([firstTab]);
  */
 async function closeTab(tabId: string): Promise<void> {
     const index = sessionTabs.findIndex((tab) => tab.id === tabId);
@@ -1059,12 +1348,23 @@ async function closeTab(tabId: string): Promise<void> {
 }
 
 /**
- * render tab strip for the current viewer state.
+ * Rebuilds the demo tab bar from `sessionTabs`, showing the active tab, close buttons,
+ * the inline title editor for `editingTab`, and the trailing "Add New Tab" action.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Nothing. Callers observe the updated `tabStrip` children and the event handlers
+ * wired to load, close, rename, or create tabs.
+ * @noThrows Does not intentionally throw for an empty tab list; it clears any pending title edit
+ * and renders only the action area. DOM API failures or rejected async tab handlers are outside
+ * this renderer's expected synchronous path.
  * @example
+ * sessionTabs = [{ id: 'tab-1', title: 'Weights' }, { id: 'tab-2', title: 'Activations' }];
+ * activeTabId = 'tab-2';
+ * editingTab = null;
  * renderTabStrip();
+ *
+ * console.assert(tabStrip.querySelectorAll('.tab-button').length === 2);
+ * console.assert(tabStrip.querySelector('.tab-button.active')?.getAttribute('aria-label') === 'Activations');
+ * console.assert(tabStrip.querySelector('.tab-strip-action')?.textContent === 'Add New Tab');
  */
 function renderTabStrip(): void {
     tabStrip.classList.remove('hidden');
@@ -1167,12 +1467,24 @@ function renderTabStrip(): void {
 }
 
 /**
- * add new tab for the current viewer state.
+ * Creates a new demo tab: extensions may provide the first tab for an empty session, otherwise
+ * the active tab's document is captured, cloned under a fresh tab id, registered with extensions,
+ * and loaded as the active tab.
  *
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @returns A promise that settles after the new or seeded tab has been loaded, so command handlers
+ * can wait before refreshing UI that depends on `activeTabId` or `sessionTabs`.
+ * @noThrows Has no validation branch of its own; expected operation uses the existing active tab,
+ * extension hooks, and viewer snapshot. Rejections from extension hooks or tab loading propagate
+ * to the caller.
  * @example
- * addNewTab();
+ * sessionTabs = [{ id: 'tab-1', title: 'Tensor 1', document: currentDocument }];
+ * activeTabId = 'tab-1';
+ * await addNewTab();
+ *
+ * console.assert(sessionTabs.length === 2);
+ * console.assert(sessionTabs[1].id.startsWith('tab-'));
+ * console.assert(sessionTabs[1].title === 'Tensor 2');
+ * console.assert(activeTabId === sessionTabs[1].id);
  */
 async function addNewTab(): Promise<void> {
     const currentTab = activeTab();
@@ -1199,25 +1511,55 @@ async function addNewTab(): Promise<void> {
 }
 
 /**
- * close current tab for the current viewer state.
+ * Closes the tab referenced by `activeTabId`, delegating fallback selection, session updates,
+ * and demo reseeding to `closeTab`.
  *
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @returns A promise that resolves after the active tab has been closed, or immediately when no
+ * tab is active.
+ * @noThrows The missing-active-tab case is guarded by `if (activeTabId)`, making it a no-op;
+ * any rejection comes from the delegated `closeTab` workflow rather than from this guard.
  * @example
- * closeCurrentTab();
+ * sessionTabs = [{ id: 'tab-1', title: 'Weights' }, { id: 'tab-2', title: 'Activations' }];
+ * activeTabId = 'tab-2';
+ * await closeCurrentTab();
+ *
+ * console.assert(!sessionTabs.some((tab) => tab.id === 'tab-2'));
+ * console.assert(activeTabId !== 'tab-2');
+ *
+ * activeTabId = null;
+ * await closeCurrentTab(); // no tab is closed and the session remains unchanged
  */
 async function closeCurrentTab(): Promise<void> {
     if (activeTabId) await closeTab(activeTabId);
 }
 
 /**
- * render control dock for the current viewer state.
+ * Builds the control dock for the supplied viewer snapshot, including pan/select/rotate modes,
+ * 2D and 3D display toggles, extension-contributed controls, dimension-line and tensor-name
+ * toggles, gap display, and dimension-mapping buttons.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param snapshot - Viewer state snapshot whose `displayMode`, `interactionMode`, selection
+ * availability, label visibility, gap setting, and mapping scheme determine which dock buttons
+ * are active or disabled.
+ * @returns Nothing. Callers observe `controlDock` being replaced with buttons that call the
+ * corresponding viewer setters or extension handlers when clicked.
+ * @noThrows Does not intentionally reject unsupported modes; unavailable actions such as select
+ * outside a selectable 2D layout or rotate outside 3D are rendered disabled. DOM failures or
+ * exceptions from extension `controls` providers are allowed to propagate.
  * @example
- * renderControlDock(snapshot);
+ * renderControlDock({
+ *   ...viewer.getSnapshot(),
+ *   displayMode: '2d',
+ *   interactionMode: 'select',
+ *   showDimensionLines: true,
+ *   showTensorNames: true,
+ *   displayGaps: false,
+ *   dimensionMappingScheme: 'contiguous',
+ * });
+ *
+ * console.assert(controlDock.querySelector('[data-control-id="select"]')?.classList.contains('active'));
+ * console.assert(controlDock.querySelector('[data-control-id="rotate"]')?.hasAttribute('disabled'));
+ * console.assert(controlDock.querySelector('[data-control-id="mapping-contiguous"]')?.classList.contains('active'));
  */
 function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
@@ -1329,13 +1671,21 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
 }
 
 /**
- * load tab for the current viewer state.
+ * Switches the demo shell to the session tab with the given id, loads that tab's manifest and tensors into the viewer, applies saved viewer options, refreshes the tab strip, and lets extensions hydrate tab-local state.
  *
- * @param tabId - Stable identifier used by this operation.
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @param tabId - Id of an entry in `sessionTabs`; ids that are not present are ignored without changing the active tab.
+ * @returns Promise that resolves after the viewer has accepted the tab bundle, startup widget defaults have been applied if needed, the tab strip has rendered, and extension `afterLoadTab` hooks have run.
+ * @noThrows Unknown tab ids return early, and this function does not intentionally validate or throw before delegating to viewer and extension hooks.
  * @example
- * loadTab(tabId);
+ * sessionTabs = [linearLayoutTab, profilerTab];
+ * await loadTab(linearLayoutTab.id);
+ * expect(activeTabId).toBe(linearLayoutTab.id);
+ * expect(viewer.getSnapshot().dimensionMappingScheme).toBe(linearLayoutTab.manifest.viewer.dimensionMappingScheme);
+ *
+ * @example
+ * const previousActiveTabId = activeTabId;
+ * await loadTab('missing-tab');
+ * expect(activeTabId).toBe(previousActiveTabId);
  */
 async function loadTab(tabId: string): Promise<void> {
     const tab = sessionTabs.find((entry) => entry.id === tabId);
@@ -1477,13 +1827,15 @@ sidebar.addEventListener('pointercancel', (event) => {
 
 // sidebar rendering
 /**
- * update sidebar for the current viewer state.
+ * Reconciles the sidebar DOM with a viewer snapshot by showing only the widgets that are visible for that snapshot, applying collapsed widget state, syncing widget headers, and refreshing drag affordances.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param snapshot - Snapshot returned by the viewer render pipeline; extension visibility rules inspect it to decide which registered sidebar widgets should be displayed.
+ * @returns Nothing; the registered sidebar widget elements are updated in place with `hidden` and `collapsed` classes and synchronized header state.
+ * @noThrows The function only iterates registered widget elements and toggles DOM state for the supplied snapshot; normal visibility decisions are represented as class changes rather than errors.
  * @example
- * updateSidebar(snapshot);
+ * updateSidebar(snapshotWithSelection);
+ * expect(sidebarWidgets.inspector.classList.contains('hidden')).toBe(false);
+ * expect(sidebarWidgets['linear-layout'].classList.contains('collapsed')).toBe(collapsedWidgets.has('linear-layout'));
  */
 function updateSidebar(snapshot: ViewerSnapshot): void {
     const visible = new Set(visibleSidebarWidgets(snapshot));
@@ -1497,14 +1849,20 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
 }
 
 /**
- * capture sidebar anchor for the current viewer state.
+ * Captures a sidebar control's current vertical position so a later render can keep the same control aligned after widgets expand, collapse, or change content above it.
  *
- * @param element - element input used by this operation (HTMLElement | null).
- * @param selector - selector input used by this operation (string).
- * @returns Object containing computed state for the caller.
- * @noThrows This function has no direct throw path.
+ * @param element - Sidebar element currently under interaction, such as a tensor-view slider or slice-token button; `null` means there is no control to anchor.
+ * @param selector - CSS selector that can find the same sidebar element after the sidebar is re-rendered.
+ * @returns The selector and the element's current viewport `top` coordinate, or `null` when no element was supplied.
+ * @noThrows A missing element is handled by returning `null`; otherwise the helper only reads `getBoundingClientRect()` and stores the caller-provided selector.
  * @example
- * captureSidebarAnchor(element, selector);
+ * const slider = document.querySelector<HTMLElement>('#tensor-view-slider-0')!;
+ * vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({ top: 120 } as DOMRect);
+ * expect(captureSidebarAnchor(slider, '#tensor-view-slider-0')).toEqual({
+ *   selector: '#tensor-view-slider-0',
+ *   top: 120,
+ * });
+ * expect(captureSidebarAnchor(null, '#tensor-view-slider-0')).toBeNull();
  */
 function captureSidebarAnchor(element: HTMLElement | null, selector: string): { selector: string; top: number } | null {
     if (!element) return null;
@@ -1512,13 +1870,23 @@ function captureSidebarAnchor(element: HTMLElement | null, selector: string): { 
 }
 
 /**
- * render preserving sidebar scroll for the current viewer state.
+ * Re-renders the viewer and sidebar while preserving the sidebar scroll position, optionally adjusting after the next animation frame so a captured control stays at the same viewport height.
  *
- * @param anchor - anchor input used by this operation ({ selector: string; top: number } | null).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param anchor - Optional selector/top pair from `captureSidebarAnchor`; pass `null` when only the previous `sidebar.scrollTop` should be restored.
+ * @returns Nothing; the function calls the normal render path and mutates `sidebar.scrollTop` immediately and again after the browser has laid out the re-rendered sidebar.
+ * @noThrows Null anchors and selectors that no longer match an element are treated as no-op scroll adjustments rather than errors.
  * @example
- * renderPreservingSidebarScroll(anchor);
+ * sidebar.scrollTop = 200;
+ * renderPreservingSidebarScroll(null);
+ * await nextAnimationFrame();
+ * expect(sidebar.scrollTop).toBe(200);
+ *
+ * @example
+ * sidebar.scrollTop = 200;
+ * renderPreservingSidebarScroll({ selector: '#slice-token-k', top: 80 });
+ * await nextAnimationFrame();
+ * // If the re-rendered control moved down by 12px, scrollTop is increased to keep it under the cursor.
+ * expect(sidebar.scrollTop).toBe(212);
  */
 function renderPreservingSidebarScroll(anchor: { selector: string; top: number } | null = null): void {
     const previousScrollTop = sidebar.scrollTop;
@@ -1539,13 +1907,19 @@ function renderPreservingSidebarScroll(anchor: { selector: string; top: number }
 
 // tensor-view editor
 /**
- * keep compact textareas at their content height so widget fields stay visually aligned.
+ * Resizes a sidebar textarea to exactly fit its current content so tensor-view and widget fields do not show an inner scrollbar while editing.
  *
- * @param textarea - textarea input used by this operation (HTMLTextAreaElement).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param textarea - Rendered textarea whose `scrollHeight` reflects the current text after the DOM has been laid out.
+ * @returns Nothing; sets `textarea.style.height` to `0` before measuring and then to the textarea's current `scrollHeight` in pixels.
+ * @noThrows Reading `scrollHeight` and assigning inline `style.height` on an existing `HTMLTextAreaElement` are synchronous DOM property operations with no expected application-level error path.
  * @example
+ * const textarea = document.createElement('textarea');
+ * textarea.value = 'view: [batch, head, token]';
+ * Object.defineProperty(textarea, 'scrollHeight', { value: 48, configurable: true });
+ *
  * autosizeTextarea(textarea);
+ *
+ * console.assert(textarea.style.height === '48px');
  */
 function autosizeTextarea(textarea: HTMLTextAreaElement): void {
     textarea.style.height = '0';
@@ -1553,14 +1927,21 @@ function autosizeTextarea(textarea: HTMLTextAreaElement): void {
 }
 
 /**
- * return begin tensor view slider drag for the current viewer state.
+ * Marks a tensor-view range slider as actively dragged so preview rendering can pause until the pointer is released.
  *
- * @param slider - slider input used by this operation (HTMLInputElement).
- * @param pointerId - Stable identifier used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param slider - Tensor-view `input[type="range"]` element that received the pointerdown event.
+ * @param pointerId - `PointerEvent.pointerId` from that pointerdown event; stored so only the matching pointer can end the drag.
+ * @returns Nothing; records the active pointer id, suspends tensor-view rendering, and asks the slider to capture subsequent pointer events.
+ * @noThrows Stores drag bookkeeping and delegates pointer capture to the slider element supplied by the pointer event.
  * @example
- * beginTensorViewSliderDrag(slider, pointerId);
+ * const slider = document.createElement('input');
+ * slider.type = 'range';
+ * let capturedPointer: number | undefined;
+ * slider.setPointerCapture = (pointerId) => { capturedPointer = pointerId; };
+ *
+ * beginTensorViewSliderDrag(slider, 7);
+ *
+ * console.assert(capturedPointer === 7);
  */
 function beginTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
     suspendTensorViewRender = true;
@@ -1569,14 +1950,24 @@ function beginTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number):
 }
 
 /**
- * return end tensor view slider drag for the current viewer state.
+ * Completes the active tensor-view slider drag, resumes rendering, releases pointer capture, and rerenders while keeping the slider's sidebar position anchored.
  *
- * @param slider - slider input used by this operation (HTMLInputElement).
- * @param pointerId - Stable identifier used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param slider - Tensor-view `input[type="range"]` element that may currently hold pointer capture for the drag.
+ * @param pointerId - `PointerEvent.pointerId` from pointerup or pointercancel; ignored when it does not match the active slider drag pointer.
+ * @returns Nothing; clears the active pointer when it matches, resumes tensor-view rendering, releases capture if present, and refreshes the sidebar around the slider.
+ * @noThrows Ignores non-matching pointers and checks pointer capture before releasing it, so normal drag completion does not raise validation errors.
  * @example
- * endTensorViewSliderDrag(slider, pointerId);
+ * const slider = document.createElement('input');
+ * slider.id = 'slice-token-0';
+ * slider.type = 'range';
+ * let releasedPointer: number | undefined;
+ * slider.hasPointerCapture = (pointerId) => pointerId === 7;
+ * slider.releasePointerCapture = (pointerId) => { releasedPointer = pointerId; };
+ *
+ * beginTensorViewSliderDrag(slider, 7);
+ * endTensorViewSliderDrag(slider, 7);
+ *
+ * console.assert(releasedPointer === 7);
  */
 function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
     if (activeTensorViewSliderPointerId !== pointerId) return;
@@ -1587,15 +1978,25 @@ function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): v
 }
 
 /**
- * apply tensor view editor for the current viewer state.
+ * Commits a parsed tensor-view editor model to the viewer, lets extensions react to the changed view, and rerenders the sidebar with any validation message updated.
  *
- * @param tensorId - Stable identifier used by this operation.
- * @param editor - editor input used by this operation (TensorViewEditor).
- * @param anchor - anchor input used by this operation ({ selector: string; top: number } | null).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param tensorId - Viewer tensor handle id whose tensor-view expression should be replaced.
+ * @param editor - Parsed tensor-view editor state, including the view input text and selected sliced token keys to serialize for the viewer.
+ * @param anchor - Optional sidebar scroll anchor captured before a button or slider edit so the rerender returns to the same control.
+ * @returns Nothing; on success clears the tensor's view error, and on serialization or viewer rejection stores the error message for display before rerendering.
+ * @noThrows Catches tensor-view serialization and viewer validation failures, stores their messages for the sidebar, and still rerenders.
  * @example
- * applyTensorViewEditor(tensorId, editor, anchor);
+ * const editor = {
+ *   version: 2,
+ *   viewTensorInput: '[batch, token]',
+ *   slicedTokenKeys: ['batch'],
+ * };
+ * const anchor = { selector: '[data-slice-token="batch"]', top: 120 };
+ *
+ * applyTensorViewEditor('logits', editor, anchor);
+ *
+ * // The next sidebar render shows the serialized tensor view for `logits`; if the
+ * // viewer rejects it, the tensor's validation message is rendered instead.
  */
 function applyTensorViewEditor(
     tensorId: string,
@@ -1618,26 +2019,29 @@ function applyTensorViewEditor(
 }
 
 /**
- * return tensor call input value for the current viewer state.
+ * Removes a single leading `[` and single trailing `]` from tensor-call text before comparing it with the editor's view input.
  *
- * @param value - Value supplied by the caller.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param value - Raw tensor call input text from the view editor, such as `[batch, head]` or `batch, head`.
+ * @returns The same text without one outer bracket pair; inner brackets or unpaired brackets are otherwise preserved.
+ * @noThrows Uses only string replacement on the provided string, so malformed bracket text is returned as normalized text instead of raising an error.
  * @example
- * tensorCallInputValue(value);
+ * tensorCallInputValue('[batch, head]'); // 'batch, head'
+ * tensorCallInputValue('batch, head'); // 'batch, head'
  */
 function tensorCallInputValue(value: string): string {
     return value.replace(/^\[/, '').replace(/\]$/, '');
 }
 
 /**
- * parse integer term for the current viewer state.
+ * Parses one integer expression from tensor-view controls, including `*`-separated products used in dimension or permutation fields.
  *
- * @param value - Value supplied by the caller.
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * @param value - Text for a single integer term, such as `3`, `2 * 4`, `-1`, or a blank/invalid token from an input field.
+ * @returns The parsed integer or product; returns `-1` for the inference sentinel and `NaN` for blank or non-finite terms.
+ * @noThrows Invalid numeric tokens are converted to `NaN`, and no error is raised for empty or malformed input.
  * @example
- * parseIntegerTerm(value);
+ * parseIntegerTerm('2 * 4'); // 8
+ * parseIntegerTerm('-1'); // -1
+ * Number.isNaN(parseIntegerTerm('width')); // true
  */
 function parseIntegerTerm(value: string): number {
     const term = value.trim();
@@ -1649,14 +2053,30 @@ function parseIntegerTerm(value: string): number {
 }
 
 /**
- * parse shape spec for the current viewer state.
+ * Parses the comma-separated tensor view shape field into labeled dimensions and resolves a single `-1` size from the tensor element count.
  *
- * @param value - Value supplied by the caller.
- * @param totalElements - total elements input used by this operation (number).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Shape specification text such as `batch=2, head=4`, `2, 4, -1`, or anonymous labels like `*0=8`.
+ * @param totalElements - Number of elements in the tensor view, used to infer the size of the dimension written as `-1`.
+ * @returns Dimension descriptors in input order, with generated `*A#` labels for bare numeric dimensions and concrete sizes after inference.
+ * @throws Error when a comma-separated term contains unsupported syntax, or when a `-1` dimension cannot be inferred because the known product is zero or does not divide `totalElements`.
  * @example
- * parseShapeSpec(value, totalElements);
+ * parseShapeSpec('batch=2, head=4, width=-1', 24);
+ * // [
+ * //   { label: 'batch', size: 2 },
+ * //   { label: 'head', size: 4 },
+ * //   { label: 'width', size: 3 },
+ * // ]
+ *
+ * @example
+ * parseShapeSpec('2, 3', 6);
+ * // [
+ * //   { label: '*A0', size: 2 },
+ * //   { label: '*A1', size: 3 },
+ * // ]
+ *
+ * @example
+ * parseShapeSpec('batch=-1, width=5', 12);
+ * // throws Error: Could not infer a valid -1 dimension.
  */
 function parseShapeSpec(
     value: string,
@@ -1693,30 +2113,49 @@ function parseShapeSpec(
 }
 
 /**
- * parse integer list input for the current viewer state.
+ * Parses a comma-separated control value into finite integer terms for tensor-view operations such as permutation indices.
  *
- * @param value - Value supplied by the caller.
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @param value - Comma-separated integer-term text, where each entry may be a number or multiplication expression like `0, 2, 3 * 4`.
+ * @returns Finite parsed numbers in their original order; blank entries and malformed terms are omitted.
+ * @noThrows Each entry is parsed with `parseIntegerTerm`, which reports invalid tokens as `NaN`, and this helper filters those values out.
  * @example
- * parseIntegerListInput(value);
+ * parseIntegerListInput('0, 2, 3 * 4, width, , -1'); // [0, 2, 12, -1]
  */
 function parseIntegerListInput(value: string): number[] {
     return value.split(',').map(parseIntegerTerm).filter((part) => Number.isFinite(part));
 }
 
 /**
- * build step4 editor for the current viewer state.
+ * Rebuilds the Tensor View editor after the user edits the first view, permutation,
+ * or optional final view text.
  *
- * @param previous - previous input used by this operation (TensorViewEditor).
- * @param viewInput - view input input used by this operation (string).
- * @param permuteInput - permute input input used by this operation (string).
- * @param finalViewInput - final view input input used by this operation (string | null).
- * @param totalElements - total elements input used by this operation (number).
- * @returns Computed TensorViewEditor value for the caller.
- * @noThrows This function has no direct throw path.
+ * The returned editor keeps the previous editor metadata, refreshes the displayed
+ * `tensor.view(...)` input, derives base-dimension ids and labels from the first
+ * view, converts the permutation indices into permuted dimension ids, resets
+ * flatten separators for the new order, and clears singleton dimensions.
+ *
+ * @param previous - Existing Tensor View editor state whose dimension ids are reused when the first view shape did not change.
+ * @param viewInput - Comma-separated shape expression for the first `tensor.view(...)`, without surrounding brackets.
+ * @param permuteInput - Comma-separated zero-based dimension indices from `tensor.permute(...)`.
+ * @param finalViewInput - Optional comma-separated shape expression for the final chained `.view(...)`, or null when no final view is present.
+ * @param totalElements - Product of the source tensor shape, used to validate and infer the first view dimensions.
+ * @returns A TensorViewEditor ready to render the updated view/permutation controls and serialize the edited tensor expression.
+ * @throws Error when `viewInput` is not a valid shape for `totalElements` or `permuteInput` contains an invalid integer list.
  * @example
- * buildStep4Editor(previous, viewInput, permuteInput, finalViewInput, totalElements);
+ * const next = buildStep4Editor(previous, 'B=2, C=3', '1, 0', null, 6);
+ *
+ * console.assert(next.viewTensorInput === '[B=2, C=3]');
+ * console.assert(next.finalViewInput === undefined);
+ * console.assert(next.baseDims.map((dim) => dim.label).join(',') === 'B,C');
+ * console.assert(next.permutedDimIds.length === 2);
+ * console.assert(next.flattenSeparators.length === 1);
+ *
+ * @example
+ * try {
+ *   buildStep4Editor(previous, '2, 3', 'not-an-index', null, 6);
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ * }
  */
 function buildStep4Editor(
     previous: TensorViewEditor,
@@ -1745,14 +2184,23 @@ function buildStep4Editor(
 }
 
 /**
- * return tensor view help html for the current viewer state.
+ * Builds the expandable Tensor View usage guide shown beside the direct tensor
+ * expression textarea.
  *
- * @param shape - Tensor shape used by this operation.
- * @param axisLabels - axis labels input used by this operation (readonly string[]).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * The examples in the fragment are tailored to the loaded tensor: they show the
+ * current shape, a reversed permutation order, and a labeled shape using supplied
+ * axis labels with `A0`, `A1`, ... fallbacks.
+ *
+ * @param shape - Source tensor dimension sizes used in generated `tensor.view(...)` and reversed `tensor.permute(...)` examples.
+ * @param axisLabels - Optional labels for each tensor axis; missing labels are rendered as `A${index}` fallbacks.
+ * @returns An escaped HTML `<details>` fragment that callers insert into the Tensor View panel.
+ * @noThrows This formatter only maps arrays, joins strings, and escapes interpolated text; it does not parse user input or touch the DOM.
  * @example
- * tensorViewHelpHtml(shape, axisLabels);
+ * const html = tensorViewHelpHtml([2, 3], ['batch', 'feature']);
+ *
+ * console.assert(html.includes('tensor.view(2, 3)'));
+ * console.assert(html.includes('tensor.permute(1, 0)'));
+ * console.assert(html.includes('tensor.view(batch=2, feature=3)'));
  */
 function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly string[]): string {
     const shapeText = escapeHtml(shape.join(', '));
@@ -1788,15 +2236,37 @@ function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly strin
 }
 
 /**
- * parse tensor view expression input for the current viewer state.
+ * Parses the text from the Tensor View textarea into the editor model used by the
+ * view, permute, final-view, and slice controls.
  *
- * @param value - Value supplied by the caller.
- * @param previous - previous input used by this operation (TensorViewEditor).
- * @param shape - Tensor shape used by this operation.
- * @returns Computed TensorViewEditor value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * Supported input starts with `tensor` and may include chained `.view(A)`,
+ * `.permute(B)`, a second `.view(C)`, and a trailing `[D]` slice. Missing first
+ * view or permutation calls default to the source tensor shape and identity
+ * permutation.
+ *
+ * @param value - User-entered tensor expression, such as `tensor.view(B=2, C=3).permute(1, 0)[0, :]`.
+ * @param previous - Existing Tensor View editor state used to preserve dimension ids when compatible with the new first view.
+ * @param shape - Source tensor shape used for default view text, identity permutation, and element-count validation.
+ * @returns Updated TensorViewEditor state that callers pass to `applyTensorViewEditor` to refresh the Tensor View UI.
+ * @throws Error when the text does not start with `tensor`, a `.view(...)` or `.permute(...)` call is unclosed, trailing text is not a bracket slice, or a slice term is neither `:` nor a finite number.
  * @example
- * parseTensorViewExpressionInput(value, previous, shape);
+ * const editor = parseTensorViewExpressionInput(
+ *   'tensor.view(B=2, C=3).permute(1, 0)[0, :]',
+ *   previous,
+ *   [2, 3],
+ * );
+ *
+ * console.assert(editor.viewTensorInput === '[B=2, C=3]');
+ * console.assert(editor.slicedTokenKeys.length === 1);
+ * console.assert(Object.values(editor.sliceValues)[0] === 0);
+ *
+ * @example
+ * try {
+ *   parseTensorViewExpressionInput('image.view(2, 3)', previous, [2, 3]);
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'Tensor View must start with "tensor".');
+ * }
  */
 function parseTensorViewExpressionInput(
     value: string,
@@ -1807,13 +2277,31 @@ function parseTensorViewExpressionInput(
     if (!text.startsWith('tensor')) throw new Error('Tensor View must start with "tensor".');
     let rest = text.slice('tensor'.length);
     /**
- * consume one chained tensor-view call and return its raw argument text.
+ * Consumes the next chained `.view(...)` or `.permute(...)` call from the captured
+ * `rest` suffix of the Tensor View expression.
  *
- * @param name - name input used by this operation ('view' | 'permute').
- * @returns Computed value, or null when no value is available.
- * @throws Error when the requested input or state is invalid.
+ * When the next characters match the requested call name, this helper returns the
+ * trimmed text between the matching parentheses and advances `rest` past the
+ * consumed call. Parentheses inside the argument text are balanced before the call
+ * is considered closed.
+ *
+ * @param name - Chained call kind to consume at the current `rest` cursor: either `view` or `permute`.
+ * @returns The raw argument text from the matched call, or null when `rest` does not start with `.${name}(`.
+ * @throws Error when the matching call starts but its closing parenthesis is missing.
  * @example
- * consumeCall(name);
+ * // With rest initially set to '.view(B=2, C=3).permute(1, 0)':
+ * const viewArgs = consumeCall('view');
+ * console.assert(viewArgs === 'B=2, C=3');
+ * console.assert(rest === '.permute(1, 0)');
+ *
+ * @example
+ * // With rest initially set to '.view(2, 3':
+ * try {
+ *   consumeCall('view');
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'Unclosed view(...) in Tensor View.');
+ * }
  */
     const consumeCall = (name: 'view' | 'permute'): string | null => {
         if (!rest.startsWith(`.${name}(`)) return null;
@@ -1867,13 +2355,23 @@ function parseTensorViewExpressionInput(
 }
 
 /**
- * render tensor view widget for the current viewer state.
+ * Rebuilds the Tensor View sidebar from the active inspector model, including the tensor selector,
+ * editable tensor-view expression, slice chips, validation error message, stock slice sliders, and
+ * extension-contributed tensor-view controls.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param snapshot - Viewer render snapshot supplied by the widget host for the current render pass; the renderer uses the global viewer inspector model derived from this pass and leaves the widget unchanged when tensor-view rendering is suspended or no editor is available.
+ * @returns No value; replaces `tensorViewWidget.innerHTML` and attaches event handlers that update the active tensor, apply tensor-view expressions, and drive slice controls.
+ * @noThrows The renderer has no intentional validation throw path: missing tensor handles and missing editors are handled with an empty-state message or early return, while invalid tensor-view text is caught in the textarea change handler and displayed in the widget.
  * @example
- * renderTensorViewWidget(snapshot);
+ * // With no active tensor, the widget is rebuilt as an empty Tensor View panel.
+ * renderTensorViewWidget(viewer.getSnapshot());
+ * console.assert(tensorViewWidget.textContent?.includes('No tensor loaded.'));
+ *
+ * @example
+ * // With a loaded tensor, the editable expression and tensor selector are rendered for the active tensor.
+ * renderTensorViewWidget(viewer.getSnapshot());
+ * console.assert(tensorViewWidget.querySelector('#tensor-select'));
+ * console.assert(tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input')?.value === viewer.getInspectorModel().preview);
  */
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
@@ -2003,12 +2501,15 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
         /**
- * refresh the editable tensor-view expression without rebuilding the widget.
+ * Copies the inspector model's latest tensor-view preview into the already-rendered textarea and
+ * resizes that textarea so slider drags can update the expression without replacing the focused widget.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns No value; mutates only `#tensor-view-input.value` and its autosized height when the textarea exists.
+ * @noThrows The closure is a no-op when the Tensor View textarea is absent, and otherwise performs only a DOM value assignment followed by textarea autosizing.
  * @example
+ * tensorViewWidget.innerHTML = '<textarea id="tensor-view-input">tensor[:, 0]</textarea>';
  * syncTensorViewInput();
+ * console.assert(tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input')?.value === viewer.getInspectorModel().preview);
  */
         const syncTensorViewInput = (): void => {
             const tensorViewInput = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
@@ -2017,13 +2518,16 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
             autosizeTextarea(tensorViewInput);
         };
         /**
- * apply one slice slider value and notify extensions that tensor-view state changed.
+ * Applies a stock slice-slider position to the current tensor-view token, notifies extensions that
+ * the tensor view changed, and refreshes the expression textarea without rerendering the active range input.
  *
- * @param nextValue - next value input used by this operation (number).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param nextValue - Clamped slice index selected for the current `token.key` of the active tensor.
+ * @returns No value; records the new slice-token value in the viewer, invokes `afterTensorViewChange` hooks, and synchronizes the visible tensor-view expression immediately and on the next animation frame.
+ * @noThrows The closure does not validate or throw for slider values itself; pointer and number-input handlers clamp values before calling it, and this body only forwards the value to the viewer and extension hooks.
  * @example
- * applyValue(nextValue);
+ * // Moving the slice slider for token "i" to 3 updates that token on the active tensor.
+ * applyValue(3);
+ * console.assert(viewer.getInspectorModel().preview.includes('3'));
  */
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
@@ -2072,13 +2576,16 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
         /**
- * route extension-owned slider changes through the extension callback.
+ * Forwards an extension-owned tensor-view slider value to the callback supplied with that slider spec.
  *
- * @param nextValue - next value input used by this operation (number).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param nextValue - Clamped numeric value read from the extension slider's range or number input.
+ * @returns No value; the extension's `sliderSpec.onChange` callback owns any resulting state change or rerender request.
+ * @noThrows This closure only delegates to `sliderSpec.onChange`; it has no local validation branch or explicit throw, so any failure would come from the extension callback itself.
  * @example
- * applyValue(nextValue);
+ * const observed: number[] = [];
+ * sliderSpec.onChange = (value) => observed.push(value);
+ * applyValue(2);
+ * console.assert(observed[0] === 2);
  */
         const applyValue = (nextValue: number): void => {
             sliderSpec.onChange(nextValue);
@@ -2111,13 +2618,24 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
 }
 
 /**
- * render inspector widget for the current viewer state.
+ * Rebuilds the inspector sidebar so it shows the active tensor metadata and, when a cell is hovered,
+ * the hovered tensor name plus coordinate rows supplied by extensions or the hovered tensor fallback.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param snapshot - Viewer snapshot whose display mode and dimension-mapping scheme control how axis labels,
+ * tensor coordinates, and binary coordinate tokens are formatted in the inspector.
+ * @returns Nothing. The function writes the empty-tensor message or inspector metadata grid into
+ * `inspectorWidget` and updates cached inspector element references for later hover refreshes.
+ * @noThrows The renderer reads viewer state and writes deterministic HTML; absent tensor handles and missing
+ * cached refs are handled with early returns instead of reported as caller errors.
  * @example
- * renderInspectorWidget(snapshot);
+ * // With no loaded tensor, the inspector explains that there is nothing to inspect.
+ * renderInspectorWidget({ displayMode: 'axis-labels', dimensionMappingScheme: 'z-order' } as ViewerSnapshot);
+ * console.assert(inspectorWidget.textContent?.includes('No tensor loaded.'));
+ *
+ * @example
+ * // After the viewer reports a hovered cell, the panel contains the hovered tensor name and coordinate rows.
+ * renderInspectorWidget({ displayMode: 'axis-labels', dimensionMappingScheme: 'contiguous' } as ViewerSnapshot);
+ * console.assert(inspectorWidget.querySelector('#inspector-hovered-tensor-value')?.textContent === 'weights');
  */
 function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
@@ -2151,14 +2669,23 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
     /**
- * format one coordinate as fixed-width binary tokens for the inspector.
+ * Formats one visible tensor coordinate as fixed-width binary axis tokens for the inspector's monospace row.
  *
- * @param coord - Coordinate used by this operation.
- * @param shape - Tensor shape used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param coord - Per-axis tensor coordinate for the hovered or extension-supplied cell; `null` means the row has
+ * no coordinate to display.
+ * @param shape - Per-axis tensor extents used to choose each binary token width, so axis values line up with the
+ * largest possible index for that axis.
+ * @returns A display-mode-aware string of padded binary coordinate tokens, or an empty string when either the
+ * coordinate or shape is unavailable.
+ * @noThrows Missing coordinate and shape data are treated as an empty inspector value, and numeric axes are only
+ * converted with `toString(2)` and padding.
  * @example
- * binaryCoord(coord, shape);
+ * const text = binaryCoord([3, 1], [8, 2]);
+ * console.assert(text.includes('011'));
+ * console.assert(text.includes('1'));
+ *
+ * @example
+ * console.assert(binaryCoord(null, [8, 2]) === '');
  */
     const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
         if (!coord || !shape) return '';
@@ -2207,13 +2734,23 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
 }
 
 /**
- * render selection widget for the current viewer state.
+ * Replaces the selection sidebar with the highlighted-cell count and numeric summary statistics, or with guidance
+ * explaining why selection is unavailable for the current interaction mode or dimension mapping.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param snapshot - Viewer snapshot whose interaction mode and layout settings determine whether selection
+ * statistics are enabled for the current tensor view.
+ * @returns Nothing. The function writes the selection widget markup, including count, min/percentile/max/mean/std
+ * fields and mode-specific help text, into `selectionWidget`.
+ * @noThrows Missing tensor handles are rendered as a "No tensor loaded" message, and unavailable selection modes
+ * are represented as disabled panel text rather than thrown errors.
  * @example
- * renderSelectionWidget(snapshot);
+ * renderSelectionWidget({ interactionMode: 'pan' } as ViewerSnapshot);
+ * console.assert(selectionWidget.textContent?.includes('Switch to Selection mode'));
+ *
+ * @example
+ * renderSelectionWidget({ interactionMode: 'select', dimensionMappingScheme: 'contiguous' } as ViewerSnapshot);
+ * console.assert(selectionWidget.textContent?.includes('Highlighted Cells'));
+ * console.assert(selectionWidget.textContent?.includes('Mean'));
  */
 function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
@@ -2245,13 +2782,26 @@ function renderSelectionWidget(snapshot: ViewerSnapshot): void {
 }
 
 /**
- * render advanced settings widget for the current viewer state.
+ * Builds the advanced-settings sidebar controls for tensor layout spacing, axis-family mapping, block gaps,
+ * collapsed hidden axes, and signed-log color scaling, then wires each control back to the viewer.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param snapshot - Viewer snapshot that seeds the control values for block-gap scale, gap visibility,
+ * log scaling, hidden-axis collapse, and dimension-mapping scheme.
+ * @returns Nothing. The function replaces `advancedSettingsWidget` contents and attaches change handlers that
+ * apply accepted values to the viewer and mirror normalized values back into the form controls.
+ * @noThrows Optional controls are queried defensively and skipped when absent; the required block-gap input is
+ * checked before event listeners are attached.
  * @example
- * renderAdvancedSettingsWidget(snapshot);
+ * renderAdvancedSettingsWidget({
+ *   dimensionBlockGapMultiple: 2,
+ *   displayGaps: true,
+ *   logScale: false,
+ *   collapseHiddenAxes: true,
+ *   dimensionMappingScheme: 'contiguous',
+ * } as ViewerSnapshot);
+ * console.assert(advancedSettingsWidget.querySelector<HTMLInputElement>('#dimension-block-gap-multiple')?.value === '2');
+ * console.assert(advancedSettingsWidget.querySelector<HTMLInputElement>('#display-gaps')?.checked === true);
+ * console.assert(advancedSettingsWidget.querySelector<HTMLSelectElement>('#dimension-mapping-scheme')?.value === 'contiguous');
  */
 function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
@@ -2332,13 +2882,22 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 
 // render cycle
 /**
- * render for the current viewer state.
+ * Rebuild the demo shell for a viewer snapshot and run extension render hooks.
  *
- * @param snapshot - Viewer snapshot used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * The full pass captures tab UI state, allows extensions to intercept rendering,
+ * refreshes the sidebar, tab strip, control dock, registered widgets, and then
+ * notifies `afterRender` hooks. During suspended tensor-view slider drags it
+ * refreshes only the inspector and extension hover hooks so the active range
+ * input keeps pointer capture.
+ *
+ * @param snapshot - Viewer snapshot containing the active tensor, view, hover, selection, and display state to mirror into app chrome and extension widgets.
+ * @returns Nothing; callers observe updated DOM chrome, refreshed widget contents, and invoked extension lifecycle hooks.
+ * @noThrows The coordinator performs no parsing or validation itself; it only forwards the already-produced snapshot to DOM renderers and optional extension callbacks.
  * @example
+ * const snapshot = viewer.snapshot();
  * render(snapshot);
+ * // The sidebar, tab strip, control dock, and registered widget bodies now
+ * // reflect `snapshot`, unless an extension `beforeRender` hook intercepted the pass.
  */
 function render(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) {
@@ -2369,13 +2928,18 @@ function render(snapshot: ViewerSnapshot): void {
 
 // python session loading
 /**
- * return safe data file for the current viewer state.
+ * Validate a tensor payload asset path before it is used to fetch bundle data.
  *
- * @param dataFile - data file input used by this operation (string).
- * @returns Text formatted for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param dataFile - Manifest-provided payload path that must match the allowed data-file pattern and must not contain `..` traversal segments.
+ * @returns The same payload path after it has passed the safety checks, suitable for constructing a fetch URL.
+ * @throws Error when `dataFile` fails the allowed payload-path pattern or includes `..` path traversal.
  * @example
- * safeDataFile(dataFile);
+ * safeDataFile('tensors/layer-0.bin');
+ * // => 'tensors/layer-0.bin'
+ *
+ * @example
+ * safeDataFile('../secrets.bin');
+ * // throws Error: Unsafe tensor payload path ../secrets.bin.
  */
 function safeDataFile(dataFile: string): string {
     if (!DATA_FILE_PATTERN.test(dataFile) || dataFile.includes('..')) {
@@ -2385,13 +2949,15 @@ function safeDataFile(dataFile: string): string {
 }
 
 /**
- * return api url for the current viewer state.
+ * Resolve an app API path against the current page and append the active session token.
  *
- * @param path - path input used by this operation (string).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param path - Relative or absolute URL path requested by demo fetch code, such as a manifest or tensor payload endpoint.
+ * @returns A same-origin pathname plus query string that callers can pass to `fetch`; when a session token is active it is included as the `token` query parameter.
+ * @noThrows The browser URL constructor receives `window.location.href` as its base, so ordinary app-relative endpoint paths do not require caller-side validation here.
  * @example
- * apiUrl(path);
+ * // With the page at https://example.test/demo/ and sessionToken set to 'abc123':
+ * apiUrl('/api/manifest.json');
+ * // => '/api/manifest.json?token=abc123'
  */
 function apiUrl(path: string): string {
     const url = new URL(path, window.location.href);
@@ -2400,14 +2966,39 @@ function apiUrl(path: string): string {
 }
 
 /**
- * return bounded array buffer for the current viewer state.
+ * Read a fetch response into one ArrayBuffer while enforcing payload type and size limits.
  *
- * @param response - response input used by this operation (Response).
- * @param options - Options that tune this operation.
- * @returns Promise that resolves to the computed value.
- * @throws Error when the requested input or state is invalid.
+ * The check protects manifest and tensor-byte downloads by validating the declared
+ * MIME type, honoring an exact byte count when one is known, and stopping streamed
+ * reads as soon as they exceed the configured ceiling.
+ *
+ * @param response - Fetch `Response` whose `content-type`, optional `content-length`, and body bytes are validated before use.
+ * @param options - Validation rules: required MIME `contentType`, human-readable error `label`, maximum accepted `maxBytes`, and optional exact `expectedBytes` count.
+ * @returns A promise for the complete validated response body as an `ArrayBuffer` that callers can parse as manifest or tensor data.
+ * @throws Error when the response MIME type differs from `options.contentType`, `content-length` is non-finite, negative, larger than the allowed limit, differs from `expectedBytes`, the streamed body exceeds the limit, or the final body length differs from `expectedBytes`.
  * @example
- * boundedArrayBuffer(response, options);
+ * const response = new Response(new Uint8Array([1, 2, 3]), {
+ *   headers: { 'content-type': 'application/octet-stream', 'content-length': '3' },
+ * });
+ * const buffer = await boundedArrayBuffer(response, {
+ *   contentType: 'application/octet-stream',
+ *   label: 'tensor payload',
+ *   maxBytes: 1024,
+ *   expectedBytes: 3,
+ * });
+ * new Uint8Array(buffer);
+ * // => Uint8Array [1, 2, 3]
+ *
+ * @example
+ * const html = new Response('<!doctype html>', {
+ *   headers: { 'content-type': 'text/html' },
+ * });
+ * await boundedArrayBuffer(html, {
+ *   contentType: 'application/octet-stream',
+ *   label: 'tensor payload',
+ *   maxBytes: 1024,
+ * });
+ * // rejects with Error: Unexpected tensor payload content type text/html.
  */
 async function boundedArrayBuffer(
     response: Response,
@@ -2466,13 +3057,35 @@ async function boundedArrayBuffer(
 }
 
 /**
- * loads one tab's raw tensor payloads from the local python session server.
+ * Fetches the binary payload files referenced by a tab manifest and decodes them
+ * into typed numeric arrays for viewer rendering.
  *
- * @param tensors - tensors input used by this operation (BundleManifest['tensors']).
- * @returns Promise that resolves to the computed value.
- * @throws Error when the requested input or state is invalid.
+ * Manifest tensor entries without a `dataFile` are skipped because their bytes
+ * are supplied by an extension or another loader path.
+ *
+ * @param tensors - Tensor manifest entries for one tab, including each tensor id,
+ * dtype, shape, and optional local-session `dataFile` path.
+ * @returns A map from tensor id to the decoded typed array for every manifest
+ * entry that referenced a payload file.
+ * @throws Error when a payload endpoint returns a non-OK response, when a
+ * `dataFile` path fails the safe local-file check, or when the payload response
+ * does not match the expected tensor content type or byte length.
  * @example
- * loadTabTensors(tensors);
+ * ```ts
+ * const tensors = [
+ *   { id: 'activations', dtype: 'float32', shape: [2, 2], dataFile: 'activations.bin' },
+ * ] satisfies BundleManifest['tensors'];
+ *
+ * const loaded = await loadTabTensors(tensors);
+ * loaded.get('activations') instanceof Float32Array; // true
+ * loaded.get('activations')?.length; // 4
+ * ```
+ * @example
+ * ```ts
+ * await expect(loadTabTensors([
+ *   { id: 'missing', dtype: 'float32', shape: [1], dataFile: 'missing.bin' },
+ * ])).rejects.toThrow('Missing tensor payload missing.bin.');
+ * ```
  */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
     const entries: Array<readonly [string, NumericArray]> = [];
@@ -2492,13 +3105,34 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
 }
 
 /**
- * loads one session tab from the raw manifest plus tensor-byte endpoints.
+ * Converts one session-manifest tab into the loaded document shape used by the
+ * demo shell, giving registered extensions the first chance to migrate or
+ * hydrate extension-owned viewer state.
  *
- * @param tab - Session tab used by this operation.
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * If no extension returns a document, the fallback loader preserves the tab id,
+ * title, viewer state, and tensor manifest, then fetches the tab's tensor bytes.
+ *
+ * @param tab - One tab object from `session.json`, including its id, title,
+ * serialized viewer state, and tensor manifest entries.
+ * @returns The loaded bundle document that can be stored in `sessionTabs` and
+ * later activated by `loadTab`.
+ * @throws Error when an extension loader rejects or when the fallback tensor
+ * payload loading fails for an unsafe path, missing payload, or invalid payload
+ * response.
  * @example
- * loadSessionTab(tab);
+ * ```ts
+ * const tab = {
+ *   id: 'tab-1',
+ *   title: 'Python session',
+ *   viewer: { dimensionMappingScheme: 'rows' },
+ *   tensors: [],
+ * } satisfies SessionBundleManifest['tabs'][number];
+ *
+ * const loaded = await loadSessionTab(tab);
+ * loaded.id; // 'tab-1'
+ * loaded.title; // 'Python session'
+ * loaded.tensors.size; // 0
+ * ```
  */
 async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
     for (const extension of extensions) {
@@ -2518,12 +3152,31 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
 }
 
 /**
- * try load session for the current viewer state.
+ * Attempts to restore the browser demo from the local Python server's
+ * `/api/session.json` manifest and its referenced tensor payload endpoints.
  *
- * @returns Promise that resolves to the computed value.
- * @throws Error when the requested input or state is invalid.
+ * A missing session manifest is not an error; startup callers use the `false`
+ * result to continue with baked fallback tabs or the generated sample tensor.
+ *
+ * @returns `true` after a valid session manifest has been loaded into
+ * `sessionTabs` and the first tab has been activated; `false` when the session
+ * manifest endpoint is absent or returns a non-OK response.
+ * @throws Error when the manifest has an unsupported version, `tabs` is not an
+ * array, the tab or tensor count exceeds viewer limits, a tab's `tensors` field
+ * is not an array, tensor payload byte totals exceed the session limit, or a
+ * referenced tensor file fails path, fetch, content-type, or size validation.
  * @example
- * tryLoadSession();
+ * ```ts
+ * const loaded = await tryLoadSession();
+ * if (!loaded) {
+ *   seedDemoTensor();
+ * }
+ * ```
+ * @example
+ * ```ts
+ * // Given /api/session.json responds with { "version": 2, "tabs": [] }:
+ * await expect(tryLoadSession()).rejects.toThrow('Unsupported session version 2.');
+ * ```
  */
 async function tryLoadSession(): Promise<boolean> {
     const response = await fetch(apiUrl('/api/session.json'), { cache: 'no-store' });
@@ -2571,12 +3224,26 @@ async function tryLoadSession(): Promise<boolean> {
 }
 
 /**
- * return seed demo tensor for the current viewer state.
+ * Resets the demo out of session-tab mode and adds a deterministic 4×4×4
+ * `Float64Array` tensor named `Sample` so the viewer has data to display when
+ * no saved or fallback session is available.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * Existing tabs are offered to extension cleanup hooks before the tab list and
+ * active tab id are cleared.
+ *
+ * @returns Nothing; the function clears `sessionTabs`, resets `activeTabId`, and
+ * mutates the viewer by adding the generated sample tensor.
+ * @noThrows The function performs only synchronous in-memory cleanup and sample
+ * generation; under normal extension contracts, `clearTab` hooks are cleanup
+ * callbacks and are not expected to reject or report recoverable errors.
  * @example
+ * ```ts
  * seedDemoTensor();
+ *
+ * sessionTabs.length; // 0
+ * activeTabId; // null
+ * viewer.getSnapshot().tensors.some((tensor) => tensor.name === 'Sample'); // true
+ * ```
  */
 function seedDemoTensor(): void {
     sessionTabs.forEach((tab) => {
@@ -2595,14 +3262,38 @@ function seedDemoTensor(): void {
 }
 
 /**
- * download svg for the current viewer state.
+ * Starts a browser download for serialized SVG markup by wrapping it in an
+ * `image/svg+xml` Blob, assigning the generated object URL to a temporary
+ * anchor, clicking that anchor, and then revoking the object URL.
  *
- * @param filename - filename input used by this operation (string).
- * @param svg - svg input used by this operation (string).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param filename - Name assigned to the downloaded file through the anchor's
+ * `download` attribute, typically the sanitized active-tab title with an
+ * `.svg` extension.
+ * @param svg - Complete serialized SVG document to write into the downloaded
+ * file.
+ * @returns Nothing; the observable effect is the browser download request.
+ * @noThrows Creates a Blob URL and temporary anchor from already-generated SVG markup without validating user input.
  * @example
- * downloadSvg(filename, svg);
+ * ```ts
+ * const clickedLinks: Array<{ download: string; href: string }> = [];
+ * const originalCreateElement = document.createElement.bind(document);
+ * document.createElement = ((tagName: string) => {
+ *   const element = originalCreateElement(tagName);
+ *   if (tagName === 'a') {
+ *     element.click = () => clickedLinks.push({
+ *       download: (element as HTMLAnchorElement).download,
+ *       href: (element as HTMLAnchorElement).href,
+ *     });
+ *   }
+ *   return element;
+ * }) as typeof document.createElement;
+ *
+ * downloadSvg('attention-head.svg', '<svg viewBox="0 0 1 1"></svg>');
+ *
+ * console.assert(clickedLinks[0].download === 'attention-head.svg');
+ * console.assert(clickedLinks[0].href.startsWith('blob:'));
+ * document.createElement = originalCreateElement;
+ * ```
  */
 function downloadSvg(filename: string, svg: string): void {
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -2615,12 +3306,20 @@ function downloadSvg(filename: string, svg: string): void {
 }
 
 /**
- * return svg filename for the current viewer state.
+ * Builds the default SVG export filename from the active tab title by trimming
+ * whitespace, lowercasing it, replacing non-alphanumeric runs with hyphens, and
+ * falling back to `tensor-viz.svg` when there is no usable title.
  *
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns A filesystem-friendly `.svg` filename for the current export action.
+ * @noThrows Reads the active tab title and applies string normalization only; missing or punctuation-only titles use the fallback filename.
  * @example
- * svgFilename();
+ * ```ts
+ * // When the active tab title is "Attention Head #3":
+ * console.assert(svgFilename() === 'attention-head-3.svg');
+ *
+ * // When there is no active tab, or the title contains no letters or digits:
+ * console.assert(svgFilename() === 'tensor-viz.svg');
+ * ```
  */
 function svgFilename(): string {
     const title = activeTab()?.title ?? 'tensor-viz';
@@ -2629,12 +3328,20 @@ function svgFilename(): string {
 }
 
 /**
- * return current svg document for the current viewer state.
+ * Serializes the currently displayed viewer contents as SVG for the Save SVG
+ * command, using the viewer's 2D SVG snapshot path in 2D mode and the current
+ * view export path for other display modes.
  *
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @returns Promise resolving to the complete SVG markup that will be written to
+ * the downloaded `.svg` file.
+ * @noThrows Chooses the appropriate viewer SVG export path for the current display mode and returns that export promise to the caller.
  * @example
- * currentSvgDocument();
+ * ```ts
+ * const svg = await currentSvgDocument();
+ *
+ * console.assert(svg.startsWith('<svg'));
+ * console.assert(svg.includes('</svg>'));
+ * ```
  */
 async function currentSvgDocument(): Promise<string> {
     if (viewer.getSnapshot().displayMode !== '2d') return viewer.exportCurrentViewSvg();
@@ -2642,12 +3349,24 @@ async function currentSvgDocument(): Promise<string> {
 }
 
 /**
- * load fallback tabs for the current viewer state.
+ * Gives registered demo extensions a chance to create their built-in fallback
+ * tabs during startup when restoring a saved session did not populate the app.
+ * The first extension whose `loadFallback` hook resolves to `true` stops the
+ * search.
  *
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * @returns Promise resolving to `true` when an extension loaded fallback tabs;
+ * otherwise `false`, allowing startup to seed the generic demo tensor.
+ * @noThrows Iterates registered extension fallback hooks and returns a boolean startup decision; extensions own their own failure handling.
  * @example
- * loadFallbackTabs();
+ * ```ts
+ * const loaded = await loadFallbackTabs();
+ *
+ * if (loaded) {
+ *   console.assert(activeTab() !== undefined);
+ * } else {
+ *   seedDemoTensor();
+ * }
+ * ```
  */
 async function loadFallbackTabs(): Promise<boolean> {
     for (const extension of extensions) {
@@ -2658,13 +3377,26 @@ async function loadFallbackTabs(): Promise<boolean> {
 
 // command execution and global events
 /**
- * run action for the current viewer state.
+ * Dispatches a command-palette, menu, keyboard-shortcut, or tab-selection action into the demo shell.
  *
- * @param action - action input used by this operation (string).
- * @returns Promise that resolves to the computed value.
- * @noThrows This function has no direct throw path.
+ * Recognized ids update viewer display options, toggle shell widgets, focus the tensor-view editor,
+ * download the current SVG, add or close tabs, or load a tab when the id has the `tab:<tabId>` form.
+ * Unknown action ids are logged and otherwise ignored after the command palette is closed.
+ *
+ * @param action - Command id from a `CommandAction.action`, a menu button `data-action`, a keyboard shortcut, or a `tab:<sessionTab.id>` entry.
+ * @returns Promise that settles after any asynchronous side effect for the command, such as loading a tab, saving the SVG, or adding/closing a tab, has completed.
+ * @noThrows The dispatcher performs no validation that throws for unrecognized ids; ids that do not match a switch case simply leave the viewer unchanged after logging and closing the palette.
  * @example
- * runAction(action);
+ * await runAction('3d');
+ * // The active viewer is switched to 3D display mode.
+ *
+ * @example
+ * await runAction(`tab:${sessionTabs[0].id}`);
+ * // The tab whose id matches `sessionTabs[0].id` is loaded.
+ *
+ * @example
+ * await runAction('not-a-command');
+ * // No command-specific viewer setting is changed; the action is only logged and the command palette is closed.
  */
 async function runAction(action: string): Promise<void> {
     logUi('action', action);

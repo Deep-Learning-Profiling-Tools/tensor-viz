@@ -1,8 +1,20 @@
 /**
- * declarative action rendered as one button in the vertical control dock.
+ * Declarative description of one action button in the demo viewer's vertical control dock.
+ *
+ * The dock renderer uses the text fields for tooltips and accessibility, `content` for the
+ * trusted icon or label markup inside the button, and `onClick` for the command to run when
+ * the enabled button is activated.
  *
  * @example
- * const value: ControlSpec = {} as ControlSpec;
+ * const panControl: ControlSpec = {
+ *     id: 'pan',
+ *     label: 'Pan',
+ *     description: 'Drag the tensor view without changing the selected cell.',
+ *     shortcut: 'H',
+ *     active: true,
+ *     content: '<span aria-hidden="true">↔</span>',
+ *     onClick: () => setInteractionMode('pan'),
+ * };
  */
 export type ControlSpec = {
     id: string;
@@ -85,14 +97,29 @@ export const controlIcons = {
 } as const;
 
 /**
- * render controls from data so new controls do not need to edit DOM assembly.
+ * Rebuilds the vertical control dock from declarative control specs.
  *
- * @param controlDock - control dock input used by this operation (HTMLElement).
- * @param controls - controls input used by this operation (ControlSpec[]).
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * Existing dock children are replaced with one button per control, with visual divider
+ * elements inserted before the configured control groups.
+ *
+ * @param controlDock - Container element that owns the control-dock buttons.
+ * @param controls - Ordered control definitions collected from the app shell and registered extensions.
+ * @returns Nothing; callers observe the updated `controlDock` child list.
+ * @noThrows Replaces DOM children from trusted control descriptors and does not validate external input.
  * @example
- * renderControlDockControls(controlDock, controls);
+ * const controlDock = document.createElement('div');
+ * renderControlDockControls(controlDock, [{
+ *     id: 'pan',
+ *     label: 'Pan',
+ *     description: 'Move around the tensor view.',
+ *     shortcut: 'H',
+ *     active: true,
+ *     content: 'Pan',
+ *     onClick: () => undefined,
+ * }]);
+ *
+ * console.assert(controlDock.querySelectorAll('button.control-button').length === 1);
+ * console.assert(controlDock.querySelector('button')?.getAttribute('aria-label') === 'Pan');
  */
 export function renderControlDockControls(controlDock: HTMLElement, controls: ControlSpec[]): void {
     controlDock.replaceChildren(...controls.map((control) => {
@@ -107,13 +134,31 @@ export function renderControlDockControls(controlDock: HTMLElement, controls: Co
 }
 
 /**
- * return control button for the current viewer state.
+ * Creates the DOM button for a single control-dock action.
  *
- * @param control - control input used by this operation (ControlSpec).
- * @returns Computed HTMLButtonElement value for the caller.
- * @noThrows This function has no direct throw path.
+ * The returned button receives tooltip data attributes, an accessible label, active/disabled
+ * classes, trusted icon markup, and a click listener that skips disabled controls.
+ *
+ * @param control - Control definition containing the dock id, tooltip text, shortcut label, trusted button markup, enabled state, and click handler.
+ * @returns Button element ready to insert into the control dock.
+ * @noThrows Builds one DOM button from a trusted control descriptor; disabled controls simply ignore clicks.
  * @example
- * controlButton(control);
+ * let clicked = false;
+ * const button = controlButton({
+ *     id: 'select',
+ *     label: 'Select',
+ *     description: 'Select tensor cells.',
+ *     shortcut: 'V',
+ *     active: false,
+ *     content: '<span aria-hidden="true">□</span>',
+ *     onClick: () => { clicked = true; },
+ * });
+ *
+ * console.assert(button.type === 'button');
+ * console.assert(button.dataset.tooltipShortcut === 'V');
+ * console.assert(button.getAttribute('aria-label') === 'Select');
+ * button.click();
+ * console.assert(clicked === true);
  */
 function controlButton(control: ControlSpec): HTMLButtonElement {
     const button = document.createElement('button');

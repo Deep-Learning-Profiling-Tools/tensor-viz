@@ -1,13 +1,20 @@
 import type { LinearLayoutUiContext } from '../linear-layout-state.js';
 
 /**
- * render cell text widget for the current viewer state.
+ * Clears the placeholder cell-text sidebar widget and keeps it hidden until the
+ * linear-layout cell-text UI is implemented.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Linear-layout UI context whose `cellTextWidget` element is the sidebar container registered for the cell-text widget.
+ * @returns Nothing; callers observe the widget element with empty markup and the `hidden` CSS class applied.
+ * @noThrows The renderer performs only deterministic DOM assignments on the provided element and does not parse user text, query missing selectors, or call asynchronous helpers.
  * @example
- * renderCellTextWidget(ctx);
+ * const cellTextWidget = document.createElement('div');
+ * cellTextWidget.innerHTML = '<button>Old cell text control</button>';
+ *
+ * renderCellTextWidget({ cellTextWidget } as LinearLayoutUiContext);
+ *
+ * console.assert(cellTextWidget.innerHTML === '');
+ * console.assert(cellTextWidget.classList.contains('hidden'));
  */
 export function renderCellTextWidget(ctx: LinearLayoutUiContext): void {
     ctx.cellTextWidget.innerHTML = '';

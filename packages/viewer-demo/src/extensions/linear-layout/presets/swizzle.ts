@@ -9,14 +9,19 @@ import type { ComposeLayoutPresetDefinition } from './types.js';
 // as element width increases.
 
 /**
- * return swizzle bases for the current viewer state.
+ * Generates the JSON basis-vector row used by swizzle presets for the logical
+ * offset input, orienting the contiguous and cross-lane bases by major order.
  *
- * @param leadingVectors - leading vectors input used by this operation (number).
- * @param major - major input used by this operation ('MN-major' | 'K-major').
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param leadingVectors - Number of leading power-of-two contiguous bases to emit before the three cross bases.
+ * @param major - Swizzle orientation; `MN-major` places contiguous powers on M, while `K-major` places them on K.
+ * @returns JSON-encoded array of `[M, K]` basis pairs suitable for the preset row `['O', value]`.
+ * @noThrows The helper performs deterministic array construction and JSON serialization of numeric pairs without parsing or validation branches.
  * @example
- * swizzleBases(leadingVectors, major);
+ * swizzleBases(3, 'MN-major');
+ * // '[[1,0],[2,0],[4,0],[1,1],[2,2],[4,4]]'
+ *
+ * swizzleBases(3, 'K-major');
+ * // '[[0,1],[0,2],[0,4],[1,1],[2,2],[4,4]]'
  */
 function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): string {
     const contiguousBases = Array.from({ length: leadingVectors }, (_, index) => major === 'MN-major'

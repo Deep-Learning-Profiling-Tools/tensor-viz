@@ -87,10 +87,20 @@ import { linearLayoutPropagateOutputsInfo } from './widgets/linear-layout-color-
 // need another hard-coded render list.
 
 /**
- * shape of linear layout extension runtime data used by the viewer.
+ * Runtime contract returned by the linear-layout extension factory after it wires
+ * the demo shell hooks to the extension's UI state and DOM controls.
+ *
+ * The shell treats this as a DemoAppExtension while extension internals use the
+ * state, ui, and isTab members to synchronize saved tabs, sidebar widgets, hover
+ * popups, tensor labels, and selection behavior owned by the linear-layout feature.
  *
  * @example
- * const value: LinearLayoutExtensionRuntime = {} as LinearLayoutExtensionRuntime;
+ * function syncIfLinearLayout(runtime: LinearLayoutExtensionRuntime, tab: LoadedBundleDocument | undefined) {
+ *   if (!runtime.isTab(tab)) return false;
+ *
+ *   runtime.ui.setStatus('Linear-layout tab selected.');
+ *   return true;
+ * }
  */
 export type LinearLayoutExtensionRuntime = DemoAppExtension & {
     state: LinearLayoutUiState;
@@ -115,14 +125,27 @@ export const LINEAR_LAYOUT_WIDGET_SLOTS = [
 ] satisfies AppShellWidgetSlot[];
 
 /**
- * return require widget for the current viewer state.
+ * Look up a registered linear-layout sidebar widget element and fail fast when
+ * the demo shell did not provide that widget slot.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @param widgetId - Stable identifier used by this operation.
- * @returns Computed HTMLElement value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param ctx - Demo extension context whose `widgets` map is populated by the
+ * sidebar host with HTMLElement entries keyed by linear-layout widget id.
+ * @param widgetId - One of the `LINEAR_LAYOUT_WIDGETS` ids to retrieve from
+ * `ctx.widgets`.
+ * @returns The HTMLElement registered for `widgetId`, so callers can render or
+ * update that specific sidebar widget container.
+ * @throws Error when `ctx.widgets[widgetId]` is missing; the message is
+ * `Missing ${widgetId} widget.`.
  * @example
- * requireWidget(ctx, widgetId);
+ * const presetElement = document.createElement('section');
+ * const ctx = { widgets: { 'linear-layout-preset': presetElement } } as DemoExtensionContext;
+ *
+ * expect(requireWidget(ctx, 'linear-layout-preset')).toBe(presetElement);
+ *
+ * @example
+ * const ctx = { widgets: {} } as DemoExtensionContext;
+ *
+ * expect(() => requireWidget(ctx, 'linear-layout')).toThrow('Missing linear-layout widget.');
  */
 function requireWidget(ctx: DemoExtensionContext, widgetId: typeof LINEAR_LAYOUT_WIDGETS[number]): HTMLElement {
     const widget = ctx.widgets[widgetId];
@@ -131,13 +154,19 @@ function requireWidget(ctx: DemoExtensionContext, widgetId: typeof LINEAR_LAYOUT
 }
 
 /**
- * return linear layout widget icon for the current viewer state.
+ * Return the inline SVG used as the sidebar icon for a linear-layout widget id.
+ * Unknown widget ids intentionally render no icon.
  *
- * @param widgetId - Stable identifier used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param widgetId - Widget id such as `linear-layout-preset`,
+ * `linear-layout-visible-tensors`, `linear-layout-color`, or `cell-text`.
+ * @returns SVG markup for the matching sidebar widget icon, or an empty string
+ * when the id is not one of the linear-layout icon cases.
+ * @noThrows The function only switches on the supplied string and returns string
+ * literals; unrecognized ids are handled by the default empty-string branch.
  * @example
- * linearLayoutWidgetIcon(widgetId);
+ * expect(linearLayoutWidgetIcon('linear-layout-visible-tensors')).toContain('<svg');
+ * expect(linearLayoutWidgetIcon('linear-layout-visible-tensors')).toContain('<circle');
+ * expect(linearLayoutWidgetIcon('unknown-widget')).toBe('');
  */
 function linearLayoutWidgetIcon(widgetId: string): string {
     switch (widgetId) {
@@ -196,23 +225,48 @@ function linearLayoutWidgetIcon(widgetId: string): string {
 }
 
 /**
- * return linear layout widgets for the current viewer state.
+ * Build the sidebar widget specifications registered by the linear-layout
+ * extension, including labels, icons, collapse defaults, visibility predicate,
+ * and render callbacks for each widget panel.
  *
- * @param ui - ui input used by this operation (LinearLayoutUiContext).
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @param ui - Linear-layout UI context captured by the widget render callbacks
+ * so they can read and update the extension state when the sidebar host renders
+ * a panel.
+ * @returns Five DemoWidgetSpec entries for Preset, Linear Layout Specifications,
+ * Visible Tensors, Cell Color/Text, and Cell Text; the demo shell registers
+ * these specs to decide which panels are shown and which render function to call.
+ * @noThrows The function only assembles widget metadata and closures. It does not
+ * invoke the render callbacks or inspect the active tab while building the array.
  * @example
- * linearLayoutWidgets(ui);
+ * const widgets = linearLayoutWidgets(ui);
+ *
+ * expect(widgets.map((widget) => widget.id)).toEqual([
+ *   'linear-layout-preset',
+ *   'linear-layout',
+ *   'linear-layout-visible-tensors',
+ *   'linear-layout-color',
+ *   'cell-text',
+ * ]);
+ * expect(widgets[0]?.defaultCollapsed).toBe(false);
+ * expect(widgets[2]?.defaultCollapsed).toBe(true);
  */
 function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
     /**
- * return whether a host tab should show linear-layout widgets.
+ * Report whether the sidebar host should show linear-layout widgets for the
+ * currently selected tab.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Demo extension context that supplies `getActiveTab()`, whose
+ * result is tested with `isLinearLayoutTab`.
+ * @returns `true` when the active tab contains linear-layout metadata; `false`
+ * when there is no active tab or the active tab belongs to another viewer flow.
+ * @noThrows A missing active tab is converted to `false`, and the predicate only
+ * performs a boolean check on the tab returned by the context.
  * @example
- * active(ctx);
+ * const linearCtx = { getActiveTab: () => linearLayoutTab } as DemoExtensionContext;
+ * const emptyCtx = { getActiveTab: () => null } as DemoExtensionContext;
+ *
+ * expect(active(linearCtx)).toBe(true);
+ * expect(active(emptyCtx)).toBe(false);
  */
     const active = (ctx: DemoExtensionContext): boolean => {
         const tab = ctx.getActiveTab();
@@ -263,13 +317,25 @@ function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
 }
 
 /**
- * create linear layout extension for the current viewer state.
+ * Builds the linear-layout demo extension runtime, including sidebar widgets, tab hooks, hover-popup DOM, tensor-view sliders, inspector rows, and selection synchronization.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Computed LinearLayoutExtensionRuntime value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Demo extension host context with the viewer instance, viewport element, widget lookup/title helpers, active-tab accessors, session-tab mutators, and tab-loading callback used by the linear-layout UI.
+ * @returns Runtime registered under the `linear-layout` id; the demo shell uses it to mount widgets, recognize linear-layout tabs, contribute tensor-view metadata, react to pointer/hover/selection events, and load baked fallback tabs.
+ * @throws Error when a required linear-layout widget slot such as `linear-layout-preset`, `linear-layout`, `linear-layout-visible-tensors`, `cell-text`, or `linear-layout-color` is absent from the supplied demo context.
  * @example
- * createLinearLayoutExtension(ctx);
+ * const viewport = document.createElement('div');
+ * const ctx = makeDemoExtensionContextWithWidgets(viewport);
+ * const runtime = createLinearLayoutExtension(ctx);
+ *
+ * expect(runtime.id).toBe('linear-layout');
+ * expect(runtime.widgets.length).toBeGreaterThan(0);
+ * expect(viewport.querySelector('.linear-layout-hover-popup.hidden')).not.toBeNull();
+ * @example
+ * const ctx = makeDemoExtensionContextWithWidgets(document.createElement('div'), {
+ *   omitWidget: 'linear-layout-color',
+ * });
+ *
+ * expect(() => createLinearLayoutExtension(ctx)).toThrow(/linear-layout-color/);
  */
 export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLayoutExtensionRuntime {
     const hoverPopup = document.createElement('div');
@@ -311,12 +377,26 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         renderLinearLayoutEditorWidgets: () => { renderLinearLayoutEditorWidgets(ui); },
     };
     /**
- * render the hover popup from the current viewer hover and selection map.
+ * Rebuilds the linear-layout hover popup for the active tab by reading the viewer's live hovered cell and the tab's selection map, then showing matching input-cell labels and colors.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Void; callers observe the popup element becoming hidden with empty content when no linear-layout hover entries exist, or becoming visible with escaped input-cell rows when entries are available.
+ * @noThrows The normal path only reads the active tab, live hover, and selection map, then updates the already-created popup element; absent tabs or missing hover entries are handled by hiding the popup.
  * @example
+ * viewer.setLiveHover({ tensorId: 'accumulator', coord: [0, 1] });
+ * setActiveLinearLayoutTab(tabWithSelectionMapForInputCells(['a[0,1]', 'b[0,1]']));
+ *
  * renderHoverPopup();
+ *
+ * expect(hoverPopup.classList.contains('hidden')).toBe(false);
+ * expect(hoverPopup.textContent).toContain('Input Cells');
+ * expect(hoverPopup.textContent).toContain('a[0,1]');
+ * @example
+ * viewer.setLiveHover(null);
+ *
+ * renderHoverPopup();
+ *
+ * expect(hoverPopup.classList.contains('hidden')).toBe(true);
+ * expect(hoverPopup.innerHTML).toBe('');
  */
     const renderHoverPopup = (): void => {
         const tab = ctx.getActiveTab();
@@ -342,12 +422,27 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         placeHoverPopup();
     };
     /**
- * keep the hover popup inside the viewport even near the bottom/right edge.
+ * Positions the visible hover popup near the last viewport-local pointer location while clamping it inside the viewport's bottom and right padding.
  *
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @returns Void; callers observe `hoverPopup.style.left` and `hoverPopup.style.top` updated for visible popups, while hidden popups are left unchanged.
+ * @noThrows The routine only reads viewport/popup geometry and writes CSS pixel offsets; a hidden popup returns before any layout calculations are needed.
  * @example
+ * mockViewportRect({ width: 200, height: 100 });
+ * mockPopupSize(80, 40);
+ * hoverPopup.classList.remove('hidden');
+ * hoverPopupPointer = { x: 190, y: 90 };
+ *
  * placeHoverPopup();
+ *
+ * expect(hoverPopup.style.left).toBe('108px');
+ * expect(hoverPopup.style.top).toBe('48px');
+ * @example
+ * hoverPopup.classList.add('hidden');
+ * hoverPopup.style.left = '24px';
+ *
+ * placeHoverPopup();
+ *
+ * expect(hoverPopup.style.left).toBe('24px');
  */
     const placeHoverPopup = (): void => {
         if (hoverPopup.classList.contains('hidden')) return;

@@ -1,8 +1,20 @@
 /**
- * parsed form of one named linear-layout basis block.
+ * Parsed representation of one named compose-layout basis block from the specs editor.
+ *
+ * `inputs` and `outputs` preserve the labels from the signature line, while `bases[inputIndex][bitIndex][outputIndex]` stores the numeric contribution of each input bit to each output label.
  *
  * @example
- * const value: NamedLayoutSpec = {} as NamedLayoutSpec;
+ * const spec: NamedLayoutSpec = {
+ *   name: 'mma',
+ *   inputs: ['A', 'B'],
+ *   outputs: ['M', 'N'],
+ *   bases: [
+ *     [[1, 0], [0, 1]],
+ *     [[1, 1]],
+ *   ],
+ * };
+ * console.assert(spec.inputs[0] === 'A');
+ * console.assert(spec.bases[0][1][1] === 1);
  */
 export type NamedLayoutSpec = {
     name: string;
@@ -12,16 +24,34 @@ export type NamedLayoutSpec = {
 };
 
 /**
- * parse the editor notation used in the layout specs textarea.
+ * Parses the linear-layout specs editor notation into named basis blocks.
  *
- * keeping this as the only specs parser prevents notation changes from
- * spreading into preset matching, legacy migration, and runtime evaluation.
+ * The notation uses a signature line such as `mma: [A,B] -> [M,N]` followed by one `<input label>: <json>` basis row for each input label. Blank lines and `#` comments are ignored before syntax parsing.
  *
- * @param text - Text supplied by the caller.
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param text - Raw contents of the layout specs textarea, including signature lines, labeled JSON basis rows, blank lines, and optional `#` comments.
+ * @returns Parsed layout specs in editor order; each spec contains the signature name, input labels, output labels, and basis rows reordered to match the signature input order.
+ * @throws Error when a required basis row is missing, a row does not use `<label>: <json>` syntax, a row names an input label not present in the signature, an input label is duplicated within a layout, the basis JSON is invalid for the output count, or two layouts use the same name.
  * @example
- * parseLayoutSpecs(text);
+ * const specs = parseLayoutSpecs(`
+ * mma: [A,B] -> [M,N]
+ * A: [[1,0],[0,1]] # A contributes two bits
+ * B: [[1,1]]
+ * `);
+ *
+ * console.assert(specs[0]?.name === 'mma');
+ * console.assert(specs[0]?.inputs.join(',') === 'A,B');
+ * console.assert(specs[0]?.bases[0]?.[1]?.[1] === 1);
+ *
+ * @example
+ * try {
+ *   parseLayoutSpecs(`
+ *   mma: [A] -> [M]
+ *   Z: [[1]]
+ *   `);
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'Layout mma received basis row for unknown input label Z.');
+ * }
  */
 export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -75,26 +105,33 @@ export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
 }
 
 /**
- * remove layout comments before syntax parsing.
+ * Removes the trailing `#` comment portion from a single linear-layout specs line before the parser trims and interprets it.
  *
- * @param line - line input used by this operation (string).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param line - One raw line from the specs textarea, such as a signature or labeled basis row that may end with a `#` explanatory comment.
+ * @returns The portion of `line` before the first `#`, preserving any whitespace that appeared before the comment marker.
+ * @noThrows The implementation only applies a regular-expression replacement to the provided string and does not parse JSON or validate layout syntax.
  * @example
- * stripLayoutComment(line);
+ * console.assert(stripLayoutComment('A: [[1,0]] # row for A') === 'A: [[1,0]] ');
+ * console.assert(stripLayoutComment('mma: [A] -> [M]') === 'mma: [A] -> [M]');
  */
 export function stripLayoutComment(line: string): string {
     return line.replace(/#.*$/, '');
 }
 
 /**
- * parse one `<name>: [inputs] -> [outputs]` signature line.
+ * Parses the signature line that starts a compose-layout block, such as
+ * `mma: [A,B] -> [C,D]`.
  *
- * @param line - line input used by this operation (string).
- * @returns Object containing computed state for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param line - Trimmed signature text containing a layout identifier, an input label list, `->`, and an output label list.
+ * @returns The layout name together with ordered input and output axis labels used to read the following basis rows.
+ * @throws Error when the line does not match `<name>: [labels] -> [labels]`, when a label is not shaped like `T`, `A0`, or `B12`, or when an input or output label is repeated.
  * @example
- * parseSignature(line);
+ * parseSignature('mma: [A0,B12] -> [C]');
+ * // => { name: 'mma', inputs: ['A0', 'B12'], outputs: ['C'] }
+ *
+ * @example
+ * parseSignature('mma: [A,A] -> [C]');
+ * // throws Error('Layout mma has duplicate input label A.')
  */
 export function parseSignature(line: string): { name: string; inputs: string[]; outputs: string[] } {
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[(.*)\]\s*->\s*\[(.*)\]\s*$/);
@@ -112,13 +149,19 @@ export function parseSignature(line: string): { name: string; inputs: string[]; 
 }
 
 /**
- * format parsed specs back into the canonical notation used for preset matching.
+ * Serializes parsed layout specs into the canonical compose-layout text used when matching presets.
  *
- * @param specs - specs input used by this operation (NamedLayoutSpec[]).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param specs - Parsed layout specs with a name, ordered input labels, ordered output labels, and one basis matrix per input axis.
+ * @returns Canonical text with one signature line per spec and JSON basis rows below it, separated by blank lines between specs.
+ * @noThrows Formatting only joins existing arrays and JSON-stringifies basis rows from parsed `NamedLayoutSpec` objects; normal spec data is not validated here.
  * @example
- * formatSpecsText(specs);
+ * formatSpecsText([{
+ *     name: 'mma',
+ *     inputs: ['A', 'B'],
+ *     outputs: ['C'],
+ *     bases: [[[1]], [[0]]],
+ * }]);
+ * // => 'mma: [A,B] -> [C]\nA: [[1]]\nB: [[0]]'
  */
 export function formatSpecsText(specs: NamedLayoutSpec[]): string {
     return specs.map((spec) => [
@@ -128,14 +171,19 @@ export function formatSpecsText(specs: NamedLayoutSpec[]): string {
 }
 
 /**
- * parse label list for the current viewer state.
+ * Splits a comma-separated compose-layout label list into validated axis labels.
  *
- * @param source - source input used by this operation (string).
- * @param label - label input used by this operation (string).
- * @returns Text entries formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param source - Text from inside a signature bracket pair, such as `A0, B12`; blank or whitespace-only text represents no labels.
+ * @param label - Human-readable context included in validation errors, such as `mma inputs` or `mma outputs`.
+ * @returns Trimmed labels in source order, or an empty array when the list is blank.
+ * @throws Error when any entry is not a letter followed by optional digits, for example `_A`, `A_B`, or `1A`.
  * @example
- * parseLabelList(source, label);
+ * parseLabelList('A0, B12, T', 'mma inputs');
+ * // => ['A0', 'B12', 'T']
+ *
+ * @example
+ * parseLabelList('A_B', 'mma inputs');
+ * // throws Error('mma inputs may only contain labels like T, A0, or B12 (received "A_B").')
  */
 function parseLabelList(source: string, label: string): string[] {
     const trimmed = source.trim();
@@ -150,15 +198,20 @@ function parseLabelList(source: string, label: string): string[] {
 }
 
 /**
- * parse basis row for the current viewer state.
+ * Parses one input-axis basis row from compose-layout text into non-negative integer output contributions.
  *
- * @param line - line input used by this operation (string).
- * @param outputCount - output count input used by this operation (number).
- * @param axisLabel - axis label input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param line - JSON text after the axis label, expected to be an array of basis vectors such as `[[1,0],[0,1]]`.
+ * @param outputCount - Required length of each basis vector, matching the number of output labels in the signature.
+ * @param axisLabel - Input axis label used to identify the failing row in error messages.
+ * @returns Basis vectors for the input axis, with each vector containing one non-negative integer contribution per output axis.
+ * @throws Error when the row is not valid JSON, is not a JSON array, contains a non-array basis vector, has a vector whose length differs from `outputCount`, or contains a negative or fractional value.
  * @example
- * parseBasisRow(line, outputCount, axisLabel);
+ * parseBasisRow('[[1,0],[0,1]]', 2, 'A');
+ * // => [[1, 0], [0, 1]]
+ *
+ * @example
+ * parseBasisRow('[[1]]', 2, 'A');
+ * // throws Error('A basis 1 must have length 2.')
  */
 function parseBasisRow(line: string, outputCount: number, axisLabel: string): number[][] {
     let parsed: unknown;
@@ -187,13 +240,17 @@ function parseBasisRow(line: string, outputCount: number, axisLabel: string): nu
 }
 
 /**
- * return duplicate value for the current viewer state.
+ * Finds the first string that appears more than once while preserving the caller's list order.
  *
- * @param values - values input used by this operation (string[]).
- * @returns Computed value, or null when no value is available.
- * @noThrows This function has no direct throw path.
+ * @param values - Ordered string tokens collected from parsed linear-layout input, such as dimension names or selector values.
+ * @returns The first entry whose value has already appeared earlier in `values`, or `null` when every string is unique.
+ * @noThrows Uses only local `Set` membership checks over the provided array and does not parse, allocate external resources, or reject any string contents.
  * @example
- * duplicateValue(values);
+ * duplicateValue(['m', 'n', 'k', 'n']);
+ * // Returns 'n'.
+ *
+ * duplicateValue(['m', 'n', 'k']);
+ * // Returns null.
  */
 function duplicateValue(values: string[]): string | null {
     const seen = new Set<string>();

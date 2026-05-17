@@ -4,13 +4,22 @@ import { applyLinearLayoutSpec } from './linear-layout-widget-actions.js';
 import { VISIBLE_TENSORS_ERROR, activeLinearLayoutTab } from './linear-layout-widget-shared.js';
 
 /**
- * render linear layout visible tensors widget for the current viewer state.
+ * Renders the checklist that lets users hide or show tensors from the active linear-layout render chain.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Linear-layout UI context containing the active tab lookup state, the visible-tensors widget element, `linearLayoutState.visibleTensors`, any visible-tensor error notice, and the apply/render callbacks used after a checkbox changes.
+ * @returns Nothing. The function hides and clears the widget when the active tab has no compose-layout metadata; otherwise it populates one checkbox per rendered tensor and binds each checkbox to update `visibleTensors` and reapply the layout.
+ * @noThrows The synchronous render path only reads active-tab metadata, writes escaped checkbox markup, and attaches optional change listeners; the asynchronous rebuild triggered by a later checkbox change is not part of the initial render call.
  * @example
+ * const ctx = makeLinearLayoutUiContextWithTensors([
+ *   { id: 'input', title: 'Input' },
+ *   { id: 'Tile2x1', title: 'Tile2x1' },
+ * ]);
+ *
  * renderLinearLayoutVisibleTensorsWidget(ctx);
+ *
+ * console.assert(!ctx.linearLayoutVisibleTensorsWidget.classList.contains('hidden'));
+ * console.assert(ctx.linearLayoutVisibleTensorsWidget.querySelectorAll('input[type="checkbox"]').length === 2);
+ * console.assert(ctx.linearLayoutVisibleTensorsWidget.textContent?.includes('Tile2x1'));
  */
 export function renderLinearLayoutVisibleTensorsWidget(ctx: LinearLayoutUiContext): void {
     const tab = activeLinearLayoutTab(ctx);

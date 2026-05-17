@@ -39,26 +39,30 @@ const INTERACTION_MODES = new Set(['pan', 'select', 'rotate']);
 const MAPPING_SCHEMES = new Set(['z-order', 'contiguous']);
 
 /**
- * return whether dtype for the current viewer state.
+ * Checks whether an unknown manifest or API value is one of the dtype strings supported by viewer-core tensor storage.
  *
- * @param value - Value supplied by the caller.
- * @returns Computed value is DType value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param value - Candidate dtype field read from a manifest, snapshot, or public API input.
+ * @returns `true` when `value` is a supported `DType` key; otherwise `false`, allowing callers to narrow the value before indexing dtype tables.
+ * @noThrows The check only performs a string type test and membership lookup against the dtype byte-size table, so non-string, null, and undefined inputs are reported as `false` instead of throwing.
  * @example
- * isDType(value);
+ * isDType('float32'); // true
+ * isDType('complex64'); // false
  */
 export function isDType(value: unknown): value is DType {
     return typeof value === 'string' && value in DTYPE_BYTES;
 }
 
 /**
- * return dtype byte length for the current viewer state.
+ * Looks up the number of bytes used by one tensor element of a supported viewer dtype.
  *
- * @param dtype - dtype input used by this operation (unknown).
- * @returns Numeric result computed from the inputs.
- * @throws Error when the requested input or state is invalid.
+ * @param dtype - Candidate dtype string from tensor metadata or caller input.
+ * @returns The byte width for one tensor element, such as `4` for `float32`.
+ * @throws Error when `dtype` is not a supported dtype string.
  * @example
- * dtypeByteLength(dtype);
+ * dtypeByteLength('float32'); // 4
+ *
+ * @example
+ * expect(() => dtypeByteLength('complex64')).toThrow('Unsupported dtype complex64.');
  */
 export function dtypeByteLength(dtype: unknown): number {
     if (!isDType(dtype)) throw new Error(`Unsupported dtype ${String(dtype)}.`);
@@ -66,14 +70,18 @@ export function dtypeByteLength(dtype: unknown): number {
 }
 
 /**
- * return assert object for the current viewer state.
+ * Validates that a manifest or snapshot field is a non-null, non-array object before reading its named properties.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @returns Computed Record<string, unknown> value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Candidate field value being normalized, such as `manifest`, `viewer.camera`, or a tensor entry.
+ * @param label - Human-readable path included in validation errors for the candidate field.
+ * @returns The original value narrowed to a string-keyed record so callers can validate its properties.
+ * @throws Error when `value` is `null`, an array, or a primitive value; the message names the supplied `label`.
  * @example
- * assertObject(value, label);
+ * const tensor = assertObject({ id: 'weights', dtype: 'float32' }, 'manifest.tensors[0]');
+ * tensor.id; // 'weights'
+ *
+ * @example
+ * expect(() => assertObject([], 'viewer.tensors')).toThrow('viewer.tensors must be an object.');
  */
 function assertObject(value: unknown, label: string): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -83,15 +91,24 @@ function assertObject(value: unknown, label: string): Record<string, unknown> {
 }
 
 /**
- * return assert array for the current viewer state.
+ * Validates that a manifest or viewer snapshot field is an array and is small enough for core normalization.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @param maxLength - max length input used by this operation (number).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Raw field value read from untrusted bundle, tensor, editor, or viewer snapshot data.
+ * @param label - Path-like field name, such as `manifest.tensors` or `viewer.tensors`, used in error messages.
+ * @param maxLength - Inclusive maximum number of array entries allowed before the field is rejected.
+ * @returns The original array value, narrowed to `unknown[]`, so callers can map each entry through field-specific validators.
+ * @throws Error when `value` is not an array or when its length is greater than `maxLength`.
  * @example
- * assertArray(value, label, maxLength);
+ * const tensors = assertArray([{ id: 'weights' }], 'manifest.tensors', 4);
+ * console.assert(tensors.length === 1);
+ *
+ * @example
+ * try {
+ *   assertArray('weights', 'manifest.tensors', 4);
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'manifest.tensors must be an array.');
+ * }
  */
 function assertArray(value: unknown, label: string, maxLength: number = VIEWER_LIMITS.maxEditorEntries): unknown[] {
     if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
@@ -100,14 +117,23 @@ function assertArray(value: unknown, label: string, maxLength: number = VIEWER_L
 }
 
 /**
- * return finite number for the current viewer state.
+ * Coerces a raw manifest or viewer field to a JavaScript number and rejects non-finite numeric values.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @returns Numeric result computed from the inputs.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Raw scalar value from untrusted viewer data, such as a coordinate, zoom, color channel, or spacing setting.
+ * @param label - Path-like field name, such as `viewer.camera.zoom`, used in error messages.
+ * @returns The `Number(value)` result after confirming it is finite, for use by more specific validators.
+ * @throws Error when `value` converts to `NaN`, `Infinity`, or `-Infinity`.
  * @example
- * finiteNumber(value, label);
+ * const zoom = finiteNumber('2.5', 'viewer.camera.zoom');
+ * console.assert(zoom === 2.5);
+ *
+ * @example
+ * try {
+ *   finiteNumber(Number.POSITIVE_INFINITY, 'viewer.camera.zoom');
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'viewer.camera.zoom must be finite.');
+ * }
  */
 function finiteNumber(value: unknown, label: string): number {
     const number = Number(value);
@@ -116,14 +142,23 @@ function finiteNumber(value: unknown, label: string): number {
 }
 
 /**
- * return finite integer for the current viewer state.
+ * Coerces a raw manifest or viewer field to a finite integer for tensor dimensions, coordinates, and editor indices.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @returns Numeric result computed from the inputs.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Raw scalar value expected to represent an integer index, dimension size, or editor position.
+ * @param label - Path-like field name, such as `shape[0]` or `viewer.tensors[0].view.hiddenIndices[1]`, used in error messages.
+ * @returns The `Number(value)` result after confirming it is finite and has no fractional part.
+ * @throws Error when `value` is non-finite or when it converts to a fractional number.
  * @example
- * finiteInteger(value, label);
+ * const axisSize = finiteInteger('16', 'shape[0]');
+ * console.assert(axisSize === 16);
+ *
+ * @example
+ * try {
+ *   finiteInteger(3.5, 'shape[0]');
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'shape[0] must be an integer.');
+ * }
  */
 function finiteInteger(value: unknown, label: string): number {
     const number = finiteNumber(value, label);
@@ -132,16 +167,25 @@ function finiteInteger(value: unknown, label: string): number {
 }
 
 /**
- * return bounded finite number for the current viewer state.
+ * Coerces a raw numeric viewer field and verifies that it falls within the inclusive range accepted by the viewer engine.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @param min - min input used by this operation (number).
- * @param max - max input used by this operation (number).
- * @returns Numeric result computed from the inputs.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Raw scalar value from viewer data, such as a camera zoom, world coordinate, or layout spacing setting.
+ * @param label - Path-like field name, such as `viewer.camera.zoom`, used in error messages.
+ * @param min - Inclusive lower bound accepted for the field.
+ * @param max - Inclusive upper bound accepted for the field.
+ * @returns The finite `Number(value)` result when it is greater than or equal to `min` and less than or equal to `max`.
+ * @throws Error when `value` is non-finite or when the converted number is outside the inclusive `[min, max]` range.
  * @example
- * boundedFiniteNumber(value, label, min, max);
+ * const zoom = boundedFiniteNumber('1.25', 'viewer.camera.zoom', 0.01, 100);
+ * console.assert(zoom === 1.25);
+ *
+ * @example
+ * try {
+ *   boundedFiniteNumber(0, 'viewer.camera.zoom', 0.01, 100);
+ * } catch (error) {
+ *   console.assert(error instanceof Error);
+ *   console.assert(error.message === 'viewer.camera.zoom is out of range.');
+ * }
  */
 function boundedFiniteNumber(value: unknown, label: string, min: number, max: number): number {
     const number = finiteNumber(value, label);
@@ -150,15 +194,24 @@ function boundedFiniteNumber(value: unknown, label: string, min: number, max: nu
 }
 
 /**
- * return bounded string for the current viewer state.
+ * Validates a string field from a viewer manifest, session snapshot, or editor snapshot and enforces the field's character limit.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @param maxLength - max length input used by this operation (number).
- * @returns Text formatted for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Unknown field value read from caller-provided serialized viewer data.
+ * @param label - Dot-path label, such as `tensor.name`, used in validation error messages.
+ * @param maxLength - Maximum allowed string length for this field; defaults to the viewer-wide text limit.
+ * @returns The original string once it has been confirmed to be a string within the configured length limit.
+ * @throws Error when `value` is not a string or when its length is greater than `maxLength`.
  * @example
- * boundedString(value, label, maxLength);
+ * boundedString('activation', 'tensor.name', 20);
+ * // Returns: 'activation'
+ *
+ * @example
+ * boundedString(42, 'tensor.name');
+ * // Throws: Error('tensor.name must be a string.')
+ *
+ * @example
+ * boundedString('abcdef', 'tensor.name', 3);
+ * // Throws: Error('tensor.name is too long.')
  */
 function boundedString(value: unknown, label: string, maxLength: number = VIEWER_LIMITS.maxTextLength): string {
     if (typeof value !== 'string') throw new Error(`${label} must be a string.`);
@@ -167,14 +220,19 @@ function boundedString(value: unknown, label: string, maxLength: number = VIEWER
 }
 
 /**
- * return tensor element count for the current viewer state.
+ * Multiplies a tensor shape's dimensions to determine how many cells the tensor contains, stopping when the viewer element limit would be exceeded.
  *
- * @param shape - Tensor shape used by this operation.
- * @param label - label input used by this operation (value).
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * @param shape - Already-normalized tensor dimensions, one positive integer per axis.
+ * @param label - Name or path for the shape being counted, used in overflow and size-limit error messages.
+ * @returns The product of all dimensions, which callers use as the tensor cell count for payload sizing and per-cell validation.
+ * @throws Error when an intermediate product is not a safe integer or exceeds `VIEWER_LIMITS.maxTensorElements`; the message includes the axis where the limit was crossed.
  * @example
- * tensorElementCount(shape, label);
+ * tensorElementCount([2, 3, 4], 'tensor.shape');
+ * // Returns: 24
+ *
+ * @example
+ * tensorElementCount([VIEWER_LIMITS.maxTensorElements + 1], 'tensor.shape');
+ * // Throws: Error('tensor.shape has too many elements at axis 0.')
  */
 export function tensorElementCount(shape: readonly number[], label = 'shape'): number {
     return shape.reduce((total, dim, axis) => {
@@ -187,14 +245,19 @@ export function tensorElementCount(shape: readonly number[], label = 'shape'): n
 }
 
 /**
- * validate tensor shape for the current viewer state.
+ * Normalizes an unknown tensor shape value into the positive integer dimensions accepted by the viewer engine.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (value).
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @param value - Caller-provided shape value from a tensor spec, manifest, or viewer API call.
+ * @param label - Name or dot-path for the shape, used to identify invalid dimensions in error messages.
+ * @returns A new array of positive integer dimensions suitable for tensor-view parsing, layout math, and payload validation.
+ * @throws Error when `value` is not an array, has too many axes, contains a non-finite or non-integer dimension, contains a dimension less than 1, contains a dimension above `VIEWER_LIMITS.maxDimension`, or has too many total elements.
  * @example
- * validateTensorShape(value, label);
+ * validateTensorShape([2, 3, 4], 'tensor.shape');
+ * // Returns: [2, 3, 4]
+ *
+ * @example
+ * validateTensorShape([2, 0], 'tensor.shape');
+ * // Throws: Error('tensor.shape[1] must be positive.')
  */
 export function validateTensorShape(value: unknown, label = 'shape'): number[] {
     const shape = assertArray(value, label, VIEWER_LIMITS.maxRank).map((dim, axis) => {
@@ -208,14 +271,19 @@ export function validateTensorShape(value: unknown, label = 'shape'): number[] {
 }
 
 /**
- * return expected tensor byte length for the current viewer state.
+ * Computes the exact byte length required to store a tensor payload with the given dtype and shape.
  *
- * @param dtype - dtype input used by this operation (DType).
- * @param shape - Tensor shape used by this operation.
- * @returns Numeric result computed from the inputs.
- * @throws Error when the requested input or state is invalid.
+ * @param dtype - Supported tensor data type whose element width is used for the payload calculation.
+ * @param shape - Tensor dimensions whose product gives the number of payload elements.
+ * @returns The number of bytes that a matching tensor payload file or buffer must contain.
+ * @throws Error when the shape has too many elements, the element count is not a safe integer, or the resulting payload size exceeds `VIEWER_LIMITS.maxPayloadBytes`.
  * @example
- * expectedTensorByteLength(dtype, shape);
+ * expectedTensorByteLength('float32', [2, 3]);
+ * // Returns: 24
+ *
+ * @example
+ * expectedTensorByteLength('float32', [VIEWER_LIMITS.maxTensorElements + 1]);
+ * // Throws: Error('shape has too many elements at axis 0.')
  */
 export function expectedTensorByteLength(dtype: DType, shape: readonly number[]): number {
     const bytes = tensorElementCount(shape) * dtypeByteLength(dtype);
@@ -226,15 +294,19 @@ export function expectedTensorByteLength(dtype: DType, shape: readonly number[])
 }
 
 /**
- * validate tensor payload for the current viewer state.
+ * Verifies that a tensor data buffer contains exactly the number of bytes implied by its dtype and shape.
  *
- * @param dtype - dtype input used by this operation (DType).
- * @param shape - Tensor shape used by this operation.
- * @param byteLength - byte length input used by this operation (number).
- * @returns Nothing; the function updates state in place.
- * @throws Error when the requested input or state is invalid.
+ * @param dtype - Tensor element type used to determine bytes per element.
+ * @param shape - Tensor dimensions whose product determines the element count.
+ * @param byteLength - Actual byte length of the payload or typed-array buffer being attached to the tensor.
+ * @returns Nothing; returns normally when the payload size matches the tensor metadata.
+ * @throws Error when byteLength does not equal the expected byte count for dtype and shape.
  * @example
- * validateTensorPayload(dtype, shape, byteLength);
+ * validateTensorPayload('float32', [2, 3], 24); // OK: 6 float32 values at 4 bytes each.
+ *
+ * expect(() => validateTensorPayload('float32', [1], 8)).toThrow(
+ *   'Tensor payload byte length 8 does not match expected 4.',
+ * );
  */
 export function validateTensorPayload(dtype: DType, shape: readonly number[], byteLength: number): void {
     const expectedBytes = expectedTensorByteLength(dtype, shape);
@@ -244,14 +316,19 @@ export function validateTensorPayload(dtype: DType, shape: readonly number[], by
 }
 
 /**
- * validate vec3 for the current viewer state.
+ * Validates a three-component viewer vector such as a tensor offset or camera position, target, or rotation.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @returns Computed Vec3 value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Unknown snapshot field that must be an array with exactly three numeric components.
+ * @param label - Dot-path label for the field, used to identify the failing component in validation errors.
+ * @returns A Vec3 containing the three finite components after bounds checks against viewer coordinate limits.
+ * @throws Error when value is not a three-item array, a component is not finite, or a component exceeds the allowed world-coordinate range.
  * @example
- * validateVec3(value, label);
+ * const offset = validateVec3([10, 0, -5], 'viewer.tensors[0].offset');
+ * // offset is [10, 0, -5]
+ *
+ * expect(() => validateVec3([1, 2], 'viewer.camera.position')).toThrow(
+ *   'viewer.camera.position must have three values.',
+ * );
  */
 function validateVec3(value: unknown, label: string): Vec3 {
     const tuple = assertArray(value, label, 3);
@@ -279,14 +356,19 @@ function validateVec3(value: unknown, label: string): Vec3 {
 }
 
 /**
- * return assert unique ids for the current viewer state.
+ * Ensures that a validated manifest, session, or viewer entry list does not contain repeated string ids.
  *
- * @param entries - entries input used by this operation (T[]).
- * @param label - label input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @param entries - Array of already validated objects that each expose an id property.
+ * @param label - Dot-path label for the entry list, used in the duplicate-id error message.
+ * @returns The same entries array when every id appears only once.
+ * @throws Error when two or more entries in the array have the same id.
  * @example
- * assertUniqueIds(entries, label);
+ * const tensors = assertUniqueIds([{ id: 'activation' }, { id: 'weights' }], 'manifest.tensors');
+ * // tensors is the original array because both ids are unique.
+ *
+ * expect(() => assertUniqueIds([{ id: 'layer-0' }, { id: 'layer-0' }], 'viewer.tensors')).toThrow(
+ *   'viewer.tensors contains duplicate id layer-0.',
+ * );
  */
 function assertUniqueIds<T extends { id: string }>(entries: T[], label: string): T[] {
     const seen = new Set<string>();
@@ -298,14 +380,19 @@ function assertUniqueIds<T extends { id: string }>(entries: T[], label: string):
 }
 
 /**
- * validate color tuple for the current viewer state.
+ * Validates the numeric color tuple attached to coordinate or region color instructions.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Unknown color field that must be an array of two or three numeric channel values.
+ * @param label - Dot-path label for the color field, used to identify invalid channels in errors.
+ * @returns The validated color channels as finite numbers, preserving the caller-provided channel order.
+ * @throws Error when value is not an array, a channel is not finite, or the tuple has any length other than two or three.
  * @example
- * validateColorTuple(value, label);
+ * const color = validateColorTuple([0.25, 0.5, 1], 'manifest.tensors[0].colorInstructions[0].color');
+ * // color is [0.25, 0.5, 1]
+ *
+ * expect(() => validateColorTuple([1], 'manifest.tensors[0].colorInstructions[0].color')).toThrow(
+ *   'manifest.tensors[0].colorInstructions[0].color must have two or three channels.',
+ * );
  */
 function validateColorTuple(value: unknown, label: string): number[] {
     const tuple = assertArray(value, label, 3).map((entry, index) => finiteNumber(entry, `${label}[${index}]`));
@@ -314,15 +401,20 @@ function validateColorTuple(value: unknown, label: string): number[] {
 }
 
 /**
- * validate coord for the current viewer state.
+ * Validates a tensor coordinate and returns one in-bounds integer index for each tensor axis.
  *
- * @param value - Value supplied by the caller.
- * @param shape - Tensor shape used by this operation.
- * @param label - label input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Candidate coordinate array whose length must match the tensor rank.
+ * @param shape - Tensor dimensions used to check each coordinate entry against its axis bounds.
+ * @param label - Prefix used in validation error messages, such as `tensor.markerCoords[0]`.
+ * @returns The coordinate entries as finite integers that can be used to index the tensor.
+ * @throws Error when `value` is not an array, has the wrong rank, contains a non-integer entry, or contains an index below `0` or greater than or equal to the corresponding axis size.
  * @example
- * validateCoord(value, shape, label);
+ * validateCoord([1, 2], [3, 4], 'markerCoords[0]');
+ * // => [1, 2]
+ *
+ * @example
+ * validateCoord([3, 0], [3, 4], 'markerCoords[0]');
+ * // throws Error: markerCoords[0][0] is out of bounds.
  */
 function validateCoord(value: unknown, shape: readonly number[], label: string): number[] {
     const coord = assertArray(value, label, shape.length).map((entry, axis) => {
@@ -335,15 +427,20 @@ function validateCoord(value: unknown, shape: readonly number[], label: string):
 }
 
 /**
- * validate region shape for the current viewer state.
+ * Validates the per-axis extent of a tensor color region.
  *
- * @param value - Value supplied by the caller.
- * @param tensorShape - Tensor shape used by this operation.
- * @param label - label input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Candidate region shape array containing one positive integer extent per tensor axis.
+ * @param tensorShape - Tensor dimensions whose rank the region shape must match.
+ * @param label - Prefix used in validation error messages, such as `colorInstructions[0].shape`.
+ * @returns The validated region extents as positive integers, preserving axis order.
+ * @throws Error when `value` is not an array, has the wrong rank, contains a non-integer entry, or contains an extent less than `1`.
  * @example
- * validateRegionShape(value, tensorShape, label);
+ * validateRegionShape([2, 3], [10, 20], 'colorInstructions[0].shape');
+ * // => [2, 3]
+ *
+ * @example
+ * validateRegionShape([2, 0], [10, 20], 'colorInstructions[0].shape');
+ * // throws Error: colorInstructions[0].shape[1] must be positive.
  */
 function validateRegionShape(value: unknown, tensorShape: readonly number[], label: string): number[] {
     const shape = assertArray(value, label, tensorShape.length).map((entry, axis) => {
@@ -356,15 +453,31 @@ function validateRegionShape(value: unknown, tensorShape: readonly number[], lab
 }
 
 /**
- * validate color instruction for the current viewer state.
+ * Validates one custom tensor-color instruction and counts the tensor cells it affects.
  *
- * @param instruction - instruction input used by this operation (unknown).
- * @param shape - Tensor shape used by this operation.
- * @param label - label input used by this operation (string).
- * @returns Object containing computed state for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param instruction - Candidate instruction object with `mode` set to `rgb` or `hs` and `kind` set to `dense`, `coords`, or `region`.
+ * @param shape - Tensor dimensions used to validate coordinate lists, region bases, and region bounds.
+ * @param label - Prefix used in validation error messages, such as `colorInstructions[0]`.
+ * @returns The normalized color instruction plus the number of tensor cells represented by that instruction.
+ * @throws Error when the instruction is not an object, has an unsupported `mode` or `kind`, provides a dense value count that is not two or three channels per tensor cell, contains invalid coordinates or color tuples, has region jumps with the wrong rank, or defines a region that extends outside the tensor bounds.
  * @example
- * validateColorInstruction(instruction, shape, label);
+ * validateColorInstruction(
+ *   { mode: 'rgb', kind: 'coords', coords: [[0, 1], [2, 3]], color: [1, 0, 0] },
+ *   [3, 4],
+ *   'colorInstructions[0]',
+ * );
+ * // => {
+ * //   instruction: { mode: 'rgb', kind: 'coords', coords: [[0, 1], [2, 3]], color: [1, 0, 0] },
+ * //   entries: 2,
+ * // }
+ *
+ * @example
+ * validateColorInstruction(
+ *   { mode: 'rgb', kind: 'dense', values: [1, 0, 0] },
+ *   [2, 2],
+ *   'colorInstructions[0]',
+ * );
+ * // throws Error: colorInstructions[0].values must have two or three channels per tensor cell.
  */
 function validateColorInstruction(instruction: unknown, shape: readonly number[], label: string): {
     instruction: ColorInstruction;
@@ -416,15 +529,30 @@ function validateColorInstruction(instruction: unknown, shape: readonly number[]
 }
 
 /**
- * validate color instructions for the current viewer state.
+ * Validates an optional list of custom color instructions for a tensor.
  *
- * @param value - Value supplied by the caller.
- * @param shape - Tensor shape used by this operation.
- * @param label - label input used by this operation (value).
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @param value - Optional candidate color-instruction array from a tensor manifest or viewer API call; `undefined` means no custom colors were supplied.
+ * @param shape - Tensor dimensions used to validate each instruction's coordinates, dense channel count, and region bounds.
+ * @param label - Prefix used in validation error messages; defaults to `colorInstructions`.
+ * @returns `undefined` when `value` is `undefined`, otherwise the normalized color instructions in their original order.
+ * @throws Error when `value` is not a valid instruction array, any nested instruction is invalid, or the combined coordinate and region instructions touch more than `VIEWER_LIMITS.maxCustomColorEntries` tensor cells.
  * @example
- * validateColorInstructions(value, shape, label);
+ * validateColorInstructions(undefined, [2, 2]);
+ * // => undefined
+ *
+ * @example
+ * validateColorInstructions(
+ *   [{ mode: 'rgb', kind: 'coords', coords: [[0, 0]], color: [0, 1, 0] }],
+ *   [2, 2],
+ * );
+ * // => [{ mode: 'rgb', kind: 'coords', coords: [[0, 0]], color: [0, 1, 0] }]
+ *
+ * @example
+ * validateColorInstructions(
+ *   [{ mode: 'rgb', kind: 'region', base: [1, 1], shape: [2, 1], jumps: [1, 1], color: [1, 1, 0] }],
+ *   [2, 2],
+ * );
+ * // throws Error: colorInstructions[0].shape exceeds tensor bounds.
  */
 export function validateColorInstructions(value: unknown, shape: readonly number[], label = 'colorInstructions'): ColorInstruction[] | undefined {
     if (value === undefined) return undefined;
@@ -441,14 +569,40 @@ export function validateColorInstructions(value: unknown, shape: readonly number
 }
 
 /**
- * normalize tensor view editor for the current viewer state.
+ * Validates a serialized version-2 tensor-view editor snapshot and returns the canonical editor state used by view parsing.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (value).
- * @returns Computed TensorViewEditor value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Unknown snapshot object with version, view input strings, base dimension descriptors, permutation ids, slice keys, singleton axes, and slice value entries.
+ * @param label - Error-path prefix that identifies the editor field being validated, such as `manifest.tensors[0].view.editor`.
+ * @returns A `TensorViewEditor` with bounded strings, finite integer dimensions and slice values, boolean flatten separators, and `version` fixed to `2`.
+ * @throws Error when `value` is not an object, `version` is not `2`, a dimension size is outside the viewer limits, an editor string is too long, `sliceValues` has too many entries, or any nested field has the wrong type.
  * @example
- * normalizeTensorViewEditor(value, label);
+ * const editor = normalizeTensorViewEditor({
+ *   version: 2,
+ *   viewTensorInput: 'height width',
+ *   finalViewInput: undefined,
+ *   baseDims: [{ id: 'height', label: 'Height', size: 4 }],
+ *   permutedDimIds: ['height'],
+ *   flattenSeparators: [false],
+ *   singletons: [],
+ *   slicedTokenKeys: ['depth'],
+ *   sliceValues: { depth: 0 },
+ * });
+ *
+ * expect(editor).toEqual({
+ *   version: 2,
+ *   viewTensorInput: 'height width',
+ *   finalViewInput: undefined,
+ *   baseDims: [{ id: 'height', label: 'Height', size: 4 }],
+ *   permutedDimIds: ['height'],
+ *   flattenSeparators: [false],
+ *   singletons: [],
+ *   slicedTokenKeys: ['depth'],
+ *   sliceValues: { depth: 0 },
+ * });
+ *
+ * @example
+ * expect(() => normalizeTensorViewEditor({ version: 1 }, 'view.editor'))
+ *   .toThrow('view.editor.version is unsupported.');
  */
 export function normalizeTensorViewEditor(value: unknown, label = 'view.editor'): TensorViewEditor {
     const editor = assertObject(value, label);
@@ -503,15 +657,35 @@ export function normalizeTensorViewEditor(value: unknown, label = 'view.editor')
 }
 
 /**
- * validate tensor view snapshot for the current viewer state.
+ * Validates persisted tensor-view state against the tensor shape that the view will index into.
  *
- * @param value - Value supplied by the caller.
- * @param shape - Tensor shape used by this operation.
- * @param label - label input used by this operation (string).
- * @returns Computed value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param value - Unknown snapshot object containing an `editor` snapshot and one hidden index for each tensor axis.
+ * @param shape - Tensor axis lengths used to require `hiddenIndices.length === shape.length` and to bound each hidden index to its axis.
+ * @param label - Error-path prefix that identifies the snapshot location, such as `manifest.tensors[0].view`.
+ * @returns A normalized view snapshot with a canonical editor and finite hidden indices that are valid for the supplied shape.
+ * @throws Error when the snapshot is not an object, hidden indices are missing or have the wrong length, a hidden index is not an integer or is outside its axis bounds, or the nested editor snapshot is invalid.
  * @example
- * validateTensorViewSnapshot(value, shape, label);
+ * const snapshot = validateTensorViewSnapshot({
+ *   editor: {
+ *     version: 2,
+ *     viewTensorInput: 'row col',
+ *     finalViewInput: undefined,
+ *     baseDims: [{ id: 'row', label: 'Row', size: 2 }, { id: 'col', label: 'Column', size: 3 }],
+ *     permutedDimIds: ['row', 'col'],
+ *     flattenSeparators: [false, false],
+ *     singletons: [],
+ *     slicedTokenKeys: [],
+ *     sliceValues: {},
+ *   },
+ *   hiddenIndices: [0, 2],
+ * }, [2, 3], 'tensor.view');
+ *
+ * expect(snapshot.hiddenIndices).toEqual([0, 2]);
+ * expect(snapshot.editor.version).toBe(2);
+ *
+ * @example
+ * expect(() => validateTensorViewSnapshot({ editor: validEditor, hiddenIndices: [2] }, [2], 'tensor.view'))
+ *   .toThrow('tensor.view.hiddenIndices[0] is out of bounds.');
  */
 function validateTensorViewSnapshot(value: unknown, shape: readonly number[], label: string) {
     const snapshot = assertObject(value, label);
@@ -528,14 +702,42 @@ function validateTensorViewSnapshot(value: unknown, shape: readonly number[], la
 }
 
 /**
- * validate tensor manifest for the current viewer state.
+ * Validates one tensor entry from a bundle manifest before the viewer loads its bytes, view state, colors, and markers.
  *
- * @param value - Value supplied by the caller.
- * @param label - label input used by this operation (string).
- * @returns Computed BundleManifest['tensors'][number] value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Unknown manifest tensor object with id, name, dtype, shape, little-endian byte order, view snapshot, color instructions, and optional data-file, offset, axis-label, placeholder, and marker fields.
+ * @param label - Error-path prefix for this tensor entry, such as `manifest.tensors[0]`.
+ * @returns A manifest tensor record with validated dtype, shape, axis labels, byte order, view snapshot, color instructions, and marker coordinates safe for viewer-core consumers.
+ * @throws Error when the tensor is not an object, `dtype` is unsupported, `byteOrder` is not `little`, the shape or axis labels are invalid, or nested view, color instruction, offset, data-file, or marker-coordinate validation fails.
  * @example
- * validateTensorManifest(value, label);
+ * const tensor = validateTensorManifest({
+ *   id: 'activation',
+ *   name: 'Activation',
+ *   dtype: 'float32',
+ *   shape: [2, 3],
+ *   axisLabels: ['row', 'column'],
+ *   byteOrder: 'little',
+ *   view: validViewSnapshot,
+ *   colorInstructions: [],
+ * }, 'manifest.tensors[0]');
+ *
+ * expect(tensor).toMatchObject({
+ *   id: 'activation',
+ *   name: 'Activation',
+ *   dtype: 'float32',
+ *   shape: [2, 3],
+ *   byteOrder: 'little',
+ * });
+ *
+ * @example
+ * expect(() => validateTensorManifest({
+ *   id: 'activation',
+ *   name: 'Activation',
+ *   dtype: 'float32',
+ *   shape: [2, 3],
+ *   byteOrder: 'big',
+ *   view: validViewSnapshot,
+ *   colorInstructions: [],
+ * }, 'manifest.tensors[0]')).toThrow('manifest.tensors[0].byteOrder must be little.');
  */
 function validateTensorManifest(value: unknown, label: string): BundleManifest['tensors'][number] {
     const tensor = assertObject(value, label);
@@ -566,15 +768,28 @@ function validateTensorManifest(value: unknown, label: string): BundleManifest['
 }
 
 /**
- * validate viewer tensor snapshot for the current viewer state.
+ * Validates one viewer snapshot tensor entry and resolves its id against the loaded manifest tensors.
  *
- * @param value - Value supplied by the caller.
- * @param tensorById - Stable identifier used by this operation.
- * @param label - label input used by this operation (string).
- * @returns Computed ViewerSnapshot['tensors'][number] value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Unknown viewer tensor snapshot object containing a manifest tensor `id`, display `name`, optional 3D offset, and persisted view snapshot.
+ * @param tensorById - Map from manifest tensor ids to validated manifest tensor records; the matched tensor supplies the shape used to validate the view snapshot.
+ * @param label - Error-path prefix for this viewer tensor entry, such as `viewer.tensors[0]`.
+ * @returns A viewer tensor snapshot whose id exists in the manifest map and whose name, optional offset, and shape-dependent view state have been validated.
+ * @throws Error when the snapshot is not an object, the id does not match a manifest tensor, the name or offset is invalid, or the nested view snapshot is invalid for the referenced tensor shape.
  * @example
- * validateViewerTensorSnapshot(value, tensorById, label);
+ * const tensorById = new Map([['activation', { id: 'activation', name: 'Activation', dtype: 'float32', shape: [2, 3], byteOrder: 'little', view: validViewSnapshot, colorInstructions: [] }]]);
+ * const snapshot = validateViewerTensorSnapshot({
+ *   id: 'activation',
+ *   name: 'Activation panel',
+ *   offset: [1, 0, 0],
+ *   view: validViewSnapshot,
+ * }, tensorById, 'viewer.tensors[0]');
+ *
+ * expect(snapshot.id).toBe('activation');
+ * expect(snapshot.offset).toEqual([1, 0, 0]);
+ *
+ * @example
+ * expect(() => validateViewerTensorSnapshot({ id: 'missing', name: 'Missing', view: validViewSnapshot }, new Map(), 'viewer.tensors[0]'))
+ *   .toThrow('viewer.tensors[0].id does not match a tensor manifest.');
  */
 function validateViewerTensorSnapshot(
     value: unknown,
@@ -594,14 +809,41 @@ function validateViewerTensorSnapshot(
 }
 
 /**
- * validate viewer snapshot for the current viewer state.
+ * Normalizes a serialized viewer snapshot and verifies that its tensor references match the bundle manifest.
  *
- * @param value - Value supplied by the caller.
- * @param manifestTensors - manifest tensors input used by this operation (BundleManifest['tensors']).
- * @returns Computed ViewerSnapshot value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Serialized `viewer` object from a bundle or session tab, including display mode, camera, tensor views, and active tensor id.
+ * @param manifestTensors - Tensor manifest entries that the snapshot is allowed to reference from `viewer.tensors` and `viewer.activeTensorId`.
+ * @returns A `ViewerSnapshot` with booleans and bounded numeric fields coerced into the shape used to restore viewer state.
+ * @throws Error when the viewer object is malformed, uses an unsupported display/interation/mapping mode, has out-of-range camera or gap values, contains invalid tensor-view entries, or references an active tensor id that is not present in `manifestTensors`.
  * @example
- * validateViewerSnapshot(value, manifestTensors);
+ * const tensors = [{ id: 'weights', name: 'weights', dtype: 'float32', shape: [2, 2], byteOrder: 'little' }];
+ * const snapshot = validateViewerSnapshot({
+ *   displayMode: '2d',
+ *   heatmap: true,
+ *   showDimensionLines: false,
+ *   showInspectorPanel: true,
+ *   showHoverDetailsPanel: false,
+ *   camera: { position: [0, 0, 5], target: [0, 0, 0], rotation: [0, 0, 0], zoom: 1 },
+ *   tensors: [],
+ *   activeTensorId: 'weights',
+ * }, tensors);
+ *
+ * snapshot.activeTensorId;
+ * // => 'weights'
+ * snapshot.camera.zoom;
+ * // => 1
+ *
+ * @example
+ * expect(() => validateViewerSnapshot({
+ *   displayMode: '2d',
+ *   heatmap: false,
+ *   showDimensionLines: false,
+ *   showInspectorPanel: false,
+ *   showHoverDetailsPanel: false,
+ *   camera: { position: [0, 0, 5], target: [0, 0, 0], rotation: [0, 0, 0], zoom: 1 },
+ *   tensors: [],
+ *   activeTensorId: 'missing',
+ * }, tensors)).toThrow('viewer.activeTensorId does not match a tensor manifest.');
  */
 function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest['tensors']): ViewerSnapshot {
     const snapshot = assertObject(value, 'viewer');
@@ -668,13 +910,35 @@ function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest[
 }
 
 /**
- * validate bundle manifest for the current viewer state.
+ * Validates the single-bundle manifest loaded by the viewer and normalizes its tensors and saved viewer snapshot.
  *
- * @param value - Value supplied by the caller.
- * @returns Computed BundleManifest value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Candidate bundle manifest object with `version: 1`, a `tensors` array, and a nested `viewer` snapshot.
+ * @returns A `BundleManifest` whose tensor metadata, viewer tensor views, camera values, and active tensor reference are safe to load.
+ * @throws Error when the manifest is not an object, has an unsupported version, contains invalid or duplicate tensor metadata, exceeds manifest limits, or has an invalid nested viewer snapshot.
  * @example
- * validateBundleManifest(value);
+ * const manifest = validateBundleManifest({
+ *   version: 1,
+ *   tensors: [{ id: 'weights', name: 'weights', dtype: 'float32', shape: [2, 2], byteOrder: 'little' }],
+ *   viewer: {
+ *     displayMode: '2d',
+ *     heatmap: false,
+ *     showDimensionLines: false,
+ *     showInspectorPanel: true,
+ *     showHoverDetailsPanel: false,
+ *     camera: { position: [0, 0, 5], target: [0, 0, 0], rotation: [0, 0, 0], zoom: 1 },
+ *     tensors: [],
+ *     activeTensorId: 'weights',
+ *   },
+ * });
+ *
+ * manifest.version;
+ * // => 1
+ * manifest.tensors[0].id;
+ * // => 'weights'
+ *
+ * @example
+ * expect(() => validateBundleManifest({ version: 2, tensors: [], viewer: {} }))
+ *   .toThrow('Unsupported bundle version 2.');
  */
 export function validateBundleManifest(value: unknown): BundleManifest {
     const manifest = assertObject(value, 'manifest');
@@ -692,13 +956,39 @@ export function validateBundleManifest(value: unknown): BundleManifest {
 }
 
 /**
- * validate session bundle manifest for the current viewer state.
+ * Validates a saved multi-tab viewer session and normalizes each tab's tensor manifests and viewer snapshot.
  *
- * @param value - Value supplied by the caller.
- * @returns Computed SessionBundleManifest value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Candidate session object with `version: 1` and a `tabs` array containing tab ids, titles, tensor manifests, and nested viewer snapshots.
+ * @returns A `SessionBundleManifest` whose tab ids, titles, tensors, and per-tab viewer states are safe to restore.
+ * @throws Error when the session is not an object, has an unsupported version, has malformed or duplicate tabs, contains invalid or duplicate tensor metadata within a tab, exceeds configured limits, or has an invalid nested viewer snapshot.
  * @example
- * validateSessionBundleManifest(value);
+ * const session = validateSessionBundleManifest({
+ *   version: 1,
+ *   tabs: [{
+ *     id: 'tab-main',
+ *     title: 'Weights',
+ *     tensors: [{ id: 'weights', name: 'weights', dtype: 'float32', shape: [2, 2], byteOrder: 'little' }],
+ *     viewer: {
+ *       displayMode: '2d',
+ *       heatmap: true,
+ *       showDimensionLines: false,
+ *       showInspectorPanel: true,
+ *       showHoverDetailsPanel: false,
+ *       camera: { position: [0, 0, 5], target: [0, 0, 0], rotation: [0, 0, 0], zoom: 1 },
+ *       tensors: [],
+ *       activeTensorId: 'weights',
+ *     },
+ *   }],
+ * });
+ *
+ * session.tabs[0].title;
+ * // => 'Weights'
+ * session.tabs[0].viewer.activeTensorId;
+ * // => 'weights'
+ *
+ * @example
+ * expect(() => validateSessionBundleManifest({ version: 2, tabs: [] }))
+ *   .toThrow('Unsupported session version 2.');
  */
 export function validateSessionBundleManifest(value: unknown): SessionBundleManifest {
     const manifest = assertObject(value, 'session');

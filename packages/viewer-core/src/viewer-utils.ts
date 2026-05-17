@@ -2,26 +2,35 @@ import { Color, Vector3 } from 'three';
 import type { CustomColor, DType, HueSaturation, NumericArray, RGB, Vec3 } from './types.js';
 
 /**
- * return signed log1p for the current viewer state.
+ * Applies the viewer's sign-preserving logarithmic scale transform to a numeric value.
  *
- * @param value - Value supplied by the caller.
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * Positive values become `log1p(value)`, negative values become `-log1p(abs(value))`, and zero remains zero.
+ *
+ * @param value - Tensor cell value or heatmap bound to transform for log-scale color normalization.
+ * @returns Sign-preserving `log1p` magnitude used to compare positive and negative values on the same heatmap scale.
+ * @noThrows `Math.sign`, `Math.abs`, and `Math.log1p` do not throw for JavaScript number inputs; non-finite inputs propagate as normal numeric results.
  * @example
- * signedLog1p(value);
+ * expect(signedLog1p(3)).toBeCloseTo(Math.log1p(3));
+ * expect(signedLog1p(-3)).toBeCloseTo(-Math.log1p(3));
+ * expect(signedLog1p(0)).toBe(0);
  */
 export function signedLog1p(value: number): number {
     return Math.sign(value) * Math.log1p(Math.abs(value));
 }
 
 /**
- * return compute min max for the current viewer state.
+ * Scans tensor sample storage to derive the numeric value range used for viewer scaling and heatmap metadata.
  *
- * @param data - data input used by this operation (NumericArray).
- * @returns Object containing computed state for the caller.
- * @noThrows This function has no direct throw path.
+ * @param data - NumericArray containing tensor values; each element is coerced with `Number`, and nullish reads are treated as `0`.
+ * @returns The smallest and largest finite values found in `data`; returns `{ min: 0, max: 1 }` when the scan cannot produce a finite range, such as for an empty array.
+ * @noThrows The function only reads `data.length`, indexes the array, and performs numeric comparisons; it has no validation branch or explicit error path for supported NumericArray inputs.
  * @example
- * computeMinMax(data);
+ * const range = computeMinMax(new Float32Array([3.5, -2, 8]));
+ * // range is { min: -2, max: 8 }
+ *
+ * @example
+ * const fallback = computeMinMax(new Float32Array([]));
+ * // fallback is { min: 0, max: 1 }
  */
 export function computeMinMax(data: NumericArray): { min: number; max: number } {
     let min = Number.POSITIVE_INFINITY;
@@ -36,39 +45,48 @@ export function computeMinMax(data: NumericArray): { min: number; max: number } 
 }
 
 /**
- * return vector from tuple for the current viewer state.
+ * Converts a serialized viewer coordinate tuple into the Three.js vector type used by camera, mesh, and layout math.
  *
- * @param tuple - tuple input used by this operation (Vec3).
- * @returns Computed Vector3 value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param tuple - Three-number `[x, y, z]` Vec3 from viewer state, tensor offsets, or camera snapshots.
+ * @returns A new `Vector3` whose `x`, `y`, and `z` components match the tuple entries in order.
+ * @noThrows The function only passes the three tuple entries to the `Vector3` constructor and performs no parsing or validation.
  * @example
- * vectorFromTuple(tuple);
+ * const position = vectorFromTuple([12, -4, 0.5]);
+ * // position.x === 12
+ * // position.y === -4
+ * // position.z === 0.5
  */
 export function vectorFromTuple(tuple: Vec3): Vector3 {
     return new Vector3(tuple[0], tuple[1], tuple[2]);
 }
 
 /**
- * return tuple from vector for the current viewer state.
+ * Serializes a Three.js vector into the viewer's plain Vec3 tuple format for snapshots and persisted state.
  *
- * @param vector - vector input used by this operation (Vector3).
- * @returns Computed Vec3 value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param vector - Three.js `Vector3` whose `x`, `y`, and `z` components should be captured.
+ * @returns A `[x, y, z]` tuple containing the vector components in coordinate order.
+ * @noThrows The function only reads the numeric `x`, `y`, and `z` fields from an existing `Vector3` instance.
  * @example
- * tupleFromVector(vector);
+ * const tuple = tupleFromVector(new Vector3(1.25, 2, -3));
+ * // tuple is [1.25, 2, -3]
  */
 export function tupleFromVector(vector: Vector3): Vec3 {
     return [vector.x, vector.y, vector.z];
 }
 
 /**
- * return dtype from array for the current viewer state.
+ * Infers the viewer dtype label that corresponds to a tensor's JavaScript numeric array storage.
  *
- * @param data - data input used by this operation (NumericArray).
- * @returns Computed DType value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param data - NumericArray instance supplied for tensor values, such as `Float32Array`, `Int32Array`, `Uint8Array`, or a float64-compatible fallback array.
+ * @returns The manifest dtype label for the array constructor: `'float32'`, `'int32'`, `'uint8'`, or `'float64'` for any other supported numeric array.
+ * @noThrows The function uses only `instanceof` checks and a default return value, so unrecognized NumericArray variants fall back to `'float64'` instead of throwing.
  * @example
- * dtypeFromArray(data);
+ * const dtype = dtypeFromArray(new Uint8Array([0, 128, 255]));
+ * // dtype is 'uint8'
+ *
+ * @example
+ * const fallback = dtypeFromArray(new Float64Array([0.1, 0.2]));
+ * // fallback is 'float64'
  */
 export function dtypeFromArray(data: NumericArray): DType {
     if (data instanceof Float32Array) return 'float32';
@@ -78,54 +96,70 @@ export function dtypeFromArray(data: NumericArray): DType {
 }
 
 /**
- * return numeric value for the current viewer state.
+ * Reads a tensor data entry as a JavaScript number, using `0` when the tensor has no data array or the offset is missing.
  *
- * @param data - data input used by this operation (NumericArray | null).
- * @param index - Index used by this operation.
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * @param data - Numeric tensor backing storage, or `null` for tensors without loaded cell values.
+ * @param index - Linear offset into the tensor data array, usually produced from a tensor coordinate and shape.
+ * @returns The cell value coerced with `Number(...)`; returns `0` for `null` data or an out-of-range/undefined slot.
+ * @noThrows Optional indexing and `Number` coercion handle `null` and missing entries without an expected exception path.
  * @example
- * numericValue(data, index);
+ * numericValue(new Float32Array([1.5, 2.25, 3]), 1);
+ * // => 2.25
+ *
+ * numericValue(null, 4);
+ * // => 0
  */
 export function numericValue(data: NumericArray | null, index: number): number {
     return Number(data?.[index] ?? 0);
 }
 
 /**
- * return coord key for the current viewer state.
+ * Serializes a tensor coordinate vector into the comma-delimited key used by viewer Sets and Maps.
  *
- * @param coord - Coordinate used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param coord - Ordered tensor coordinate components, such as `[row, column]` or an empty scalar coordinate `[]`.
+ * @returns A comma-separated coordinate key; for example, `[2, 5, 1]` becomes `"2,5,1"` and `[]` becomes `""`.
+ * @noThrows The helper only delegates to `Array.prototype.join` on the provided coordinate array and performs no validation.
  * @example
- * coordKey(coord);
+ * coordKey([3, 0, 2]);
+ * // => "3,0,2"
+ *
+ * coordKey([]);
+ * // => ""
  */
 export function coordKey(coord: number[]): string {
     return coord.join(',');
 }
 
 /**
- * return coord from key for the current viewer state.
+ * Parses a serialized viewer coordinate key back into numeric tensor coordinate components.
  *
- * @param key - key input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * @param key - Comma-delimited coordinate key produced by `coordKey`, or `""` for a scalar/empty coordinate.
+ * @returns The numeric coordinate vector represented by the key; each comma-delimited segment is converted with `Number`.
+ * @noThrows String splitting and `Number` conversion do not throw for normal key strings; malformed numeric text becomes `NaN` rather than an exception.
  * @example
- * coordFromKey(key);
+ * coordFromKey("3,0,2");
+ * // => [3, 0, 2]
+ *
+ * coordFromKey("");
+ * // => []
  */
 export function coordFromKey(key: string): number[] {
     return key === '' ? [] : key.split(',').map((value) => Number(value));
 }
 
 /**
- * return quantile for the current viewer state.
+ * Calculates an interpolated percentile value from an already sorted numeric sample list.
  *
- * @param sortedValues - sorted values input used by this operation (number[]).
- * @param percentile - percentile input used by this operation (number).
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * @param sortedValues - Values sorted in ascending order before calling; interpolation assumes this order is already correct.
+ * @param percentile - Fractional percentile position, typically from `0` for the minimum through `1` for the maximum.
+ * @returns The value at the requested percentile, linearly interpolated between adjacent sorted entries when the position is fractional.
+ * @noThrows The helper performs arithmetic and guarded array indexing with `0` fallbacks, and it does not validate empty arrays or percentile bounds.
  * @example
- * quantile(sortedValues, percentile);
+ * quantile([10, 20, 30, 40], 0.5);
+ * // => 25
+ *
+ * quantile([7], 0.95);
+ * // => 7
  */
 export function quantile(sortedValues: number[], percentile: number): number {
     if (sortedValues.length === 1) return sortedValues[0] ?? 0;
@@ -139,14 +173,19 @@ export function quantile(sortedValues: number[], percentile: number): number {
 }
 
 /**
- * return boxes intersect for the current viewer state.
+ * Tests whether two axis-aligned rectangles overlap or touch in viewer coordinate space.
  *
- * @param left - left input used by this operation ({ left: number; right: number; top: number; bottom: number }).
- * @param right - right input used by this operation ({ left: number; right: number; top: number; bottom: number }).
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * @param left - First rectangle bounds, with horizontal edges in `left`/`right` and vertical edges in `top`/`bottom`.
+ * @param right - Second rectangle bounds to compare against the first rectangle.
+ * @returns `true` when the rectangles share any area or boundary edge; `false` when one is completely outside the other.
+ * @noThrows Performs only numeric comparisons on the supplied bounds object properties, so valid bounds objects have no expected throw path.
  * @example
- * boxesIntersect(left, right);
+ * const marquee = { left: 10, right: 30, top: 10, bottom: 30 };
+ * const cell = { left: 25, right: 40, top: 20, bottom: 35 };
+ * boxesIntersect(marquee, cell); // true
+ *
+ * const offscreenCell = { left: 31, right: 40, top: 20, bottom: 35 };
+ * boxesIntersect(marquee, offscreenCell); // false
  */
 export function boxesIntersect(
     left: { left: number; right: number; top: number; bottom: number },
@@ -159,26 +198,31 @@ export function boxesIntersect(
 }
 
 /**
- * color from rgb for the current viewer state.
+ * Converts a custom RGB color tuple from 8-bit channel values into a Three.js `Color`.
  *
- * @param rgb - rgb input used by this operation (RGB).
- * @returns Computed Color value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param rgb - Three-element `[red, green, blue]` tuple whose channel values use the 0-255 RGB range stored in viewer metadata.
+ * @returns A `Color` with each channel normalized to Three.js's 0-1 component range for canvas, SVG, and mesh rendering.
+ * @noThrows Reads three numeric tuple entries and constructs a `Color`; no validation or branching introduces an expected throw path for a well-formed RGB tuple.
  * @example
- * colorFromRgb(rgb);
+ * const color = colorFromRgb([255, 128, 0]);
+ * color.r; // 1
+ * color.g; // 0.5019607843137255
+ * color.b; // 0
  */
 export function colorFromRgb(rgb: RGB): Color {
     return new Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
 }
 
 /**
- * normalize hue for the current viewer state.
+ * Converts a hue expressed as turns or degrees into the wrapped unit interval used by hue-saturation color rendering.
  *
- * @param hue - hue input used by this operation (number).
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * @param hue - Hue value from a custom hue-saturation color; values with absolute magnitude greater than 1 are treated as degrees, otherwise as turns.
+ * @returns The hue wrapped into the range `[0, 1)`, where `0` and `1` represent the same point on the color wheel.
+ * @noThrows Uses arithmetic modulo and absolute value on the numeric argument, so there is no expected throw path for numeric hue input.
  * @example
- * normalizeHue(hue);
+ * normalizeHue(180); // 0.5
+ * normalizeHue(-0.25); // 0.75
+ * normalizeHue(450); // 0.25
  */
 function normalizeHue(hue: number): number {
     const unit = Math.abs(hue) > 1 ? hue / 360 : hue;
@@ -186,13 +230,15 @@ function normalizeHue(hue: number): number {
 }
 
 /**
- * normalize saturation for the current viewer state.
+ * Converts a saturation expressed as a unit value or percentage into the clamped unit range used for color rendering.
  *
- * @param saturation - saturation input used by this operation (number).
- * @returns Numeric result computed from the inputs.
- * @noThrows This function has no direct throw path.
+ * @param saturation - Saturation component from a custom hue-saturation color; values with absolute magnitude greater than 1 are treated as percentages.
+ * @returns The saturation clamped to `[0, 1]`, suitable for interpolating between grayscale and fully saturated color.
+ * @noThrows Uses numeric division and min/max clamping only, so numeric saturation input has no expected throw path.
  * @example
- * normalizeSaturation(saturation);
+ * normalizeSaturation(75); // 0.75
+ * normalizeSaturation(1.5); // 0.015
+ * normalizeSaturation(-0.2); // 0
  */
 function normalizeSaturation(saturation: number): number {
     const unit = Math.abs(saturation) > 1 ? saturation / 100 : saturation;
@@ -200,14 +246,18 @@ function normalizeSaturation(saturation: number): number {
 }
 
 /**
- * color from hue saturation for the current viewer state.
+ * Converts a hue/saturation custom color and scalar brightness into the RGB color used for tensor cell rendering.
  *
- * @param color - color input used by this operation (HueSaturation).
- * @param brightness - brightness input used by this operation (number).
- * @returns Computed Color value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param color - Two-number hue/saturation tuple where the first entry is the hue position around the color wheel and the second entry is saturation; both entries are normalized before conversion.
+ * @param brightness - Tensor intensity for the HSV value channel; values below 0 render black and values above 1 render at full brightness.
+ * @returns Three.js `Color` whose `r`, `g`, and `b` channels are normalized RGB components for the rendered cell.
+ * @noThrows The conversion only normalizes numbers, clamps brightness, selects an HSV sector, and constructs a `Color`; it performs no validation or external I/O.
  * @example
- * colorFromHueSaturation(color, brightness);
+ * const color = colorFromHueSaturation([0, 1], 0.5);
+ *
+ * console.assert(color.r === 0.5);
+ * console.assert(color.g === 0);
+ * console.assert(color.b === 0);
  */
 export function colorFromHueSaturation(color: HueSaturation, brightness: number): Color {
     const hue = normalizeHue(color[0]);
@@ -231,13 +281,24 @@ export function colorFromHueSaturation(color: HueSaturation, brightness: number)
 }
 
 /**
- * parse custom color for the current viewer state.
+ * Classifies a custom color tuple as hue/saturation or RGB metadata for tensor cell overrides.
  *
- * @param value - Value supplied by the caller.
- * @returns Computed CustomColor value for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param value - Numeric color tuple from custom-color tensor metadata: `[hue, saturation]` for hue/saturation colors or `[red, green, blue]` for RGB colors.
+ * @returns Discriminated custom color object that downstream rendering uses to choose `colorFromHueSaturation` or `colorFromRgb`.
+ * @throws Error when `value` has any length other than 2 or 3.
  * @example
- * parseCustomColor(value);
+ * parseCustomColor([0.25, 0.8]);
+ * // => { kind: 'hs', value: [0.25, 0.8] }
+ *
+ * parseCustomColor([255, 128, 0]);
+ * // => { kind: 'rgb', value: [255, 128, 0] }
+ *
+ * try {
+ *     parseCustomColor([1]);
+ * } catch (error) {
+ *     console.assert(error instanceof Error);
+ *     console.assert(error.message === 'Expected color tuple of length 2 or 3, received 1.');
+ * }
  */
 export function parseCustomColor(value: number[]): CustomColor {
     if (value.length === 2) return { kind: 'hs', value: [value[0], value[1]] };

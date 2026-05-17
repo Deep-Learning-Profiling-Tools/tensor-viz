@@ -16,7 +16,14 @@ import type { ControlSpec } from './control-dock.js';
  * one searchable command palette action contributed by the shell or an extension.
  *
  * @example
- * const value: CommandAction = {} as CommandAction;
+ * const saveSvgAction: CommandAction = {
+ *     action: 'save-svg',
+ *     label: 'Save SVG',
+ *     shortcut: 'Ctrl+S',
+ *     keywords: 'export download vector image',
+ * };
+ * // The command palette displays "Save SVG", matches searches for "download",
+ * // and passes "save-svg" to the action dispatcher when selected.
  */
 export type CommandAction = {
     action: string;
@@ -34,7 +41,18 @@ export type CommandAction = {
  * preset widget both use this shape even though they live in different modules.
  *
  * @example
- * const value: DemoWidgetSpec = {} as DemoWidgetSpec;
+ * const tensorStatsWidget: DemoWidgetSpec = {
+ *     id: 'tensor-stats',
+ *     label: 'Tensor Stats',
+ *     icon: 'Σ',
+ *     defaultCollapsed: false,
+ *     visible: (_ctx, snapshot) => snapshot.tensors.length > 0,
+ *     render: (ctx, snapshot) => {
+ *         ctx.widgets['tensor-stats'].textContent = `${snapshot.tensors.length} tensors loaded`;
+ *     },
+ * };
+ * // The shell creates a sidebar panel labeled "Tensor Stats" and asks the widget
+ * // to render only while the current viewer snapshot contains tensors.
  */
 export type DemoWidgetSpec = {
     id: string;
@@ -49,7 +67,19 @@ export type DemoWidgetSpec = {
  * extra controls an extension can place under the core tensor-view slice sliders.
  *
  * @example
- * const value: DemoTensorViewSliderSpec = {} as DemoTensorViewSliderSpec;
+ * let selectedHead = 0;
+ * const attentionHeadSlider: DemoTensorViewSliderSpec = {
+ *     id: 'attention-head',
+ *     label: 'Attention head',
+ *     min: 0,
+ *     max: 7,
+ *     value: selectedHead,
+ *     onChange: (value) => {
+ *         selectedHead = value;
+ *     },
+ * };
+ * attentionHeadSlider.onChange(3);
+ * // selectedHead is now 3, and the extension can re-render its tensor-view contribution for head 3.
  */
 export type DemoTensorViewSliderSpec = {
     id: string;
@@ -68,7 +98,22 @@ export type DemoTensorViewSliderSpec = {
  * slider through the same shape without changing the core tensor-view widget.
  *
  * @example
- * const value: DemoTensorViewContribution = {} as DemoTensorViewContribution;
+ * const contribution: DemoTensorViewContribution = {
+ *   axisLabels: ['batch', 'row', 'col'],
+ *   sliders: [{
+ *     id: 'linear-layout-input',
+ *     label: 'Input tensor',
+ *     min: 0,
+ *     max: 2,
+ *     value: 1,
+ *     step: 1,
+ *   }],
+ * };
+ *
+ * // The tensor-view panel can display the original axis names and render one
+ * // extension-provided slider for choosing the visible linear-layout input.
+ * contribution.axisLabels?.join(' / '); // 'batch / row / col'
+ * contribution.sliders?.[0]?.label; // 'Input tensor'
  */
 export type DemoTensorViewContribution = {
     axisLabels?: readonly string[];
@@ -79,7 +124,18 @@ export type DemoTensorViewContribution = {
  * one row in the hover inspector's coordinate list.
  *
  * @example
- * const value: DemoInspectorCoordEntry = {} as DemoInspectorCoordEntry;
+ * const row: DemoInspectorCoordEntry = {
+ *   title: 'Output activation',
+ *   labels: ['batch', 'token', 'channel'],
+ *   shape: [1, 128, 64],
+ *   coord: [0, 12, 7],
+ *   hovered: true,
+ * };
+ *
+ * // The inspector can render the coordinate as a labeled location in the
+ * // hovered tensor.
+ * row.labels.map((label, index) => `${label}=${row.coord?.[index]}`).join(', ');
+ * // 'batch=0, token=12, channel=7'
  */
 export type DemoInspectorCoordEntry = {
     title: string;
@@ -98,7 +154,25 @@ export type DemoInspectorCoordEntry = {
  * and widget services without adding new app-entry branches.
  *
  * @example
- * const value: DemoExtensionContext = {} as DemoExtensionContext;
+ * const sidebar = document.createElement('section');
+ * const context: DemoExtensionContext = {
+ *   viewer: viewerInstance,
+ *   viewport: document.createElement('canvas'),
+ *   widgets: { 'linear-layout-controls': sidebar },
+ *   widgetTitle: (widgetId, info) => `${widgetId}: ${info}`,
+ *   getActiveTab: () => loadedTab,
+ *   getActiveTabId: () => 'linear-layout-demo',
+ *   getSessionTabs: () => [loadedTab],
+ *   setSessionTabs: tabs => { sessionTabs = tabs; },
+ *   loadTab: async id => { activeTabId = id; },
+ *   loadTabTensors: async tensors => new Map([['weights', weightsArray]]),
+ *   render: () => { renderCount += 1; },
+ * };
+ *
+ * context.render();
+ * renderCount; // 1
+ * context.widgetTitle('linear-layout-controls', '2 tensors');
+ * // 'linear-layout-controls: 2 tensors'
  */
 export type DemoExtensionContext = {
     viewer: TensorViewer;
@@ -118,20 +192,42 @@ export type DemoExtensionContext = {
  * raw session-tab shape before an extension normalizes it into a loaded document.
  *
  * @example
- * const value: LoadedSessionTab = {} as LoadedSessionTab;
+ * const savedTab = {
+ *   id: 'linear-layout-demo',
+ *   title: 'Linear layout preset',
+ *   viewer: {
+ *     expression: 'output[row, col]',
+ *     linearLayoutSpec: { presetId: 'matmul-basic' },
+ *   },
+ * } as LoadedSessionTab;
+ *
+ * // A session loader can inspect extension-owned viewer metadata before it
+ * // returns a normalized LoadedBundleDocument for the app shell.
+ * const legacySpec = (savedTab.viewer as { linearLayoutSpec?: unknown }).linearLayoutSpec;
+ * Boolean(legacySpec); // true
  */
 export type LoadedSessionTab = SessionBundleManifest['tabs'][number];
 
 /**
- * behavior hooks for one demo feature package.
+ * Describes one demo-shell extension and the optional hooks it contributes to
+ * tabs, widgets, commands, rendering, pointer interaction, session loading, and
+ * tensor-view UI.
  *
- * hooks are optional so a feature can expose only the surfaces it needs. for
- * example, linear-layout implements session migration, hover, controls, and
- * widgets; a simple annotation extension might only contribute widgets and
- * commands while sharing the same lifecycle attributes.
+ * The app shell collects these hooks from registered feature packages. A small
+ * extension can provide only widgets and commands, while the linear-layout
+ * extension also handles session migration, hover state, inspector rows,
+ * controls, and fallback tabs.
  *
  * @example
- * const value: DemoAppExtension = {} as DemoAppExtension;
+ * const annotationExtension: DemoAppExtension = {
+ *   id: 'annotations',
+ *   widgets: [{ id: 'annotation-list', slot: 'left', render: () => undefined }],
+ *   commands: () => [{ id: 'annotations.clear', label: 'Clear annotations', run: () => undefined }],
+ *   beforeRender: (_ctx, snapshot) => snapshot.displayMode === '2d',
+ * };
+ *
+ * annotationExtension.beforeRender?.({} as DemoExtensionContext, { displayMode: '2d' } as ViewerSnapshot);
+ * // true; the shell may continue rendering after the extension accepts the 2D snapshot.
  */
 export type DemoAppExtension = {
     id: string;
@@ -166,10 +262,23 @@ export type DemoAppExtension = {
 };
 
 /**
- * factory shape used by the static registry before the shell context exists.
+ * Registry entry that advertises an extension's app-shell widget slots before
+ * the shell context is available, then creates the runtime extension after the
+ * shell has initialized shared services.
  *
  * @example
- * const value: DemoExtensionFactory = {} as DemoExtensionFactory;
+ * const factory: DemoExtensionFactory = {
+ *   widgetSlots: ['left-sidebar' as AppShellWidgetSlot],
+ *   create: (ctx) => ({
+ *     id: 'annotations',
+ *     widgets: [{ id: 'annotation-list', slot: 'left-sidebar' as AppShellWidgetSlot, render: () => undefined }],
+ *     commands: () => [{ id: 'annotations.clear', label: 'Clear annotations', run: () => undefined }],
+ *   }),
+ * };
+ *
+ * const extension = factory.create({} as DemoExtensionContext);
+ * extension.id;
+ * // 'annotations'
  */
 export type DemoExtensionFactory = {
     widgetSlots: AppShellWidgetSlot[];

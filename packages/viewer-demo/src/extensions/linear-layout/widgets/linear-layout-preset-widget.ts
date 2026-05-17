@@ -16,12 +16,15 @@ import { applyLinearLayoutSpec } from './linear-layout-widget-actions.js';
 let clearPresetOutsideClickHandler: (() => void) | null = null;
 
 /**
- * return linear layout preset help html for the current viewer state.
+ * Builds the collapsible help panel shown above the preset selector, including usage instructions, supported instruction names, and sample GPU layout selections.
  *
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @returns An HTML string for the preset widget's usage guide; callers insert it into the sidebar before the preset search fields.
+ * @noThrows The helper reads the preset catalog and escapes the instruction list before interpolation; it accepts no caller-provided input and has no error branch.
  * @example
- * linearLayoutPresetHelpHtml();
+ * const html = linearLayoutPresetHelpHtml();
+ * expect(html).toContain('<details class="usage-guide">');
+ * expect(html).toContain('Load a preset layout');
+ * expect(html).toContain('Instruction: mma');
  */
 function linearLayoutPresetHelpHtml(): string {
     const instructions = composeLayoutPresetOptions(undefined).instruction.join(', ');
@@ -79,17 +82,27 @@ Operand: D</code>
 }
 
 /**
- * return preset search field for the current viewer state.
+ * Renders one text-search row in the preset chooser, with the field label, escaped current value, placeholder text, and matching valid and invalid preset options.
  *
- * @param field - Preset field metadata used by this operation.
- * @param value - Value supplied by the caller.
- * @param validOptions - valid options input used by this operation (string[]).
- * @param invalidOptions - invalid options input used by this operation (string[]).
- * @param selection - Selection data used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param field - Preset catalog field definition that supplies the DOM id, display label, placeholder, and selection key for this row.
+ * @param value - Current text typed for this preset field, before filtering and after any value stored in the preset selection state.
+ * @param validOptions - Catalog option labels that are valid for the current partial preset selection.
+ * @param invalidOptions - Option labels known to the catalog but unavailable for the current partial selection, rendered separately so the UI can explain mismatches.
+ * @param selection - Current preset selection object used to mark the option that is already selected for this field key.
+ * @returns An HTML fragment for a `<div class="preset-field">` containing the input and filtered option list for insertion into the preset sidebar.
+ * @noThrows Rendering is synchronous string construction over supplied metadata and arrays; the helper does not parse the selection or perform failing catalog lookups.
  * @example
- * presetSearchField(field, value, validOptions, invalidOptions, selection);
+ * const html = presetSearchField(
+ *   { id: 'preset-instruction', key: 'instruction', label: 'Instruction', placeholder: 'mma' },
+ *   'wm',
+ *   ['mma', 'wgmma'],
+ *   ['ldmatrix'],
+ *   { instruction: 'wgmma' },
+ * );
+ * expect(html).toContain('data-preset-field="preset-instruction"');
+ * expect(html).toContain('value="wm"');
+ * expect(html).toContain('wgmma');
+ * expect(html).not.toContain('ldmatrix');
  */
 function presetSearchField(
     field: ComposeLayoutPresetField,
@@ -112,14 +125,15 @@ function presetSearchField(
 }
 
 /**
- * return filtered preset options for the current viewer state.
+ * Filters preset option labels for the chooser by comparing each option against a lowercase, alphanumeric-only fuzzy search query.
  *
- * @param options - Options that tune this operation.
- * @param query - query input used by this operation (string).
- * @returns Text entries formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param options - Preset option labels from the catalog, such as GPU architecture, instruction, matrix size, dtype, or operand values.
+ * @param query - User-entered search text; punctuation, spaces, and case are ignored before matching.
+ * @returns The original option array when the normalized query is empty, otherwise only the labels that satisfy the preset fuzzy matcher.
+ * @noThrows The helper performs only string normalization and array filtering, so valid string arrays and a string query do not enter an expected error path.
  * @example
- * filteredPresetOptions(options, query);
+ * expect(filteredPresetOptions(['m16n8k16', 'm64n64', '128B'], 'M16-N8')).toEqual(['m16n8k16']);
+ * expect(filteredPresetOptions(['mma', 'wgmma'], '   ')).toEqual(['mma', 'wgmma']);
  */
 function filteredPresetOptions(options: string[], query: string): string[] {
     const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -128,14 +142,19 @@ function filteredPresetOptions(options: string[], query: string): string[] {
 }
 
 /**
- * return fuzzy preset match for the current viewer state.
+ * Tests whether a preset option should remain visible for a normalized search query.
  *
- * @param option - option input used by this operation (string).
- * @param normalizedQuery - normalized query input used by this operation (string).
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * A match succeeds when the option, after lowercasing and removing non-alphanumeric
+ * characters, either contains the query as a contiguous substring or contains all
+ * query characters in order as a fuzzy subsequence.
+ *
+ * @param option - Human-readable preset option label from the preset catalog, such as `MMA 16x8x16`.
+ * @param normalizedQuery - Already lowercased alphanumeric search text from the input box, such as `mma168`.
+ * @returns `true` when the option should be shown in the preset dropdown for the query; otherwise `false`.
+ * @noThrows The function only normalizes and scans string arguments supplied by TypeScript callers, with no parsing, DOM access, or external state lookup.
  * @example
- * fuzzyPresetMatch(option, normalizedQuery);
+ * fuzzyPresetMatch('MMA 16x8x16', 'mma168'); // true
+ * fuzzyPresetMatch('Swizzle 32B', 'mma'); // false
  */
 function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
     const normalizedOption = option.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -149,15 +168,23 @@ function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
 }
 
 /**
- * bind preset input for the current viewer state.
+ * Installs the preset text-input handlers that keep typed facet values and dropdowns in sync.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @param input - input input used by this operation (HTMLInputElement | null).
- * @param field - Preset field metadata used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * Focus opens the matching dropdown, input events copy the element value into
+ * `linearLayoutState.presetSelection[field]`, blur normalizes the full selection,
+ * and Enter clicks the first visible option for that input when one exists.
+ *
+ * @param ctx - Linear-layout widget context containing the preset widget root and mutable sidebar state.
+ * @param input - Preset facet `<input>` element to bind, or `null` when that field is not currently rendered.
+ * @param field - Key in `linearLayoutState.presetSelection` that receives this input's typed value.
+ * @returns Nothing; subsequent DOM events on `input` update preset selection and refresh the preset controls.
+ * @noThrows A missing input is ignored with optional chaining, and the installed handlers guard absent option buttons before using them.
  * @example
- * bindPresetInput(ctx, input, field);
+ * const input = ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>('#linear-layout-preset-instruction');
+ * bindPresetInput(ctx, input, 'instruction');
+ * input!.value = 'mma';
+ * input!.dispatchEvent(new Event('input'));
+ * // ctx.state.linearLayoutState.presetSelection.instruction is now 'mma'.
  */
 function bindPresetInput(
     ctx: LinearLayoutUiContext,
@@ -194,13 +221,20 @@ function bindPresetInput(
 }
 
 /**
- * bind preset options for the current viewer state.
+ * Binds rendered preset option buttons so choosing a dropdown entry updates the selection model.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * Each `[data-preset-input][data-preset-value]` button keeps focus on the text input during
+ * mousedown and, on click, maps its input id back to a preset field before applying the button's
+ * value and validity flag to `linearLayoutState.presetSelection`.
+ *
+ * @param ctx - Linear-layout widget context containing the preset widget root, rendered option buttons, and mutable preset-selection state.
+ * @returns Nothing; click and mousedown listeners are attached to the currently rendered preset option buttons.
+ * @noThrows Buttons whose `data-preset-input` no longer maps to a known preset field are ignored, and missing dataset values fall back to empty strings.
  * @example
  * bindPresetOptions(ctx);
+ * const option = ctx.linearLayoutPresetWidget.querySelector<HTMLButtonElement>('[data-preset-input="linear-layout-preset-instruction"][data-preset-value="mma"]')!;
+ * option.click();
+ * // ctx.state.linearLayoutState.presetSelection reflects the clicked `mma` instruction option.
  */
 function bindPresetOptions(ctx: LinearLayoutUiContext): void {
     ctx.linearLayoutPresetWidget.querySelectorAll<HTMLButtonElement>('[data-preset-input][data-preset-value]').forEach((button) => {
@@ -223,14 +257,22 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
 }
 
 /**
- * sync preset controls for the current viewer state.
+ * Refreshes the preset chooser DOM from the current preset selection.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @param activeInputId - Stable identifier used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * The sync updates visible field inputs, rebuilds each field's filtered option list,
+ * rebinds option buttons, opens or closes dropdowns, writes the selected-preset summary,
+ * and enables the Load Preset button only when the selection resolves to a catalog preset.
+ * If no input is active and the visible field set changed, the whole preset widget is rerendered.
+ *
+ * @param ctx - Linear-layout widget context containing the preset widget root and current `linearLayoutState.presetSelection`.
+ * @param activeInputId - Id of the focused preset input whose typed value must be preserved, or `null` when no preset input is active.
+ * @returns Nothing; the preset widget's inputs, option lists, summary text, dropdown visibility, and load-button disabled state are updated in place.
+ * @noThrows Missing optional DOM nodes are skipped with null checks, so partially rendered preset widgets are refreshed on a best-effort basis rather than treated as errors.
  * @example
- * syncPresetControls(ctx, activeInputId);
+ * ctx.state.linearLayoutState.presetSelection = normalizeComposeLayoutPresetSelection(undefined);
+ * syncPresetControls(ctx, null);
+ * const summary = ctx.linearLayoutPresetWidget.querySelector('#linear-layout-preset-summary')!;
+ * // summary.textContent is either a selected preset title or "No preset matches the current selection yet.".
  */
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
     const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
@@ -274,15 +316,22 @@ function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | 
 }
 
 /**
- * return invalid preset option info for the current viewer state.
+ * Builds the tooltip text shown on a conflicting preset option, naming any
+ * already-selected preset fields that would be cleared if the user chooses it.
  *
- * @param field - Preset field metadata used by this operation.
- * @param value - Value supplied by the caller.
- * @param selection - Selection data used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param field - Preset field key being changed, such as an instruction-family or layout-mode selector key from `composeLayoutPresetFields()`.
+ * @param value - Option label/value the user is hovering or about to choose from the conflicting option list.
+ * @param selection - Current preset selection map before the conflicting option is applied.
+ * @returns Sentence for the option's `data-info` attribute; includes cleared field labels when the recovery selection drops existing values.
+ * @noThrows The helper only derives a normalized selection from preset catalog metadata and formats labels into a string; missing conflicts simply produce the generic clear-warning text.
  * @example
- * invalidPresetOptionInfo(field, value, selection);
+ * const message = invalidPresetOptionInfo('instruction', 'swizzle', {
+ *   instruction: 'mma',
+ *   element: 'f16',
+ *   shape: 'm16n8k16',
+ * });
+ * // message is either the generic warning or a label-specific warning, for example:
+ * // 'Selecting this clears conflicting fields: Shape'
  */
 function invalidPresetOptionInfo(field: string, value: string, selection: ComposeLayoutPresetSelection): string {
     const nextSelection = presetSelectionForOption(selection, field, value, true);
@@ -296,17 +345,32 @@ function invalidPresetOptionInfo(field: string, value: string, selection: Compos
 }
 
 /**
- * return preset options html for the current viewer state.
+ * Renders the autocomplete option list for one preset input, separating options
+ * that still match the current preset path from options that would start a new
+ * compatible path and clear conflicts.
  *
- * @param field - Preset field metadata used by this operation.
- * @param inputId - Stable identifier used by this operation.
- * @param validOptions - valid options input used by this operation (string[]).
- * @param invalidOptions - invalid options input used by this operation (string[]).
- * @param selection - Selection data used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param field - Preset field key whose option list is being rendered.
+ * @param inputId - DOM id of the text input that should receive clicks from the generated option buttons.
+ * @param validOptions - Option values that match the current partial preset selection.
+ * @param invalidOptions - Catalog option values for the same field that conflict with the current selection but are still offered as recovery choices.
+ * @param selection - Current preset selection map used to explain what each invalid option would clear.
+ * @returns HTML fragment for the option list, including valid buttons, an optional conflict divider, invalid buttons with `data-info`, or a `mapping-empty` span when no options match.
+ * @noThrows Rendering is deterministic string assembly over caller-provided arrays; option text and conflict messages are escaped before insertion into attributes or button text.
  * @example
- * presetOptionsHtml(field, inputId, validOptions, invalidOptions, selection);
+ * const html = presetOptionsHtml(
+ *   'instruction',
+ *   'preset-instruction',
+ *   ['mma'],
+ *   ['swizzle'],
+ *   { instruction: '', shape: 'm16n8k16' },
+ * );
+ * // html contains a valid button with data-preset-value="mma",
+ * // a "conflicts with current selection" divider,
+ * // and an invalid button with data-preset-validity="invalid".
+ *
+ * @example
+ * presetOptionsHtml('instruction', 'preset-instruction', [], [], {});
+ * // '<span class="mapping-empty">no matches</span>'
  */
 function presetOptionsHtml(
     field: string,
@@ -330,14 +394,17 @@ function presetOptionsHtml(
 }
 
 /**
- * return invalid preset field options for the current viewer state.
+ * Finds preset catalog options for a field that are not valid for the current
+ * partial selection so the UI can show them as conflict-recovery choices.
  *
- * @param field - Preset field metadata used by this operation.
- * @param validOptions - valid options input used by this operation (string[]).
- * @returns Text entries formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param field - Preset field key to read from the complete preset catalog.
+ * @param validOptions - Options for the same field that already match the current partial selection and should not be repeated in the invalid list.
+ * @returns Catalog option values for `field` excluding every value present in `validOptions`.
+ * @noThrows The helper only reads the preset catalog with no active selection and filters strings; an unknown field naturally yields whatever the catalog lookup returns for that key.
  * @example
- * invalidPresetFieldOptions(field, validOptions);
+ * const invalid = invalidPresetFieldOptions('instruction', ['mma']);
+ * // invalid contains instruction options from the preset catalog other than 'mma',
+ * // which the widget renders below the conflict divider.
  */
 function invalidPresetFieldOptions(field: string, validOptions: string[]): string[] {
     const allOptions = presetFieldOptions(composeLayoutPresetOptions(undefined), field);
@@ -345,16 +412,34 @@ function invalidPresetFieldOptions(field: string, validOptions: string[]): strin
 }
 
 /**
- * choose an option and keep as many compatible existing fields as possible.
+ * Applies a clicked preset option and returns the normalized selection the
+ * sidebar should store, preserving compatible fields and clearing values that
+ * would silently block a matching preset.
  *
- * @param selection - Selection data used by this operation.
- * @param field - Preset field metadata used by this operation.
- * @param value - Value supplied by the caller.
- * @param invalid - invalid input used by this operation (boolean).
- * @returns Computed value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param selection - Current preset selection map from the linear-layout sidebar before the option click.
+ * @param field - Preset field key being changed by the clicked option.
+ * @param value - Option value selected by the user for `field`.
+ * @param invalid - Whether the clicked option came from the conflict list instead of the valid-options list.
+ * @returns Normalized preset selection after the click; valid options merge into the existing selection, while invalid options start a new path, copy only fields that still match a preset, and clear fields hidden by the new path.
+ * @noThrows The function delegates normalization and catalog checks to preset helpers and has no explicit error branch; incompatible fields are represented by empty selection values instead of thrown errors.
  * @example
- * presetSelectionForOption(selection, field, value, invalid);
+ * const next = presetSelectionForOption(
+ *   { instruction: 'mma', element: 'f16', shape: 'm16n8k16' },
+ *   'instruction',
+ *   'swizzle',
+ *   true,
+ * );
+ * // next.instruction === 'swizzle'; fields incompatible with the swizzle path,
+ * // such as an mma-only shape, are cleared rather than kept as blockers.
+ *
+ * @example
+ * const next = presetSelectionForOption(
+ *   { instruction: 'mma', element: 'f16' },
+ *   'shape',
+ *   'm16n8k16',
+ *   false,
+ * );
+ * // next keeps the existing instruction and element and records shape: 'm16n8k16'.
  */
 function presetSelectionForOption(
     selection: ComposeLayoutPresetSelection,
@@ -391,13 +476,30 @@ function presetSelectionForOption(
 }
 
 /**
- * return preset matches for the current viewer state.
+ * Checks whether the partial preset facet selection can still resolve to at
+ * least one compose-layout preset in the catalog.
  *
- * @param filters - filters input used by this operation (ComposeLayoutPresetSelection).
- * @returns Whether the requested condition holds.
- * @noThrows This function has no direct throw path.
+ * Empty selection values are ignored so partially filled search fields do not
+ * reject otherwise valid preset families.
+ *
+ * @param filters - Map of preset facet keys, such as instruction family or
+ *   layout variant, to the values currently selected in the preset chooser.
+ * @returns `true` when some catalog preset contains every non-empty selected
+ *   facet value; otherwise `false`, which callers use to drop stale facet
+ *   values while normalizing the selection.
+ * @noThrows Reads the in-memory preset catalog and performs optional facet
+ *   lookups only; ordinary selection objects and missing facet keys fall back
+ *   to `false` instead of throwing.
  * @example
- * presetMatches(filters);
+ * ```ts
+ * const canKeepSelection = presetMatches({ instruction: 'mma' });
+ * // true when the preset catalog contains at least one preset tagged with
+ * // the `mma` instruction facet.
+ * expect(canKeepSelection).toBe(true);
+ *
+ * const impossibleSelection = presetMatches({ instruction: 'not-a-preset-family' });
+ * expect(impossibleSelection).toBe(false);
+ * ```
  */
 function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
     return composeLayoutPresets().some((preset) => Object.keys(filters).every((key) => {
@@ -408,14 +510,32 @@ function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
 }
 
 /**
- * set preset dropdown visibility for the current viewer state.
+ * Opens the preset option list for the active search field and closes every
+ * other preset option list inside the widget root.
  *
- * @param root - Root DOM element used by this operation.
- * @param activeInputId - Stable identifier used by this operation.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param root - Preset widget container that owns `.preset-option-list` nodes
+ *   nested below elements with `data-preset-field` attributes.
+ * @param activeInputId - Field id that should have its option list marked with
+ *   `is-open`, or `null` to close all preset dropdowns.
+ * @returns Nothing; the function mutates each option list's `classList` in the
+ *   supplied DOM subtree.
+ * @noThrows Uses scoped DOM queries and optional closest-field lookup, so lists
+ *   without a matching `data-preset-field` wrapper are simply closed.
  * @example
- * setPresetDropdownVisibility(root, activeInputId);
+ * ```ts
+ * const root = document.createElement('div');
+ * root.innerHTML = `
+ *   <div data-preset-field="instruction"><div class="preset-option-list"></div></div>
+ *   <div data-preset-field="variant"><div class="preset-option-list is-open"></div></div>
+ * `;
+ *
+ * setPresetDropdownVisibility(root, 'instruction');
+ *
+ * expect(root.querySelector('[data-preset-field="instruction"] .preset-option-list')
+ *   ?.classList.contains('is-open')).toBe(true);
+ * expect(root.querySelector('[data-preset-field="variant"] .preset-option-list')
+ *   ?.classList.contains('is-open')).toBe(false);
+ * ```
  */
 function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | null): void {
     root.querySelectorAll<HTMLElement>('.preset-option-list').forEach((list) => {
@@ -424,28 +544,61 @@ function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | 
 }
 
 /**
- * return preset field options for the current viewer state.
+ * Reads the available autocomplete values for one preset facet from the
+ * filtered compose-layout preset option map.
  *
- * @param options - Options that tune this operation.
- * @param field - Preset field metadata used by this operation.
- * @returns Text entries formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param options - Option map produced for the current preset selection, keyed
+ *   by preset field name.
+ * @param field - Preset field key whose valid values should populate the
+ *   corresponding search field.
+ * @returns The option strings for `field`; returns an empty array when the
+ *   filtered preset catalog has no values for that field.
+ * @noThrows Performs only an indexed lookup with an empty-array fallback for
+ *   missing keys.
  * @example
- * presetFieldOptions(options, field);
+ * ```ts
+ * const options = {
+ *   instruction: ['mma', 'swizzle'],
+ *   variant: ['m16n8k16'],
+ * };
+ *
+ * expect(presetFieldOptions(options, 'instruction')).toEqual(['mma', 'swizzle']);
+ * expect(presetFieldOptions(options, 'missingFacet')).toEqual([]);
+ * ```
  */
 function presetFieldOptions(options: ComposeLayoutPresetOptions, field: string): string[] {
     return options[field] ?? [];
 }
 
 /**
- * return visible preset fields for the current viewer state.
+ * Chooses which preset selector fields should be rendered for the current
+ * facet selection.
  *
- * @param selection - Selection data used by this operation.
- * @param options - Options that tune this operation.
- * @returns Array of computed entries for the caller.
- * @noThrows This function has no direct throw path.
+ * Required catalog fields are always visible. Optional fields stay visible when
+ * they already have a selected value, or become visible after all dependency
+ * fields are selected and the filtered preset options contain values for them.
+ *
+ * @param selection - Current preset facet values from the sidebar, keyed by
+ *   compose-layout preset field key.
+ * @param options - Filtered option map for the current selection, used to hide
+ *   optional fields that have no valid catalog values yet.
+ * @returns Catalog field metadata for the preset search controls that the
+ *   widget should render, in catalog order.
+ * @noThrows Filters static preset field metadata and reads plain selection and
+ *   option maps; absent option keys produce empty option lists rather than
+ *   exceptions.
  * @example
- * visiblePresetFields(selection, options);
+ * ```ts
+ * const selection = { instruction: 'mma' };
+ * const options = composeLayoutPresetOptions(selection);
+ *
+ * const fields = visiblePresetFields(selection, options);
+ *
+ * expect(fields.some((field) => field.required)).toBe(true);
+ * expect(fields.every((field) => field.required
+ *   || Boolean(selection[field.key])
+ *   || field.dependsOn.every((key) => Boolean(selection[key])))).toBe(true);
+ * ```
  */
 function visiblePresetFields(
     selection: ComposeLayoutPresetSelection,
@@ -459,13 +612,19 @@ function visiblePresetFields(
 }
 
 /**
- * return rendered preset field ids for the current viewer state.
+ * Builds a stable snapshot of the preset selector fields that are currently rendered in a widget container.
  *
- * @param root - Root DOM element used by this operation.
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param root - Preset widget root whose descendants may include elements with `data-preset-field` attributes.
+ * @returns Comma-separated `data-preset-field` values in DOM order; callers compare this string with the catalog's visible field ids to decide whether the widget must be re-rendered.
+ * @noThrows Uses `querySelectorAll` on a provided `HTMLElement` and reads optional dataset values, so missing attributes contribute an empty segment instead of throwing.
  * @example
- * renderedPresetFieldIds(root);
+ * const root = document.createElement('div');
+ * root.innerHTML = `
+ *   <label data-preset-field="family"></label>
+ *   <label data-preset-field="instruction"></label>
+ * `;
+ *
+ * renderedPresetFieldIds(root); // "family,instruction"
  */
 function renderedPresetFieldIds(root: HTMLElement): string {
     return Array.from(root.querySelectorAll<HTMLElement>('[data-preset-field]'))
@@ -474,13 +633,23 @@ function renderedPresetFieldIds(root: HTMLElement): string {
 }
 
 /**
- * render linear layout preset widget for the current viewer state.
+ * Renders the linear-layout preset chooser, wires its search fields and action buttons, and installs the capture listener that closes preset dropdowns when the user clicks elsewhere.
  *
- * @param ctx - Context object that supplies viewer state and DOM references.
- * @returns Nothing; the function updates state in place.
- * @noThrows This function has no direct throw path.
+ * @param ctx - Linear-layout UI context containing the preset widget element, mutable `linearLayoutState.presetSelection`, widget-title renderer, layout-apply callback dependencies, and editor re-render callback.
+ * @returns Nothing; the function replaces `ctx.linearLayoutPresetWidget.innerHTML`, normalizes the stored preset selection, and registers DOM event handlers for preset inputs, Load Preset, Clear Preset, and outside clicks.
+ * @noThrows Has no intentional validation throw path: unavailable buttons are handled with optional chaining, unmatched presets leave Load Preset disabled, and click handlers return early when no matching preset exists.
  * @example
+ * const ctx = createLinearLayoutUiContextFixture({
+ *   presetSelection: { family: 'mma' },
+ * });
+ *
  * renderLinearLayoutPresetWidget(ctx);
+ *
+ * ctx.linearLayoutPresetWidget.querySelector('#linear-layout-clear-preset')
+ *   ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+ *
+ * renderedPresetFieldIds(ctx.linearLayoutPresetWidget); // e.g. "family,instruction"
+ * ctx.state.linearLayoutState.presetSelection; // normalized empty preset selection after Clear Preset
  */
 export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void {
     clearPresetOutsideClickHandler?.();
@@ -517,13 +686,19 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
     });
     bindPresetOptions(ctx);
     /**
- * close open preset dropdowns when focus moves outside the widget.
+ * Closes any open preset option dropdown when a captured pointerdown starts outside the preset widget.
  *
- * @param event - Browser event that triggered this handler.
- * @returns Computed value for the caller.
- * @noThrows This function has no direct throw path.
+ * @param event - Captured `pointerdown` event whose `target` is checked against `ctx.linearLayoutPresetWidget` before dropdown visibility is cleared.
+ * @returns Nothing; outside clicks mutate the preset widget's dropdown visibility, while clicks inside the widget or events without a `Node` target are ignored.
+ * @noThrows Guards non-`Node` targets and inside-widget targets before calling the dropdown visibility helper, so ordinary pointer events do not produce an expected error path.
  * @example
- * outsideClickHandler(event);
+ * const outside = document.createElement('button');
+ * document.body.append(outside);
+ * setPresetDropdownVisibility(ctx.linearLayoutPresetWidget, 'linear-layout-preset-family');
+ *
+ * outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+ *
+ * ctx.linearLayoutPresetWidget.querySelector('[data-preset-options][data-open="true"]'); // null
  */
     const outsideClickHandler = (event: PointerEvent) => {
         const target = event.target;
