@@ -32,6 +32,9 @@ import { controlIcons, renderControlDockControls, type ControlSpec } from './con
 import { DEMO_EXTENSION_FACTORIES } from './registered-extensions.js';
 import './styles.css';
 
+// this file owns the generic demo shell: tabs, widgets, command routing, and
+// session loading. feature-specific behavior should enter through DemoAppExtension
+// hooks so adding a preset family or widget does not require new shell branches.
 const app = getAppRoot();
 
 if (!supportsWebGL()) {
@@ -73,11 +76,17 @@ const sidebar = tensorViewWidget.parentElement as HTMLElement;
 const sidebarScrollPad = document.createElement('div');
 sidebarScrollPad.className = 'sidebar-scroll-pad';
 const viewErrors = new Map<string, string>();
+// slider drags update viewer state on every pointer move. full widget re-render
+// during that stream steals focus/capture from the range input, so render is
+// narrowed until pointerup; the e2e smoke test covers the visible widget path.
 let suspendTensorViewRender = false;
 let tensorViewHelpOpen = false;
 let showTensorViewWidget = true;
 let showAdvancedSettingsWidget = false;
 let inspectorReady = false;
+// sessionTabs is the in-memory source for tab buttons and extension metadata.
+// active tabs are snapshotted before switching so unsaved slices/widget state do
+// not disappear when a user clicks through several layouts.
 let sessionTabs: LoadedBundleDocument[] = [];
 let activeTabId: string | null = null;
 let editingTab: { id: string; title: string } | null = null;
@@ -92,6 +101,8 @@ let activeInfoTarget: HTMLElement | null = null;
 let activeControlButton: HTMLButtonElement | null = null;
 
 const MAX_SIDEBAR_WIDTH = 720;
+// python sessions serve only manifest-declared binary blobs. keeping the path
+// grammar tiny prevents apiUrl(`/api/${dataFile}`) from becoming arbitrary fetch.
 const DATA_FILE_PATTERN = /^(?:tabs\/[a-z0-9_-]+\/)?tensors\/[a-z0-9_-]+\.bin$/i;
 const TENSOR_CONTENT_TYPE = 'application/octet-stream';
 const SESSION_MANIFEST_CONTENT_TYPE = 'application/json';
@@ -192,6 +203,8 @@ const coreWidgetSpecs: DemoWidgetSpec[] = [
 const extensions: DemoAppExtension[] = DEMO_EXTENSION_FACTORIES.map((factory) => factory.create(extensionContext));
 const widgetSpecs = [...extensions.flatMap((extension) => extension.widgets), ...coreWidgetSpecs];
 const widgetSpecById = new Map(widgetSpecs.map((spec) => [spec.id, spec]));
+// widgets are looked up once from shell slots, then driven by DemoWidgetSpec.
+// missing slots are a registration bug and should fail during startup.
 const sidebarWidgets: Record<SidebarWidgetId, HTMLElement> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, widgets[spec.id]!]));
 const sidebarWidgetLabels: Record<SidebarWidgetId, string> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, spec.label]));
 const sidebarWidgetIcons: Record<SidebarWidgetId, string> = Object.fromEntries(widgetSpecs.map((spec) => [spec.id, spec.icon]));
@@ -682,6 +695,9 @@ function captureActiveTabSnapshot(): void {
     const tab = activeTab();
     if (!tab) return;
     const snapshot = viewer.getSnapshot();
+    // extensions capture their metadata before the viewer snapshot is normalized,
+    // otherwise tab-specific state like compose-layout tensor views can lag behind
+    // the visible viewer after a user edits a slice and immediately switches tabs.
     extensions.forEach((extension) => {
         extension.captureSnapshot?.(extensionContext, tab, snapshot);
     });
@@ -1115,6 +1131,8 @@ function renderPreservingSidebarScroll(anchor: { selector: string; top: number }
         }
         const nextAnchor = sidebar.querySelector<HTMLElement>(anchor.selector);
         if (!nextAnchor) return;
+        // expanding/collapsing widgets changes content above active controls; anchoring
+        // by selector keeps the control under the cursor instead of jumping vertically.
         sidebar.scrollTop += nextAnchor.getBoundingClientRect().top - anchor.top;
     });
 }
@@ -1147,6 +1165,9 @@ function applyTensorViewEditor(
 ): void {
     try {
         viewer.setTensorView(tensorId, serializeTensorViewEditor(editor));
+        // tensor-view edits can change which linear-layout roots are visible, so
+        // extensions get one post-change hook instead of the shell importing their
+        // filtering logic directly.
         extensions.forEach((extension) => {
             extension.afterTensorViewChange?.(extensionContext, tensorId);
         });
@@ -1338,6 +1359,9 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     const error = viewErrors.get(model.handle.id);
     const editor = model.viewEditor;
     if (!editor) return;
+    // extensions can add domain-specific tensor-view affordances without the shell
+    // learning their metadata. linear-layout uses this for original axis labels and
+    // the many-to-one multi-input slider.
     const tensorViewContribution = extensions.reduce<DemoTensorViewContribution>((merged, extension) => {
         const contribution = extension.tensorView?.(extensionContext, { tab, tensorId: model.handle!.id });
         if (!contribution) return merged;
@@ -1578,6 +1602,8 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     inspectorRefs.coordList.classList.toggle('hidden', !hover);
     inspectorRefs.hoveredTensorValue.textContent = hover?.tensorName ?? '';
     const coordList = inspectorWidget.querySelector<HTMLDivElement>('#inspector-coord-list');
+    // inspector coordinate rows are extension-supplied when a workflow can relate
+    // several tensors. otherwise the shell falls back to the hovered tensor only.
     const extensionCoordEntries = extensions.flatMap((extension) => (
         extension.inspectorCoords?.(extensionContext, { snapshot, hover, hoveredStatus }) ?? []
     ));
@@ -1716,6 +1742,8 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 // render cycle
 function render(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) {
+        // live slider drags still need hover/inspector freshness, but rebuilding
+        // the full sidebar steals pointer capture from the range input.
         renderInspectorWidget(snapshot);
         extensions.forEach((extension) => {
             extension.hover?.(extensionContext, snapshot);
@@ -1792,6 +1820,8 @@ async function boundedArrayBuffer(
         const { done, value } = await reader.read();
         if (done) break;
         received += value.byteLength;
+        // streaming responses may omit content-length, so enforce the same byte
+        // ceiling while reading instead of trusting headers alone.
         if (received > limit) throw new Error(`${options.label} exceeded ${limit} bytes.`);
         chunks.push(value);
     }
@@ -1861,6 +1891,8 @@ async function tryLoadSession(): Promise<boolean> {
     });
     let totalTensors = 0;
     let totalTensorBytes = 0;
+    // validate every tab before fetching any payload so one malicious manifest
+    // cannot partially hydrate tensors before size/path checks fail.
     for (const tab of manifest.tabs) {
         if (!Array.isArray(tab.tensors)) throw new Error('Session tab tensors must be an array.');
         totalTensors += tab.tensors.length;
