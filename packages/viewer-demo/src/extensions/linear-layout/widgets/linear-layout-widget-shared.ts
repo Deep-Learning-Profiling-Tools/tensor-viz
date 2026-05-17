@@ -12,6 +12,12 @@ export const VISIBLE_TENSORS_ERROR = 'At least one tensor in the render chain mu
 
 /**
  * return active linear layout tab for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * activeLinearLayoutTab(ctx);
  */
 export function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleDocument | null {
     const tab = ctx.getActiveTab();
@@ -20,6 +26,12 @@ export function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleD
 
 /**
  * return linear layout propagation labels for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutPropagationLabels(ctx);
  */
 export function linearLayoutPropagationLabels(ctx: LinearLayoutUiContext): { labels: string[]; injective: boolean } {
     const tab = activeLinearLayoutTab(ctx);
@@ -39,6 +51,13 @@ export function linearLayoutPropagationLabels(ctx: LinearLayoutUiContext): { lab
 
 /**
  * normalize cell text state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @param labels - labels input used by this operation (string[]).
+ * @returns Computed Record<string, boolean> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeCellTextState(state, labels);
  */
 export function normalizeCellTextState(state: Record<string, boolean>, labels: string[]): Record<string, boolean> {
     return Object.fromEntries(labels.map((label) => [label, state[label] ?? true]));
@@ -46,6 +65,13 @@ export function normalizeCellTextState(state: Record<string, boolean>, labels: s
 
 /**
  * return mapping matches labels for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param labels - labels input used by this operation (string[]).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mappingMatchesLabels(mapping, labels);
  */
 export function mappingMatchesLabels(mapping: Record<LinearLayoutChannel, string>, labels: string[]): boolean {
     const allowed = new Set(labels);
@@ -54,6 +80,12 @@ export function mappingMatchesLabels(mapping: Record<LinearLayoutChannel, string
 
 /**
  * return autosize textarea for the current viewer state.
+ *
+ * @param textarea - textarea input used by this operation (HTMLTextAreaElement).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * autosizeTextarea(textarea);
  */
 export function autosizeTextarea(textarea: HTMLTextAreaElement): void {
     textarea.style.height = '0';
@@ -62,6 +94,12 @@ export function autosizeTextarea(textarea: HTMLTextAreaElement): void {
 
 /**
  * return copy text for the current viewer state.
+ *
+ * @param text - Text supplied by the caller.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * copyText(text);
  */
 export async function copyText(text: string): Promise<void> {
     if (navigator.clipboard?.writeText) {
@@ -80,6 +118,12 @@ export async function copyText(text: string): Promise<void> {
 
 /**
  * return settle initial layout for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * settleInitialLayout(ctx);
  */
 export async function settleInitialLayout(ctx: LinearLayoutUiContext): Promise<void> {
     if ('fonts' in document) {

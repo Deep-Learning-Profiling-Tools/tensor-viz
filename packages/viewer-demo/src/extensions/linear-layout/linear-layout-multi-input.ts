@@ -11,6 +11,9 @@ import { composeLayoutMetaForTab, type LinearLayoutSelectionMap, type LinearLayo
 
 /**
  * shape of linear layout display model data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutDisplayModel = {} as LinearLayoutDisplayModel;
  */
 export type LinearLayoutDisplayModel = {
     rootIndexes: Set<number>;
@@ -22,6 +25,9 @@ export type LinearLayoutDisplayModel = {
 
 /**
  * shape of linear layout multi input model data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutMultiInputModel = {} as LinearLayoutMultiInputModel;
  */
 export type LinearLayoutMultiInputModel = {
     focusedTensorId: string;
@@ -31,6 +37,12 @@ export type LinearLayoutMultiInputModel = {
 
 /**
  * return linear layout selection map for meta for the current viewer state.
+ *
+ * @param tab - Session tab used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutSelectionMapForMeta(tab);
  */
 export function linearLayoutSelectionMapForMeta(
     tab: LoadedBundleDocument,
@@ -73,6 +85,13 @@ export function linearLayoutSelectionMapForMeta(
 
 /**
  * return linear layout multi input model for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param mapping - Mapping data used by this operation.
+ * @returns Computed LinearLayoutMultiInputModel value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutMultiInputModel(ctx, mapping);
  */
 export function linearLayoutMultiInputModel(
     ctx: LinearLayoutUiContext,
@@ -94,6 +113,12 @@ export function linearLayoutMultiInputModel(
 
 /**
  * apply linear layout display for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyLinearLayoutDisplay(ctx);
  */
 export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
     const tab = ctx.getActiveTab();
@@ -141,6 +166,13 @@ export function applyLinearLayoutDisplay(ctx: LinearLayoutUiContext): void {
 
 /**
  * return linear layout display model for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param mapping - Mapping data used by this operation.
+ * @returns Computed LinearLayoutDisplayModel value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutDisplayModel(ctx, mapping);
  */
 export function linearLayoutDisplayModel(
     ctx: LinearLayoutUiContext,
@@ -181,6 +213,14 @@ export function linearLayoutDisplayModel(
 
 /**
  * return root indexes for coords for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param tensorId - Stable identifier used by this operation.
+ * @param coords - Coordinates used by this operation.
+ * @returns Collection computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * rootIndexesForCoords(mapping, tensorId, coords);
  */
 export function rootIndexesForCoords(
     mapping: LinearLayoutSelectionMap,
@@ -197,6 +237,15 @@ export function rootIndexesForCoords(
 
 /**
  * return coords for root indexes for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param tensorId - Stable identifier used by this operation.
+ * @param selectedRootIndexes - selected root indexes input used by this operation (Set<number>).
+ * @param visibleRootIndexes - visible root indexes input used by this operation (Set<number> | null).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * coordsForRootIndexes(mapping, tensorId, selectedRootIndexes, visibleRootIndexes);
  */
 export function coordsForRootIndexes(
     mapping: LinearLayoutSelectionMap,
@@ -215,6 +264,15 @@ export function coordsForRootIndexes(
 
 /**
  * return displayed root index for coord for the current viewer state.
+ *
+ * @param display - display input used by this operation (LinearLayoutDisplayModel).
+ * @param mapping - Mapping data used by this operation.
+ * @param tensorId - Stable identifier used by this operation.
+ * @param coord - Coordinate used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * displayedRootIndexForCoord(display, mapping, tensorId, coord);
  */
 export function displayedRootIndexForCoord(
     display: LinearLayoutDisplayModel,
@@ -231,6 +289,15 @@ export function displayedRootIndexForCoord(
 
 /**
  * return focused root indexes for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param focusedTensorId - Stable identifier used by this operation.
+ * @param index - Index used by this operation.
+ * @param sliceVisibleRootIndexes - slice visible root indexes input used by this operation (Map<string, Set<number>>).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * focusedRootIndexes(mapping, focusedTensorId, index, sliceVisibleRootIndexes);
  */
 function focusedRootIndexes(
     mapping: LinearLayoutSelectionMap,
@@ -251,6 +318,13 @@ function focusedRootIndexes(
 
 /**
  * return slice visible root indexes by tensor for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param mapping - Mapping data used by this operation.
+ * @returns Collection computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sliceVisibleRootIndexesByTensor(ctx, mapping);
  */
 function sliceVisibleRootIndexesByTensor(
     ctx: LinearLayoutUiContext,
@@ -264,6 +338,13 @@ function sliceVisibleRootIndexesByTensor(
 
 /**
  * return intersect root indexes for the current viewer state.
+ *
+ * @param sets - sets input used by this operation (Iterable<Set<number>>).
+ * @param rootCount - root count input used by this operation (number).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * intersectRootIndexes(sets, rootCount);
  */
 function intersectRootIndexes(sets: Iterable<Set<number>>, rootCount: number): Set<number> | null {
     let intersection: Set<number> | null = null;
@@ -278,6 +359,13 @@ function intersectRootIndexes(sets: Iterable<Set<number>>, rootCount: number): S
 
 /**
  * return sliced tensor coords for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * slicedTensorCoords(ctx, tensorId);
  */
 function slicedTensorCoords(ctx: LinearLayoutUiContext, tensorId: string): number[][] | null {
     const status = ctx.viewer.getTensorStatus(tensorId);
@@ -293,6 +381,13 @@ function slicedTensorCoords(ctx: LinearLayoutUiContext, tensorId: string): numbe
 
 /**
  * return unravel index for the current viewer state.
+ *
+ * @param index - Index used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * unravelIndex(index, shape);
  */
 function unravelIndex(index: number, shape: number[]): number[] {
     if (shape.length === 0) return [];
@@ -308,6 +403,14 @@ function unravelIndex(index: number, shape: number[]): number[] {
 
 /**
  * return linear layout ghost text for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param labels - labels input used by this operation (string[]).
+ * @param state - State object read or updated by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutGhostText(coord, labels, state);
  */
 function linearLayoutGhostText(coord: number[], labels: string[], state: Record<string, boolean>): string | null {
     const text = labels
@@ -318,6 +421,14 @@ function linearLayoutGhostText(coord: number[], labels: string[], state: Record<
 
 /**
  * return propagated coord for root for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param rootIndex - Index used by this operation.
+ * @param propagateOutputs - propagate outputs input used by this operation (boolean).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * propagatedCoordForRoot(mapping, rootIndex, propagateOutputs);
  */
 function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number[] {
     const key = propagateOutputs ? mapping.rootToFinalKeys[rootIndex] : mapping.rootKeys[rootIndex];
@@ -326,6 +437,14 @@ function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: nu
 
 /**
  * return propagated index for root for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param rootIndex - Index used by this operation.
+ * @param propagateOutputs - propagate outputs input used by this operation (boolean).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * propagatedIndexForRoot(mapping, rootIndex, propagateOutputs);
  */
 function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number {
     const shape = propagateOutputs ? mapping.finalOutputShape : mapping.rootInputShape;
@@ -335,6 +454,13 @@ function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: nu
 
 /**
  * return linear layout selection map for tab for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tab - Session tab used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutSelectionMapForTab(ctx, tab);
  */
 function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = ctx.state.linearLayoutSelectionMaps.get(tab.id);

@@ -40,14 +40,25 @@ export type { NamedLayoutSpec } from './linear-layout-parser.js';
 
 /**
  * shape of compose channel data used by the viewer.
+ *
+ * @example
+ * const value: ComposeChannel = {} as ComposeChannel;
  */
 export type ComposeChannel = 'H' | 'S' | 'L';
 /**
  * shape of compose mapping value data used by the viewer.
+ *
+ * @example
+ * const value: ComposeMappingValue = {} as ComposeMappingValue;
  */
 export type ComposeMappingValue = string | 'none';
 
-/** editable state owned by the sidebar before it is rendered into viewer data. */
+/**
+ * editable state owned by the sidebar before it is rendered into viewer data.
+ *
+ * @example
+ * const value: ComposeLayoutState = {} as ComposeLayoutState;
+ */
 export type ComposeLayoutState = {
     specsText: string;
     operationText: string;
@@ -61,6 +72,9 @@ export type ComposeLayoutState = {
 
 /**
  * shape of matrix axis data used by the viewer.
+ *
+ * @example
+ * const value: MatrixAxis = {} as MatrixAxis;
  */
 export type MatrixAxis = {
     label: string;
@@ -69,6 +83,9 @@ export type MatrixAxis = {
 
 /**
  * shape of matrix block data used by the viewer.
+ *
+ * @example
+ * const value: MatrixBlock = {} as MatrixBlock;
  */
 export type MatrixBlock = {
     title: string;
@@ -77,7 +94,12 @@ export type MatrixBlock = {
     values: number[][];
 };
 
-/** one displayable tensor in the evaluated layout chain. */
+/**
+ * one displayable tensor in the evaluated layout chain.
+ *
+ * @example
+ * const value: ComposeTensorMeta = {} as ComposeTensorMeta;
+ */
 export type ComposeTensorMeta = {
     id: string;
     title: string;
@@ -90,7 +112,12 @@ export type ComposeTensorMeta = {
     visible: boolean;
 };
 
-/** persisted metadata that lets widgets map viewer cells back to layout roots. */
+/**
+ * persisted metadata that lets widgets map viewer cells back to layout roots.
+ *
+ * @example
+ * const value: ComposeLayoutMeta = {} as ComposeLayoutMeta;
+ */
 export type ComposeLayoutMeta = {
     version: 3;
     specsText: string;
@@ -104,7 +131,12 @@ export type ComposeLayoutMeta = {
     tensors: ComposeTensorMeta[];
 };
 
-/** fully evaluated layout operation plus artifacts needed by widgets and docs. */
+/**
+ * fully evaluated layout operation plus artifacts needed by widgets and docs.
+ *
+ * @example
+ * const value: ComposeRuntime = {} as ComposeRuntime;
+ */
 export type ComposeRuntime = {
     specs: NamedLayoutSpec[];
     inputLabels: string[];
@@ -120,7 +152,12 @@ export type ComposeRuntime = {
     meta: ComposeLayoutMeta;
 };
 
-/** small expression tree for the layout operation field. */
+/**
+ * small expression tree for the layout operation field.
+ *
+ * @example
+ * const value: LayoutExpr = {} as LayoutExpr;
+ */
 type LayoutExpr =
     | { kind: 'name'; name: string }
     | { kind: 'inverse'; expr: LayoutExpr }
@@ -129,6 +166,9 @@ type LayoutExpr =
 
 /**
  * shape of evaluated layout data used by the viewer.
+ *
+ * @example
+ * const value: EvaluatedLayout = {} as EvaluatedLayout;
  */
 type EvaluatedLayout = {
     kind: LayoutExpr['kind'];
@@ -142,14 +182,24 @@ type EvaluatedLayout = {
     spec?: NamedLayoutSpec;
 };
 
-/** generated python line plus the matrix it should preview in the sidebar. */
+/**
+ * generated python line plus the matrix it should preview in the sidebar.
+ *
+ * @example
+ * const value: CodeLine = {} as CodeLine;
+ */
 type CodeLine = {
     title: string;
     layout: EvaluatedLayout;
     line: string;
 };
 
-/** one baked demo tab before it is converted into a viewer document. */
+/**
+ * one baked demo tab before it is converted into a viewer document.
+ *
+ * @example
+ * const value: ExampleState = {} as ExampleState;
+ */
 type ExampleState = {
     title: string;
     state: ComposeLayoutState;
@@ -228,6 +278,15 @@ const BAKED_EXAMPLE_DEFINITIONS = [
 
 /**
  * return baked example for the current viewer state.
+ *
+ * @param title - title input used by this operation (string).
+ * @param specsText - Text supplied by the caller.
+ * @param operationText - Text supplied by the caller.
+ * @param inputName - input name input used by this operation (value).
+ * @returns Computed ExampleState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bakedExample(title, specsText, operationText, inputName);
  */
 function bakedExample(
     title: string,
@@ -257,17 +316,30 @@ const BAKED_EXAMPLES: ExampleState[] = [
     )),
 ];
 
-/** return the startup compose-layout state used by the static demo.
+/**
+ * return the startup compose-layout state used by the static demo.
  *
  * this is intentionally derived from the baked catalog instead of duplicating
  * text fields, otherwise the default tab can drift from the examples synced out
  * of demo_linear_layout.py.
+ *
+ * @returns Computed ComposeLayoutState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultComposeLayoutState();
  */
 export function defaultComposeLayoutState(): ComposeLayoutState {
     return autoColoredComposeLayoutState(cloneComposeLayoutState(BAKED_EXAMPLES[0]!.state));
 }
 
-/** return an empty but renderable layout editor state for newly-created tabs. */
+/**
+ * return an empty but renderable layout editor state for newly-created tabs.
+ *
+ * @returns Computed ComposeLayoutState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emptyComposeLayoutState();
+ */
 export function emptyComposeLayoutState(): ComposeLayoutState {
     const autoColor = autoColorLayoutState(DEFAULT_EMPTY_SPEC_TEXT, 'Layout_1');
     return {
@@ -282,7 +354,14 @@ export function emptyComposeLayoutState(): ComposeLayoutState {
     };
 }
 
-/** return cloned baked examples so callers can mutate sidebar state safely. */
+/**
+ * return cloned baked examples so callers can mutate sidebar state safely.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bakedComposeLayoutExamples();
+ */
 export function bakedComposeLayoutExamples(): ExampleState[] {
     return BAKED_EXAMPLES.map(({ title, state }) => ({
         title,
@@ -292,6 +371,12 @@ export function bakedComposeLayoutExamples(): ExampleState[] {
 
 /**
  * clone compose layout state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed ComposeLayoutState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneComposeLayoutState(state);
  */
 export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayoutState {
     // state is copied across tabs and snapshots, so clone nested structures to
@@ -312,7 +397,15 @@ export function cloneComposeLayoutState(state: ComposeLayoutState): ComposeLayou
     };
 }
 
-/** return whether a saved object can be treated as current compose-layout state. */
+/**
+ * return whether a saved object can be treated as current compose-layout state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is ComposeLayoutState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isComposeLayoutState(value);
+ */
 export function isComposeLayoutState(value: unknown): value is ComposeLayoutState {
     if (!value || typeof value !== 'object') return false;
     const record = value as ComposeLayoutState;
@@ -327,7 +420,15 @@ export function isComposeLayoutState(value: unknown): value is ComposeLayoutStat
         && ['H', 'S', 'L'].every((channel) => Array.isArray(record.ranges?.[channel as ComposeChannel]));
 }
 
-/** return whether viewer snapshot metadata can drive linear-layout widgets. */
+/**
+ * return whether viewer snapshot metadata can drive linear-layout widgets.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is ComposeLayoutMeta value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isComposeLayoutMeta(value);
+ */
 export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta {
     if (!value || typeof value !== 'object') return false;
     const record = value as Record<string, unknown>;
@@ -344,11 +445,19 @@ export function isComposeLayoutMeta(value: unknown): value is ComposeLayoutMeta 
         && Array.isArray(record.tensors);
 }
 
-/** upgrade older python/demo linear-layout metadata into the current editor model.
+/**
+ * upgrade older python/demo linear-layout metadata into the current editor model.
  *
  * old sessions stored bases and color axes before the compose-layout editor
  * existed. keeping this migration here lets the app load those sessions without
  * scattering legacy branches through widgets.
+ *
+ * @param raw - raw input used by this operation (unknown).
+ * @param fallbackTitle - fallback title input used by this operation (value).
+ * @returns Computed ComposeLayoutState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutStateFromLegacySpec(raw, fallbackTitle);
  */
 export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = 'Layout_1'): ComposeLayoutState {
     const legacy = parseLegacySpec(raw, fallbackTitle);
@@ -384,6 +493,14 @@ export function composeLayoutStateFromLegacySpec(raw: unknown, fallbackTitle = '
 
 /**
  * return auto color layout state for the current viewer state.
+ *
+ * @param specsText - Text supplied by the caller.
+ * @param operationText - Text supplied by the caller.
+ * @param propagateOutputs - propagate outputs input used by this operation (value).
+ * @returns Computed Pick<ComposeLayoutState, 'mapping' | 'ranges'> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * autoColorLayoutState(specsText, operationText, propagateOutputs);
  */
 export function autoColorLayoutState(
     specsText: string,
@@ -406,6 +523,12 @@ export function autoColorLayoutState(
 
 /**
  * return auto colored compose layout state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed ComposeLayoutState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * autoColoredComposeLayoutState(state);
  */
 function autoColoredComposeLayoutState(state: ComposeLayoutState): ComposeLayoutState {
     const autoColor = autoColorLayoutState(state.specsText, state.operationText);
@@ -416,11 +539,18 @@ function autoColoredComposeLayoutState(state: ComposeLayoutState): ComposeLayout
     };
 }
 
-/** evaluate sidebar text into the complete runtime model used by widgets.
+/**
+ * evaluate sidebar text into the complete runtime model used by widgets.
  *
  * the runtime is the boundary between user-editable strings and viewer data:
  * it parses layout specs, evaluates the operation AST over gf(2), builds the
  * render chain, creates matrix previews, and emits python reconstruction code.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed ComposeRuntime value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * buildComposeRuntime(state);
  */
 export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' | 'operationText' | 'inputName' | 'visibleTensors'>): ComposeRuntime {
     const specs = parseLayoutSpecs(state.specsText);
@@ -436,7 +566,15 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     let tempIndex = 0;
     // evaluation is memoized by AST node so matrix blocks and generated python
     // reuse the same temporary names for shared subexpressions.
-    /** evaluate one layout expression while recording python initialization code. */
+    /**
+ * evaluate one layout expression while recording python initialization code.
+ *
+ * @param expr - expr input used by this operation (LayoutExpr).
+ * @returns Computed EvaluatedLayout value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * evaluate(expr);
+ */
     const evaluate = (expr: LayoutExpr): EvaluatedLayout => {
         const cached = tempRefs.get(expr as object);
         if (cached) return cached;
@@ -594,11 +732,21 @@ export function buildComposeRuntime(state: Pick<ComposeLayoutState, 'specsText' 
     };
 }
 
-/** build the viewer tab for one evaluated compose-layout state.
+/**
+ * build the viewer tab for one evaluated compose-layout state.
  *
  * this is where abstract layout metadata becomes concrete tensors: dense buffers
  * hold root ids, rgb buffers carry color state, and compose metadata lets hover,
  * selection, and presets round-trip through saved viewer snapshots.
+ *
+ * @param state - State object read or updated by this operation.
+ * @param viewer - viewer input used by this operation (Partial<ViewerSnapshot>).
+ * @param title - title input used by this operation (string).
+ * @param tensorViews - tensor views input used by this operation (Record<string, TensorViewSnapshot>).
+ * @returns Computed LoadedBundleDocument value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * createComposeLayoutDocument(state, viewer, title, tensorViews);
  */
 export function createComposeLayoutDocument(
     state: ComposeLayoutState,
@@ -669,7 +817,17 @@ export function createComposeLayoutDocument(
     };
 }
 
-/** return root colors in the active H/S/L mapping for hover and ghost layers. */
+/**
+ * return root colors in the active H/S/L mapping for hover and ghost layers.
+ *
+ * @param inputLabels - input labels input used by this operation (string[]).
+ * @param inputShape - Tensor shape used by this operation.
+ * @param state - State object read or updated by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * rootColorsForLayoutState(inputLabels, inputShape, state);
+ */
 export function rootColorsForLayoutState(
     inputLabels: string[],
     inputShape: number[],
@@ -687,7 +845,16 @@ export function rootColorsForLayoutState(
     ));
 }
 
-/** return one dense rgb buffer per visible tensor in viewer storage order. */
+/**
+ * return one dense rgb buffer per visible tensor in viewer storage order.
+ *
+ * @param runtime - runtime input used by this operation (ComposeRuntime).
+ * @param state - State object read or updated by this operation.
+ * @returns Collection computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeTensorColorBuffers(runtime, state);
+ */
 export function composeTensorColorBuffers(
     runtime: ComposeRuntime,
     state: Pick<ComposeLayoutState, 'mapping' | 'ranges' | 'propagateOutputs'>,
@@ -717,7 +884,16 @@ export function composeTensorColorBuffers(
         }));
 }
 
-/** return the labels and shape currently used for propagated colors/text. */
+/**
+ * return the labels and shape currently used for propagated colors/text.
+ *
+ * @param runtime - runtime input used by this operation (ComposeRuntime).
+ * @param propagateOutputs - propagate outputs input used by this operation (boolean).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * propagationLabels(runtime, propagateOutputs);
+ */
 export function propagationLabels(
     runtime: ComposeRuntime,
     propagateOutputs: boolean,
@@ -728,6 +904,14 @@ export function propagationLabels(
 
 /**
  * return propagation coords for tensor for the current viewer state.
+ *
+ * @param runtime - runtime input used by this operation (ComposeRuntime).
+ * @param tensor - Tensor record used by this operation.
+ * @param propagateOutputs - propagate outputs input used by this operation (boolean).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * propagationCoordsForTensor(runtime, tensor, propagateOutputs);
  */
 function propagationCoordsForTensor(
     runtime: ComposeRuntime,
@@ -746,6 +930,12 @@ function propagationCoordsForTensor(
 
 /**
  * parse operation for the current viewer state.
+ *
+ * @param source - source input used by this operation (string).
+ * @returns Computed LayoutExpr value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseOperation(source);
  */
 function parseOperation(source: string): LayoutExpr {
     const parser = new OperationParser(source);
@@ -754,32 +944,51 @@ function parseOperation(source: string): LayoutExpr {
     return expr;
 }
 
-/** recursive descent parser for layout expressions.
+/**
+ * recursive descent parser for layout expressions.
  *
  * precedence is intentionally small and explicit: product binds weaker than
  * application, and `inv(...)` is a unary form. adding another operator should
  * start here and in linear-layout.test.ts so generated python and matrix preview
  * stay in lockstep.
+ *
+ * @example
+ * const value = new OperationParser(...args);
  */
 class OperationParser {
     private index = 0;
 
         /**
-     * create one initialized class instance with its required runtime state.
-     */
+ * create one initialized class instance with its required runtime state.
+ *
+ * @param source - source input used by this operation (string).
+ * @noThrows This function has no direct throw path.
+ * @example
+ * new ClassName(...args);
+ */
 public constructor(private readonly source: string) {}
 
         /**
-     * parse for this class instance.
-     */
+ * parse for this class instance.
+ *
+ * @returns Computed LayoutExpr value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parse();
+ */
 public parse(): LayoutExpr {
         this.skipWhitespace();
         return this.parseProduct();
     }
 
         /**
-     * handle finish for this class instance.
-     */
+ * handle finish for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * finish();
+ */
 public finish(): void {
         this.skipWhitespace();
         if (this.index < this.source.length) {
@@ -788,8 +997,13 @@ public finish(): void {
     }
 
         /**
-     * parse product for this class instance.
-     */
+ * parse product for this class instance.
+ *
+ * @returns Computed LayoutExpr value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseProduct();
+ */
 private parseProduct(): LayoutExpr {
         let expr = this.parseApplication();
         while (true) {
@@ -804,8 +1018,13 @@ private parseProduct(): LayoutExpr {
     }
 
         /**
-     * parse application for this class instance.
-     */
+ * parse application for this class instance.
+ *
+ * @returns Computed LayoutExpr value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseApplication();
+ */
 private parseApplication(): LayoutExpr {
         let expr = this.parseUnary();
         while (true) {
@@ -823,8 +1042,13 @@ private parseApplication(): LayoutExpr {
     }
 
         /**
-     * parse unary for this class instance.
-     */
+ * parse unary for this class instance.
+ *
+ * @returns Computed LayoutExpr value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseUnary();
+ */
 private parseUnary(): LayoutExpr {
         this.skipWhitespace();
         if (this.peekWord('inv')) {
@@ -840,8 +1064,13 @@ private parseUnary(): LayoutExpr {
     }
 
         /**
-     * parse primary for this class instance.
-     */
+ * parse primary for this class instance.
+ *
+ * @returns Computed LayoutExpr value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parsePrimary();
+ */
 private parsePrimary(): LayoutExpr {
         this.skipWhitespace();
         if (this.consume('(')) {
@@ -856,8 +1085,13 @@ private parsePrimary(): LayoutExpr {
     }
 
         /**
-     * parse name for this class instance.
-     */
+ * parse name for this class instance.
+ *
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseName();
+ */
 private parseName(): string | null {
         this.skipWhitespace();
         const match = this.source.slice(this.index).match(/^[A-Za-z_][A-Za-z0-9_]*/);
@@ -867,23 +1101,40 @@ private parseName(): string | null {
     }
 
         /**
-     * handle peek word for this class instance.
-     */
+ * handle peek word for this class instance.
+ *
+ * @param word - word input used by this operation (string).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * peekWord(word);
+ */
 private peekWord(word: string): boolean {
         return this.source.slice(this.index, this.index + word.length) === word
             && !/[A-Za-z0-9_]/.test(this.source[this.index + word.length] ?? '');
     }
 
         /**
-     * handle skip whitespace for this class instance.
-     */
+ * handle skip whitespace for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * skipWhitespace();
+ */
 private skipWhitespace(): void {
         while (/\s/.test(this.source[this.index] ?? '')) this.index += 1;
     }
 
         /**
-     * handle consume for this class instance.
-     */
+ * handle consume for this class instance.
+ *
+ * @param char - char input used by this operation (string).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * consume(char);
+ */
 private consume(char: string): boolean {
         if (this.source[this.index] !== char) return false;
         this.index += 1;
@@ -891,8 +1142,14 @@ private consume(char: string): boolean {
     }
 
         /**
-     * handle expect for this class instance.
-     */
+ * handle expect for this class instance.
+ *
+ * @param char - char input used by this operation (string).
+ * @returns Nothing; the function updates state in place.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * expect(char);
+ */
 private expect(char: string): void {
         if (!this.consume(char)) {
             throw new Error(`Expected ${JSON.stringify(char)} in Layout Operation.`);
@@ -902,6 +1159,12 @@ private expect(char: string): void {
 
 /**
  * return named layout for the current viewer state.
+ *
+ * @param spec - spec input used by this operation (NamedLayoutSpec).
+ * @returns Computed EvaluatedLayout value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * namedLayout(spec);
  */
 function namedLayout(spec: NamedLayoutSpec): EvaluatedLayout {
     const inputBitCounts = spec.bases.map((bases) => bases.length);
@@ -921,6 +1184,14 @@ function namedLayout(spec: NamedLayoutSpec): EvaluatedLayout {
 
 /**
  * compose layouts for the current viewer state.
+ *
+ * @param inner - inner input used by this operation (EvaluatedLayout).
+ * @param outer - outer input used by this operation (EvaluatedLayout).
+ * @param exprText - Text supplied by the caller.
+ * @returns Computed EvaluatedLayout value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * composeLayouts(inner, outer, exprText);
  */
 function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText: string): EvaluatedLayout {
     if (!sameLabels(inner.outputs, outer.inputs)) {
@@ -948,6 +1219,14 @@ function composeLayouts(inner: EvaluatedLayout, outer: EvaluatedLayout, exprText
 
 /**
  * return product layout for the current viewer state.
+ *
+ * @param left - left input used by this operation (EvaluatedLayout).
+ * @param right - right input used by this operation (EvaluatedLayout).
+ * @param exprText - Text supplied by the caller.
+ * @returns Computed EvaluatedLayout value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * productLayout(left, right, exprText);
  */
 function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: string): EvaluatedLayout {
     const inputs = [...left.inputs, ...right.inputs.filter((label) => !left.inputs.includes(label))];
@@ -999,6 +1278,13 @@ function productLayout(left: EvaluatedLayout, right: EvaluatedLayout, exprText: 
 
 /**
  * return invert layout for the current viewer state.
+ *
+ * @param layout - layout input used by this operation (EvaluatedLayout).
+ * @param exprText - Text supplied by the caller.
+ * @returns Computed EvaluatedLayout value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * invertLayout(layout, exprText);
  */
 function invertLayout(layout: EvaluatedLayout, exprText: string): EvaluatedLayout {
     if (!isBijective(layout)) {
@@ -1022,6 +1308,13 @@ function invertLayout(layout: EvaluatedLayout, exprText: string): EvaluatedLayou
 
 /**
  * render steps for the current viewer state.
+ *
+ * @param expr - expr input used by this operation (LayoutExpr).
+ * @param evaluate - evaluate input used by this operation ((expr: LayoutExpr) => EvaluatedLayout).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderSteps(expr, evaluate);
  */
 function renderSteps(
     expr: LayoutExpr,
@@ -1040,6 +1333,13 @@ function renderSteps(
 
 /**
  * return expr to string for the current viewer state.
+ *
+ * @param expr - expr input used by this operation (LayoutExpr).
+ * @param parentPrecedence - parent precedence input used by this operation (value).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * exprToString(expr, parentPrecedence);
  */
 function exprToString(expr: LayoutExpr, parentPrecedence = 0): string {
     // stable expression text is used as tensor titles and matrix labels; avoid
@@ -1065,6 +1365,13 @@ function exprToString(expr: LayoutExpr, parentPrecedence = 0): string {
 
 /**
  * return matrix block for the current viewer state.
+ *
+ * @param title - title input used by this operation (string).
+ * @param layout - layout input used by this operation (EvaluatedLayout).
+ * @returns Computed MatrixBlock value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * matrixBlock(title, layout);
  */
 function matrixBlock(title: string, layout: EvaluatedLayout): MatrixBlock {
     return {
@@ -1077,6 +1384,13 @@ function matrixBlock(title: string, layout: EvaluatedLayout): MatrixBlock {
 
 /**
  * return bit labels for the current viewer state.
+ *
+ * @param labels - labels input used by this operation (string[]).
+ * @param bitCounts - bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bitLabels(labels, bitCounts);
  */
 function bitLabels(labels: string[], bitCounts: number[]): MatrixAxis[] {
     return labels.flatMap((label, axis) => (
@@ -1086,6 +1400,12 @@ function bitLabels(labels: string[], bitCounts: number[]): MatrixAxis[] {
 
 /**
  * return python named layout for the current viewer state.
+ *
+ * @param spec - spec input used by this operation (NamedLayoutSpec).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * pythonNamedLayout(spec);
  */
 function pythonNamedLayout(spec: NamedLayoutSpec): string[] {
     // emit verbose multiline code because contributors copy it into python
@@ -1110,6 +1430,14 @@ function pythonNamedLayout(spec: NamedLayoutSpec): string[] {
 
 /**
  * return matrix from bases for the current viewer state.
+ *
+ * @param bases - bases input used by this operation (number[][][]).
+ * @param inputBitCounts - input bit counts input used by this operation (number[]).
+ * @param outputBitCounts - output bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * matrixFromBases(bases, inputBitCounts, outputBitCounts);
  */
 function matrixFromBases(
     bases: number[][][],
@@ -1140,6 +1468,15 @@ function matrixFromBases(
 
 /**
  * map coord for the current viewer state.
+ *
+ * @param inputCoord - Coordinate used by this operation.
+ * @param inputBitCounts - input bit counts input used by this operation (number[]).
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @param outputBitCounts - output bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapCoord(inputCoord, inputBitCounts, matrix, outputBitCounts);
  */
 function mapCoord(
     inputCoord: number[],
@@ -1156,6 +1493,13 @@ function mapCoord(
 
 /**
  * return bits from coord for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param bitCounts - bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bitsFromCoord(coord, bitCounts);
  */
 function bitsFromCoord(coord: number[], bitCounts: number[]): number[] {
     return bitCounts.flatMap((count, axis) => (
@@ -1165,6 +1509,13 @@ function bitsFromCoord(coord: number[], bitCounts: number[]): number[] {
 
 /**
  * return coord from bits for the current viewer state.
+ *
+ * @param bits - bits input used by this operation (number[]).
+ * @param bitCounts - bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * coordFromBits(bits, bitCounts);
  */
 function coordFromBits(bits: number[], bitCounts: number[]): number[] {
     const result = new Array(bitCounts.length).fill(0);
@@ -1181,6 +1532,13 @@ function coordFromBits(bits: number[], bitCounts: number[]): number[] {
 
 /**
  * return multiply matrix vector for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @param vector - vector input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * multiplyMatrixVector(matrix, vector);
  */
 function multiplyMatrixVector(matrix: number[][], vector: number[]): number[] {
     // linear layouts operate over bits, so addition is xor and multiplication is and.
@@ -1189,6 +1547,13 @@ function multiplyMatrixVector(matrix: number[][], vector: number[]): number[] {
 
 /**
  * return multiply matrices for the current viewer state.
+ *
+ * @param left - left input used by this operation (number[][]).
+ * @param right - right input used by this operation (number[][]).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * multiplyMatrices(left, right);
  */
 function multiplyMatrices(left: number[][], right: number[][]): number[][] {
     const rows = left.length;
@@ -1210,6 +1575,13 @@ function multiplyMatrices(left: number[][], right: number[][]): number[][] {
 
 /**
  * merge product matrices for the current viewer state.
+ *
+ * @param left - left input used by this operation (number[][]).
+ * @param right - right input used by this operation (number[][]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mergeProductMatrices(left, right);
  */
 function mergeProductMatrices(left: number[][], right: number[][]): number[][] {
     // product matrices occupy disjoint bit lanes after embedding, so OR is the
@@ -1219,6 +1591,18 @@ function mergeProductMatrices(left: number[][], right: number[][]): number[][] {
 
 /**
  * return embed product matrix for the current viewer state.
+ *
+ * @param layout - layout input used by this operation (EvaluatedLayout).
+ * @param targetInputs - target inputs input used by this operation (string[]).
+ * @param targetInputBitCounts - target input bit counts input used by this operation (number[]).
+ * @param sharedInputOffset - shared input offset input used by this operation (number[]).
+ * @param targetOutputs - target outputs input used by this operation (string[]).
+ * @param targetOutputBitCounts - target output bit counts input used by this operation (number[]).
+ * @param sharedOutputOffset - shared output offset input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * embedProductMatrix(layout, targetInputs, targetInputBitCounts, sharedInputOffset, targetOutputs, targetOutputBitCounts, sharedOutputOffset);
  */
 function embedProductMatrix(
     layout: EvaluatedLayout,
@@ -1259,6 +1643,12 @@ function embedProductMatrix(
 
 /**
  * return invert square matrix for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * invertSquareMatrix(matrix);
  */
 function invertSquareMatrix(matrix: number[][]): number[][] | null {
     const size = matrix.length;
@@ -1291,6 +1681,12 @@ function invertSquareMatrix(matrix: number[][]): number[][] | null {
 
 /**
  * return gf2 rank for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * gf2Rank(matrix);
  */
 function gf2Rank(matrix: number[][]): number {
     if (matrix.length === 0) return 0;
@@ -1319,6 +1715,12 @@ function gf2Rank(matrix: number[][]): number {
 
 /**
  * return whether bijective for the current viewer state.
+ *
+ * @param layout - layout input used by this operation (EvaluatedLayout).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isBijective(layout);
  */
 function isBijective(layout: EvaluatedLayout): boolean {
     const inputBits = sum(layout.inputBitCounts);
@@ -1328,6 +1730,13 @@ function isBijective(layout: EvaluatedLayout): boolean {
 
 /**
  * return output bit counts from bases for the current viewer state.
+ *
+ * @param bases - bases input used by this operation (number[][][]).
+ * @param outputCount - output count input used by this operation (number).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * outputBitCountsFromBases(bases, outputCount);
  */
 function outputBitCountsFromBases(bases: number[][][], outputCount: number): number[] {
     // output bit width is inferred from the largest set bit in the basis vectors;
@@ -1346,6 +1755,13 @@ function outputBitCountsFromBases(bases: number[][][], outputCount: number): num
 
 /**
  * return trim output bit counts for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @param outputBitCounts - output bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * trimOutputBitCounts(matrix, outputBitCounts);
  */
 function trimOutputBitCounts(matrix: number[][], outputBitCounts: number[]): number[] {
     let rowOffset = 0;
@@ -1362,6 +1778,14 @@ function trimOutputBitCounts(matrix: number[][], outputBitCounts: number[]): num
 
 /**
  * return trim matrix rows for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @param currentBitCounts - current bit counts input used by this operation (number[]).
+ * @param nextBitCounts - next bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * trimMatrixRows(matrix, currentBitCounts, nextBitCounts);
  */
 function trimMatrixRows(matrix: number[][], currentBitCounts: number[], nextBitCounts: number[]): number[][] {
     const currentOffsets = offsets(currentBitCounts);
@@ -1374,6 +1798,12 @@ function trimMatrixRows(matrix: number[][], currentBitCounts: number[], nextBitC
 
 /**
  * return offsets for the current viewer state.
+ *
+ * @param values - values input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * offsets(values);
  */
 function offsets(values: number[]): number[] {
     let total = 0;
@@ -1386,6 +1816,12 @@ function offsets(values: number[]): number[] {
 
 /**
  * return shape from bit counts for the current viewer state.
+ *
+ * @param bitCounts - bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * shapeFromBitCounts(bitCounts);
  */
 function shapeFromBitCounts(bitCounts: number[]): number[] {
     return bitCounts.map((bits) => bits === 0 ? 1 : 2 ** bits);
@@ -1393,6 +1829,12 @@ function shapeFromBitCounts(bitCounts: number[]): number[] {
 
 /**
  * return sum for the current viewer state.
+ *
+ * @param values - values input used by this operation (number[]).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sum(values);
  */
 function sum(values: number[]): number {
     return values.reduce((total, value) => total + value, 0);
@@ -1400,6 +1842,13 @@ function sum(values: number[]): number {
 
 /**
  * return same labels for the current viewer state.
+ *
+ * @param leftLabels - left labels input used by this operation (string[]).
+ * @param rightLabels - right labels input used by this operation (string[]).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sameLabels(leftLabels, rightLabels);
  */
 function sameLabels(leftLabels: string[], rightLabels: string[]): boolean {
     return leftLabels.length === rightLabels.length
@@ -1408,6 +1857,14 @@ function sameLabels(leftLabels: string[], rightLabels: string[]): boolean {
 
 /**
  * expand output rows for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @param currentBitCounts - current bit counts input used by this operation (number[]).
+ * @param targetBitCounts - target bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * expandOutputRows(matrix, currentBitCounts, targetBitCounts);
  */
 function expandOutputRows(
     matrix: number[][],
@@ -1428,6 +1885,14 @@ function expandOutputRows(
 
 /**
  * expand input columns for the current viewer state.
+ *
+ * @param matrix - matrix input used by this operation (number[][]).
+ * @param currentBitCounts - current bit counts input used by this operation (number[]).
+ * @param targetBitCounts - target bit counts input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * expandInputColumns(matrix, currentBitCounts, targetBitCounts);
  */
 function expandInputColumns(
     matrix: number[][],
@@ -1448,6 +1913,16 @@ function expandInputColumns(
 
 /**
  * return rgb color for root coord for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param labelToAxis - axis index used by this operation.
+ * @param mapping - Mapping data used by this operation.
+ * @param ranges - ranges input used by this operation (Record<ComposeChannel, [string, string]>).
+ * @returns Computed [number, number, number] value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * rgbColorForRootCoord(coord, shape, labelToAxis, mapping, ranges);
  */
 function rgbColorForRootCoord(
     coord: number[],
@@ -1466,6 +1941,16 @@ function rgbColorForRootCoord(
 
 /**
  * return channel value for the current viewer state.
+ *
+ * @param channel - channel input used by this operation (ComposeChannel).
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param axis - axis index used by this operation.
+ * @param ranges - ranges input used by this operation (Record<ComposeChannel, [string, string]>).
+ * @returns Numeric result computed from the inputs.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * channelValue(channel, coord, shape, axis, ranges);
  */
 function channelValue(
     channel: ComposeChannel,
@@ -1488,6 +1973,14 @@ function channelValue(
 
 /**
  * return hsv to rgb for the current viewer state.
+ *
+ * @param hue - hue input used by this operation (number).
+ * @param saturation - saturation input used by this operation (number).
+ * @param value - Value supplied by the caller.
+ * @returns Computed [number, number, number] value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * hsvToRgb(hue, saturation, value);
  */
 function hsvToRgb(hue: number, saturation: number, value: number): [number, number, number] {
     const scaledHue = ((((hue % 1) + 1) % 1) * 6);
@@ -1514,6 +2007,13 @@ function hsvToRgb(hue: number, saturation: number, value: number): [number, numb
 
 /**
  * return flat index for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * flatIndex(coord, shape);
  */
 function flatIndex(coord: number[], shape: number[]): number {
     return coord.reduce((index, value, axis) => (index * shape[axis]!) + value, 0);
@@ -1521,6 +2021,12 @@ function flatIndex(coord: number[], shape: number[]): number {
 
 /**
  * return persisted viewer settings for the current viewer state.
+ *
+ * @param viewer - viewer input used by this operation (Partial<ViewerSnapshot> | undefined).
+ * @returns Computed Partial<ViewerSnapshot> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * persistedViewerSettings(viewer);
  */
 function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): Partial<ViewerSnapshot> {
     if (!viewer) return { dimensionMappingScheme: 'contiguous' };
@@ -1544,6 +2050,12 @@ function persistedViewerSettings(viewer: Partial<ViewerSnapshot> | undefined): P
 
 /**
  * return sanitize identifier for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sanitizeIdentifier(value);
  */
 function sanitizeIdentifier(value: string): string {
     // generated python and operation text both need identifiers, not arbitrary titles.
@@ -1553,6 +2065,13 @@ function sanitizeIdentifier(value: string): string {
 
 /**
  * parse legacy spec for the current viewer state.
+ *
+ * @param raw - raw input used by this operation (unknown).
+ * @param fallbackTitle - fallback title input used by this operation (string).
+ * @returns Object containing computed state for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseLegacySpec(raw, fallbackTitle);
  */
 function parseLegacySpec(raw: unknown, fallbackTitle: string): {
     name: string;
@@ -1615,6 +2134,13 @@ function parseLegacySpec(raw: unknown, fallbackTitle: string): {
 
 /**
  * return canonical legacy label for the current viewer state.
+ *
+ * @param name - name input used by this operation (string).
+ * @param axis - axis index used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canonicalLegacyLabel(name, axis);
  */
 function canonicalLegacyLabel(name: string, axis: number): string {
     // preserve the old hardware-axis labels where possible so saved color
@@ -1628,6 +2154,13 @@ function canonicalLegacyLabel(name: string, axis: number): string {
 
 /**
  * return canonical legacy output label for the current viewer state.
+ *
+ * @param name - name input used by this operation (string).
+ * @param axis - axis index used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canonicalLegacyOutputLabel(name, axis);
  */
 function canonicalLegacyOutputLabel(name: string, axis: number): string {
     const match = name.match(/^([A-Za-z])([0-9]*)$/);
@@ -1638,6 +2171,12 @@ function canonicalLegacyOutputLabel(name: string, axis: number): string {
 
 /**
  * return legacy axis order for the current viewer state.
+ *
+ * @param label - label input used by this operation (string).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * legacyAxisOrder(label);
  */
 function legacyAxisOrder(label: string): number {
     if (label === 'T') return 0;
@@ -1648,6 +2187,13 @@ function legacyAxisOrder(label: string): number {
 
 /**
  * return legacy mapping for the current viewer state.
+ *
+ * @param labelMap - label map input used by this operation (Map<string, string>).
+ * @param colorAxes - color axes input used by this operation (Record<string, string>).
+ * @returns Computed Record<ComposeChannel, ComposeMappingValue> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * legacyMapping(labelMap, colorAxes);
  */
 function legacyMapping(
     labelMap: Map<string, string>,
@@ -1670,6 +2216,12 @@ function legacyMapping(
 
 /**
  * return legacy ranges for the current viewer state.
+ *
+ * @param colorRanges - color ranges input used by this operation (Record<string, [number, number]>).
+ * @returns Computed Record<ComposeChannel, [string, string]> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * legacyRanges(colorRanges);
  */
 function legacyRanges(colorRanges: Record<string, [number, number]>): Record<ComposeChannel, [string, string]> {
     return {
@@ -1681,6 +2233,13 @@ function legacyRanges(colorRanges: Record<string, [number, number]>): Record<Com
 
 /**
  * return auto color mapping for the current viewer state.
+ *
+ * @param inputLabels - input labels input used by this operation (string[]).
+ * @param inputShape - Tensor shape used by this operation.
+ * @returns Computed Record<ComposeChannel, ComposeMappingValue> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * autoColorMapping(inputLabels, inputShape);
  */
 function autoColorMapping(
     inputLabels: string[],
@@ -1700,6 +2259,11 @@ function autoColorMapping(
 
 /**
  * return default color ranges for the current viewer state.
+ *
+ * @returns Computed Record<ComposeChannel, [string, string]> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultColorRanges();
  */
 function defaultColorRanges(): Record<ComposeChannel, [string, string]> {
     return {

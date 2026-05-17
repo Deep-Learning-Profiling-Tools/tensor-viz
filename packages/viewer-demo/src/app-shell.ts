@@ -1,4 +1,9 @@
-/** concrete dom references returned after the demo shell has been mounted. */
+/**
+ * concrete dom references returned after the demo shell has been mounted.
+ *
+ * @example
+ * const value: AppShellRefs = {} as AppShellRefs;
+ */
 export type AppShellRefs = {
     app: HTMLDivElement;
     viewport: HTMLDivElement;
@@ -14,27 +19,56 @@ export type AppShellRefs = {
     commandPaletteList: HTMLDivElement;
 };
 
-/** one widget placeholder requested by core app code or an extension factory. */
+/**
+ * one widget placeholder requested by core app code or an extension factory.
+ *
+ * @example
+ * const value: AppShellWidgetSlot = {} as AppShellWidgetSlot;
+ */
 export type AppShellWidgetSlot = {
     id: string;
     beforeHeader?: boolean;
 };
 
-/** return one required element or fail during startup instead of later event binding. */
+/**
+ * return one required element or fail during startup instead of later event binding.
+ *
+ * @param root - Root DOM element used by this operation.
+ * @param selector - selector input used by this operation (string).
+ * @param name - name input used by this operation (string).
+ * @returns Computed T value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * requireElement(root, selector, name);
+ */
 function requireElement<T extends Element>(root: ParentNode, selector: string, name: string): T {
     const element = root.querySelector<T>(selector);
     if (!element) throw new Error(`Missing ${name}.`);
     return element;
 }
 
-/** return the root node where the demo app replaces index.html's empty shell. */
+/**
+ * return the root node where the demo app replaces index.html's empty shell.
+ *
+ * @returns Computed HTMLDivElement value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * getAppRoot();
+ */
 export function getAppRoot(): HTMLDivElement {
     const app = document.querySelector<HTMLDivElement>('#app');
     if (!app) throw new Error('Missing app root.');
     return app;
 }
 
-/** check for a usable webgl context before constructing three.js renderer state. */
+/**
+ * check for a usable webgl context before constructing three.js renderer state.
+ *
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * supportsWebGL();
+ */
 export function supportsWebGL(): boolean {
     const canvas = document.createElement('canvas');
     try {
@@ -48,7 +82,15 @@ export function supportsWebGL(): boolean {
     }
 }
 
-/** render the only startup view that does not require a tensor viewer instance. */
+/**
+ * render the only startup view that does not require a tensor viewer instance.
+ *
+ * @param app - Application root element used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderWebglUnavailable(app);
+ */
 export function renderWebglUnavailable(app: HTMLDivElement): void {
     app.innerHTML = `
       <main class="startup-note">
@@ -58,12 +100,20 @@ export function renderWebglUnavailable(app: HTMLDivElement): void {
     `;
 }
 
-/** mount the reusable demo frame and return typed references to all moving parts.
+/**
+ * mount the reusable demo frame and return typed references to all moving parts.
  *
  * widget slots are supplied up front because extensions need real dom hosts
  * before their lifecycle hooks run. for example, linear-layout asks for preset
  * and spec widgets before the core tensor-view widget, while the plain demo
  * still receives the same command palette and viewport refs.
+ *
+ * @param app - Application root element used by this operation.
+ * @param widgetSlots - widget slots input used by this operation (AppShellWidgetSlot[]).
+ * @returns Computed AppShellRefs value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mountAppShell(app, widgetSlots);
  */
 export function mountAppShell(app: HTMLDivElement, widgetSlots: AppShellWidgetSlot[]): AppShellRefs {
     // widgets before the header are extension-owned command panels; sidebar

@@ -11,7 +11,16 @@ const DTYPE_TO_ARRAY = {
 // this table is the only place where persisted dtype strings become platform
 // typed-array constructors; validation keeps unsupported strings out earlier.
 
-/** Construct the viewer's typed-array wrapper for one dtype and raw buffer. */
+/**
+ * Construct the viewer's typed-array wrapper for one dtype and raw buffer.
+ *
+ * @param dtype - dtype input used by this operation (DType).
+ * @param buffer - buffer input used by this operation (ArrayBuffer).
+ * @returns Computed NumericArray value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * createTypedArray(dtype, buffer);
+ */
 export function createTypedArray(dtype: DType, buffer: ArrayBuffer): NumericArray {
     if (!isDType(dtype)) throw new Error(`Unsupported dtype ${String(dtype)}.`);
     const ctor = DTYPE_TO_ARRAY[dtype];

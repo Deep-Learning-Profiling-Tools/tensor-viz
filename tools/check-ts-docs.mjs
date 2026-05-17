@@ -18,7 +18,7 @@ const rawArgs = process.argv.slice(2);
 const args = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
 const pathArgs = rawArgs.filter((arg) => !arg.startsWith('--'));
 const stagedOnly = args.has('--staged');
-const strictJsdoc = args.has('--strict-jsdoc');
+const strictJsdoc = !args.has('--relaxed-jsdoc');
 const minCommentRatio = optionNumber('--min-comment-ratio', DEFAULT_MIN_COMMENT_RATIO);
 
 /** return one numeric CLI option, or the fallback when the option is omitted. */
@@ -129,11 +129,64 @@ function hasExportModifier(node) {
     )) ?? false;
 }
 
-/** return whether a function return type is explicitly empty. */
-function returnsVoid(node) {
-    if (!node.type) return false;
-    const text = node.type.getText();
-    return text === 'void' || text === 'undefined' || text === 'never';
+/** return normalized, marker-free JSDoc lines. */
+function jsdocLines(text) {
+    return text
+        .replace(/^\/\*\*/, '')
+        .replace(/\*\/$/, '')
+        .split('\n')
+        .map((line) => line.replace(/^\s*\* ?/, '').trim());
+}
+
+/** return prose before the first JSDoc tag. */
+function jsdocSummary(text) {
+    const lines = [];
+    for (const line of jsdocLines(text)) {
+        if (line.startsWith('@')) break;
+        if (line) lines.push(line);
+    }
+    return lines.join(' ').trim();
+}
+
+/** escape a tag or parameter name before embedding it in a regular expression. */
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** return whether a JSDoc tag exists and has non-placeholder description text. */
+function hasDescribedTag(text, tag, name = null) {
+    const lines = jsdocLines(text);
+    const pattern = name
+        ? new RegExp(`^@${escapeRegExp(tag)}\\s+${escapeRegExp(name)}\\b\\s*-?\\s*(.*)$`)
+        : new RegExp(`^@${escapeRegExp(tag)}\\b\\s*-?\\s*(.*)$`);
+    const index = lines.findIndex((line) => pattern.test(line));
+    if (index === -1) return false;
+    const first = lines[index].match(pattern)?.[1]?.trim() ?? '';
+    const continuation = [];
+    for (const line of lines.slice(index + 1)) {
+        if (line.startsWith('@')) break;
+        if (line) continuation.push(line);
+    }
+    const description = [first, ...continuation].join(' ').trim();
+    return description.length >= 6 && !/^(todo|tbd|n\/a|none)$/i.test(description);
+}
+
+/** return whether a function body has a direct throw outside nested functions. */
+function hasDirectThrow(node) {
+    let found = false;
+    const body = node.body;
+    if (!body) return false;
+    const visit = (child) => {
+        if (found) return;
+        if (child !== body && ts.isFunctionLike(child)) return;
+        if (ts.isThrowStatement(child)) {
+            found = true;
+            return;
+        }
+        ts.forEachChild(child, visit);
+    };
+    visit(body);
+    return found;
 }
 
 /** return top-level const/let declarations initialized by function expressions. */
@@ -144,9 +197,65 @@ function functionVariableDeclarations(statement) {
         .map((decl) => ({ name: decl.name.getText(), nameNode: decl.name, node: statement }));
 }
 
+/** return the function initializers attached to one variable statement. */
+function functionVariableInitializers(statement) {
+    return statement.declarationList.declarations
+        .filter((decl) => decl.initializer
+            && (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)))
+        .map((decl) => ({ name: decl.name.getText(), initializer: decl.initializer }));
+}
+
 /** return whether a variable statement contains at least one function initializer. */
 function hasFunctionInitializer(statement) {
     return functionVariableDeclarations(statement).length > 0;
+}
+
+/** return all function-like declarations represented by one checked node. */
+function functionDocTargets(node) {
+    if (ts.isVariableStatement(node)) {
+        return functionVariableInitializers(node).map(({ name, initializer }) => ({ name, target: initializer }));
+    }
+    if (ts.isFunctionDeclaration(node)
+        || ts.isMethodDeclaration(node)
+        || ts.isGetAccessorDeclaration(node)
+        || ts.isSetAccessorDeclaration(node)
+        || ts.isConstructorDeclaration(node)) {
+        return [{ name: '', target: node }];
+    }
+    return [];
+}
+
+/** return whether this node is a type-level abstraction that needs examples. */
+function typeLikeDocTarget(node) {
+    return ts.isClassDeclaration(node)
+        || ts.isInterfaceDeclaration(node)
+        || ts.isTypeAliasDeclaration(node)
+        || ts.isEnumDeclaration(node);
+}
+
+/** return a parameter name that JSDoc can document. */
+function parameterDocName(param, index) {
+    if (ts.isIdentifier(param.name)) return param.name.text;
+    return `arg${index + 1}`;
+}
+
+/** return strict JSDoc failures for one function-like declaration. */
+function functionDocErrors(node, text) {
+    const errors = [];
+    const params = node.parameters?.map(parameterDocName) ?? [];
+    params.forEach((param) => {
+        if (!hasDescribedTag(text, 'param', param)) errors.push(`missing @param ${param}`);
+    });
+    if (!ts.isConstructorDeclaration(node) && !ts.isSetAccessorDeclaration(node)) {
+        if (!hasDescribedTag(text, 'returns') && !hasDescribedTag(text, 'return')) errors.push('missing @returns');
+    }
+    const throws = hasDescribedTag(text, 'throws') || hasDescribedTag(text, 'throw');
+    const noThrows = hasDescribedTag(text, 'noThrows');
+    if (hasDirectThrow(node) && !throws) errors.push('direct throw requires @throws');
+    if (!throws && !noThrows) errors.push('missing @throws or @noThrows');
+    if (throws && noThrows) errors.push('cannot use both @throws and @noThrows');
+    if (!hasDescribedTag(text, 'example')) errors.push('missing @example');
+    return errors;
 }
 
 /** return whether a declaration should have a JSDoc block. */
@@ -170,27 +279,14 @@ function strictJsdocErrors(node, sourceFile) {
     const text = jsdocText(node, sourceFile);
     const errors = [];
     if (!strictJsdoc || text === '') return errors;
-    if (ts.isFunctionDeclaration(node)
-        || ts.isMethodDeclaration(node)
-        || ts.isConstructorDeclaration(node)
-        || ts.isGetAccessorDeclaration(node)
-        || ts.isSetAccessorDeclaration(node)) {
-        const params = node.parameters?.map((param) => param.name.getText()) ?? [];
-        params.forEach((param) => {
-            if (!new RegExp(`@param\\s+${param}\\b`).test(text)) errors.push(`missing @param ${param}`);
+    const summary = jsdocSummary(text);
+    if (summary.length < 12) errors.push('missing summary text');
+    functionDocTargets(node).forEach(({ name, target }) => {
+        functionDocErrors(target, text).forEach((error) => {
+            errors.push(name ? `${name} ${error}` : error);
         });
-        if (!ts.isConstructorDeclaration(node)
-            && !ts.isSetAccessorDeclaration(node)
-            && !returnsVoid(node)
-            && !/@returns?\b/.test(text)) {
-            errors.push('missing @returns');
-        }
-        if (!/@example\b/.test(text)) errors.push('missing @example');
-    }
-    if ((ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node))
-        && !/@example\b/.test(text)) {
-        errors.push('missing @example');
-    }
+    });
+    if (typeLikeDocTarget(node) && !hasDescribedTag(text, 'example')) errors.push('missing @example');
     return errors;
 }
 

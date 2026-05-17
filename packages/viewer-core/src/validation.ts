@@ -40,6 +40,12 @@ const MAPPING_SCHEMES = new Set(['z-order', 'contiguous']);
 
 /**
  * return whether dtype for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is DType value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isDType(value);
  */
 export function isDType(value: unknown): value is DType {
     return typeof value === 'string' && value in DTYPE_BYTES;
@@ -47,6 +53,12 @@ export function isDType(value: unknown): value is DType {
 
 /**
  * return dtype byte length for the current viewer state.
+ *
+ * @param dtype - dtype input used by this operation (unknown).
+ * @returns Numeric result computed from the inputs.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * dtypeByteLength(dtype);
  */
 export function dtypeByteLength(dtype: unknown): number {
     if (!isDType(dtype)) throw new Error(`Unsupported dtype ${String(dtype)}.`);
@@ -55,6 +67,13 @@ export function dtypeByteLength(dtype: unknown): number {
 
 /**
  * return assert object for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @returns Computed Record<string, unknown> value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * assertObject(value, label);
  */
 function assertObject(value: unknown, label: string): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -65,6 +84,14 @@ function assertObject(value: unknown, label: string): Record<string, unknown> {
 
 /**
  * return assert array for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @param maxLength - max length input used by this operation (number).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * assertArray(value, label, maxLength);
  */
 function assertArray(value: unknown, label: string, maxLength: number = VIEWER_LIMITS.maxEditorEntries): unknown[] {
     if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
@@ -74,6 +101,13 @@ function assertArray(value: unknown, label: string, maxLength: number = VIEWER_L
 
 /**
  * return finite number for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @returns Numeric result computed from the inputs.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * finiteNumber(value, label);
  */
 function finiteNumber(value: unknown, label: string): number {
     const number = Number(value);
@@ -83,6 +117,13 @@ function finiteNumber(value: unknown, label: string): number {
 
 /**
  * return finite integer for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @returns Numeric result computed from the inputs.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * finiteInteger(value, label);
  */
 function finiteInteger(value: unknown, label: string): number {
     const number = finiteNumber(value, label);
@@ -92,6 +133,15 @@ function finiteInteger(value: unknown, label: string): number {
 
 /**
  * return bounded finite number for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @param min - min input used by this operation (number).
+ * @param max - max input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * boundedFiniteNumber(value, label, min, max);
  */
 function boundedFiniteNumber(value: unknown, label: string, min: number, max: number): number {
     const number = finiteNumber(value, label);
@@ -101,6 +151,14 @@ function boundedFiniteNumber(value: unknown, label: string, min: number, max: nu
 
 /**
  * return bounded string for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @param maxLength - max length input used by this operation (number).
+ * @returns Text formatted for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * boundedString(value, label, maxLength);
  */
 function boundedString(value: unknown, label: string, maxLength: number = VIEWER_LIMITS.maxTextLength): string {
     if (typeof value !== 'string') throw new Error(`${label} must be a string.`);
@@ -110,6 +168,13 @@ function boundedString(value: unknown, label: string, maxLength: number = VIEWER
 
 /**
  * return tensor element count for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param label - label input used by this operation (value).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorElementCount(shape, label);
  */
 export function tensorElementCount(shape: readonly number[], label = 'shape'): number {
     return shape.reduce((total, dim, axis) => {
@@ -123,6 +188,13 @@ export function tensorElementCount(shape: readonly number[], label = 'shape'): n
 
 /**
  * validate tensor shape for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (value).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * validateTensorShape(value, label);
  */
 export function validateTensorShape(value: unknown, label = 'shape'): number[] {
     const shape = assertArray(value, label, VIEWER_LIMITS.maxRank).map((dim, axis) => {
@@ -137,6 +209,13 @@ export function validateTensorShape(value: unknown, label = 'shape'): number[] {
 
 /**
  * return expected tensor byte length for the current viewer state.
+ *
+ * @param dtype - dtype input used by this operation (DType).
+ * @param shape - Tensor shape used by this operation.
+ * @returns Numeric result computed from the inputs.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * expectedTensorByteLength(dtype, shape);
  */
 export function expectedTensorByteLength(dtype: DType, shape: readonly number[]): number {
     const bytes = tensorElementCount(shape) * dtypeByteLength(dtype);
@@ -148,6 +227,14 @@ export function expectedTensorByteLength(dtype: DType, shape: readonly number[])
 
 /**
  * validate tensor payload for the current viewer state.
+ *
+ * @param dtype - dtype input used by this operation (DType).
+ * @param shape - Tensor shape used by this operation.
+ * @param byteLength - byte length input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateTensorPayload(dtype, shape, byteLength);
  */
 export function validateTensorPayload(dtype: DType, shape: readonly number[], byteLength: number): void {
     const expectedBytes = expectedTensorByteLength(dtype, shape);
@@ -158,6 +245,13 @@ export function validateTensorPayload(dtype: DType, shape: readonly number[], by
 
 /**
  * validate vec3 for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @returns Computed Vec3 value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateVec3(value, label);
  */
 function validateVec3(value: unknown, label: string): Vec3 {
     const tuple = assertArray(value, label, 3);
@@ -186,6 +280,13 @@ function validateVec3(value: unknown, label: string): Vec3 {
 
 /**
  * return assert unique ids for the current viewer state.
+ *
+ * @param entries - entries input used by this operation (T[]).
+ * @param label - label input used by this operation (string).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * assertUniqueIds(entries, label);
  */
 function assertUniqueIds<T extends { id: string }>(entries: T[], label: string): T[] {
     const seen = new Set<string>();
@@ -198,6 +299,13 @@ function assertUniqueIds<T extends { id: string }>(entries: T[], label: string):
 
 /**
  * validate color tuple for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateColorTuple(value, label);
  */
 function validateColorTuple(value: unknown, label: string): number[] {
     const tuple = assertArray(value, label, 3).map((entry, index) => finiteNumber(entry, `${label}[${index}]`));
@@ -207,6 +315,14 @@ function validateColorTuple(value: unknown, label: string): number[] {
 
 /**
  * validate coord for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param shape - Tensor shape used by this operation.
+ * @param label - label input used by this operation (string).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateCoord(value, shape, label);
  */
 function validateCoord(value: unknown, shape: readonly number[], label: string): number[] {
     const coord = assertArray(value, label, shape.length).map((entry, axis) => {
@@ -220,6 +336,14 @@ function validateCoord(value: unknown, shape: readonly number[], label: string):
 
 /**
  * validate region shape for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param tensorShape - Tensor shape used by this operation.
+ * @param label - label input used by this operation (string).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateRegionShape(value, tensorShape, label);
  */
 function validateRegionShape(value: unknown, tensorShape: readonly number[], label: string): number[] {
     const shape = assertArray(value, label, tensorShape.length).map((entry, axis) => {
@@ -233,6 +357,14 @@ function validateRegionShape(value: unknown, tensorShape: readonly number[], lab
 
 /**
  * validate color instruction for the current viewer state.
+ *
+ * @param instruction - instruction input used by this operation (unknown).
+ * @param shape - Tensor shape used by this operation.
+ * @param label - label input used by this operation (string).
+ * @returns Object containing computed state for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateColorInstruction(instruction, shape, label);
  */
 function validateColorInstruction(instruction: unknown, shape: readonly number[], label: string): {
     instruction: ColorInstruction;
@@ -285,6 +417,14 @@ function validateColorInstruction(instruction: unknown, shape: readonly number[]
 
 /**
  * validate color instructions for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param shape - Tensor shape used by this operation.
+ * @param label - label input used by this operation (value).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * validateColorInstructions(value, shape, label);
  */
 export function validateColorInstructions(value: unknown, shape: readonly number[], label = 'colorInstructions'): ColorInstruction[] | undefined {
     if (value === undefined) return undefined;
@@ -302,6 +442,13 @@ export function validateColorInstructions(value: unknown, shape: readonly number
 
 /**
  * normalize tensor view editor for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (value).
+ * @returns Computed TensorViewEditor value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * normalizeTensorViewEditor(value, label);
  */
 export function normalizeTensorViewEditor(value: unknown, label = 'view.editor'): TensorViewEditor {
     const editor = assertObject(value, label);
@@ -357,6 +504,14 @@ export function normalizeTensorViewEditor(value: unknown, label = 'view.editor')
 
 /**
  * validate tensor view snapshot for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param shape - Tensor shape used by this operation.
+ * @param label - label input used by this operation (string).
+ * @returns Computed value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * validateTensorViewSnapshot(value, shape, label);
  */
 function validateTensorViewSnapshot(value: unknown, shape: readonly number[], label: string) {
     const snapshot = assertObject(value, label);
@@ -374,6 +529,13 @@ function validateTensorViewSnapshot(value: unknown, shape: readonly number[], la
 
 /**
  * validate tensor manifest for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param label - label input used by this operation (string).
+ * @returns Computed BundleManifest['tensors'][number] value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateTensorManifest(value, label);
  */
 function validateTensorManifest(value: unknown, label: string): BundleManifest['tensors'][number] {
     const tensor = assertObject(value, label);
@@ -405,6 +567,14 @@ function validateTensorManifest(value: unknown, label: string): BundleManifest['
 
 /**
  * validate viewer tensor snapshot for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param tensorById - Stable identifier used by this operation.
+ * @param label - label input used by this operation (string).
+ * @returns Computed ViewerSnapshot['tensors'][number] value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateViewerTensorSnapshot(value, tensorById, label);
  */
 function validateViewerTensorSnapshot(
     value: unknown,
@@ -425,6 +595,13 @@ function validateViewerTensorSnapshot(
 
 /**
  * validate viewer snapshot for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param manifestTensors - manifest tensors input used by this operation (BundleManifest['tensors']).
+ * @returns Computed ViewerSnapshot value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateViewerSnapshot(value, manifestTensors);
  */
 function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest['tensors']): ViewerSnapshot {
     const snapshot = assertObject(value, 'viewer');
@@ -492,6 +669,12 @@ function validateViewerSnapshot(value: unknown, manifestTensors: BundleManifest[
 
 /**
  * validate bundle manifest for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed BundleManifest value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateBundleManifest(value);
  */
 export function validateBundleManifest(value: unknown): BundleManifest {
     const manifest = assertObject(value, 'manifest');
@@ -510,6 +693,12 @@ export function validateBundleManifest(value: unknown): BundleManifest {
 
 /**
  * validate session bundle manifest for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed SessionBundleManifest value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * validateSessionBundleManifest(value);
  */
 export function validateSessionBundleManifest(value: unknown): SessionBundleManifest {
     const manifest = assertObject(value, 'session');

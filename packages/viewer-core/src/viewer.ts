@@ -121,7 +121,12 @@ const MIN_VISIBLE_CELL_LABEL_FONT_SIZE = 3;
 const MIN_SVG_CELL_LABEL_FONT_SIZE = 1;
 const TENSOR_NAME_FONT_FAMILY = '"IBM Plex Sans", "Segoe UI", sans-serif';
 
-/** Imperative tensor viewer that owns its own renderer, cameras, and input handling. */
+/**
+ * Imperative tensor viewer that owns its own renderer, cameras, and input handling.
+ *
+ * @example
+ * const value = new TensorViewer(...args);
+ */
 export class TensorViewer {
     private readonly container: HTMLElement;
     // the webgl scene owns tensor meshes in both modes; 2d still renders meshes
@@ -192,7 +197,15 @@ export class TensorViewer {
     private readonly requestTensorDataCallback?: ViewerOptions['requestTensorData'];
     private readonly pendingTensorDataRequests = new Map<string, Promise<boolean>>();
 
-    /** Create a viewer inside one host container element. */
+    /**
+ * Create a viewer inside one host container element.
+ *
+ * @param container - container input used by this operation (HTMLElement).
+ * @param options - Options that tune this operation.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * new ClassName(...args);
+ */
     public constructor(container: HTMLElement, options: ViewerOptions = {}) {
         this.container = container;
         this.requestTensorDataCallback = options.requestTensorData;
@@ -253,8 +266,14 @@ export class TensorViewer {
     }
 
         /**
-     * create controls for this class instance.
-     */
+ * create controls for this class instance.
+ *
+ * @param camera - camera input used by this operation (PerspectiveCamera | OrthographicCamera).
+ * @returns Computed OrbitControls value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createControls(camera);
+ */
 private createControls(camera: PerspectiveCamera | OrthographicCamera): OrbitControls {
         const controls = new OrbitControls(camera, this.renderer.domElement);
         controls.enableDamping = false;
@@ -271,8 +290,13 @@ private createControls(camera: PerspectiveCamera | OrthographicCamera): OrbitCon
     }
 
         /**
-     * normalize interaction mode for this class instance.
-     */
+ * normalize interaction mode for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeInteractionMode();
+ */
 private normalizeInteractionMode(): void {
         // selection currently depends on contiguous 2d screen order; normalize here
         // so callers can request a mode without checking every display constraint.
@@ -285,8 +309,13 @@ private normalizeInteractionMode(): void {
     }
 
         /**
-     * sync interaction mode for this class instance.
-     */
+ * sync interaction mode for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncInteractionMode();
+ */
 private syncInteractionMode(): void {
         this.normalizeInteractionMode();
         const leftButton = this.state.displayMode === '3d' && this.state.interactionMode === 'rotate' ? MOUSE.ROTATE : MOUSE.PAN;
@@ -296,8 +325,13 @@ private syncInteractionMode(): void {
     }
 
         /**
-     * bind events for this class instance.
-     */
+ * bind events for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bindEvents();
+ */
 private bindEvents(): void {
         window.addEventListener('resize', this.resize);
         this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown, { capture: true });
@@ -353,71 +387,132 @@ private bindEvents(): void {
     };
 
         /**
-     * handle canvas scale for this class instance.
-     */
+ * handle canvas scale for this class instance.
+ *
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canvasScale();
+ */
 private canvasScale(): number {
         return this.flatCanvas.width / Math.max(1, this.flatCanvas.clientWidth || this.flatCanvas.width || 1);
     }
 
         /**
-     * handle layout gap multiple for this class instance.
-     */
+ * handle layout gap multiple for this class instance.
+ *
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutGapMultiple();
+ */
 private layoutGapMultiple(): number {
         return this.state.displayGaps ? this.state.dimensionBlockGapMultiple : 0;
     }
 
         /**
-     * handle instance shape for this class instance.
-     */
+ * handle instance shape for this class instance.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * instanceShape(spec);
+ */
 private instanceShape(spec: TensorViewSpec): number[] {
         return spec.viewShape.length === 0 ? [1] : spec.viewShape;
     }
 
         /**
-     * handle layout shape for this class instance.
-     */
+ * handle layout shape for this class instance.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutShape(spec);
+ */
 private layoutShape(spec: TensorViewSpec): number[] {
         return layoutShape(spec, this.state.collapseHiddenAxes);
     }
 
         /**
-     * map view coord to layout coord for this class instance.
-     */
+ * map view coord to layout coord for this class instance.
+ *
+ * @param viewCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapViewCoordToLayoutCoord(viewCoord, spec);
+ */
 private mapViewCoordToLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
         return mapViewCoordToLayoutCoord(viewCoord, spec, this.state.collapseHiddenAxes);
     }
 
         /**
-     * map layout coord to view coord for this class instance.
-     */
+ * map layout coord to view coord for this class instance.
+ *
+ * @param layoutCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapLayoutCoordToViewCoord(layoutCoord, spec);
+ */
 private mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec): number[] {
         return mapLayoutCoordToViewCoord(layoutCoord, spec, this.state.collapseHiddenAxes);
     }
 
         /**
-     * handle layout coord is visible for this class instance.
-     */
+ * handle layout coord is visible for this class instance.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutCoordIsVisible(coord, spec);
+ */
 private layoutCoordIsVisible(coord: number[], spec: TensorViewSpec): boolean {
         return layoutCoordIsVisible(coord, spec, this.state.collapseHiddenAxes);
     }
 
         /**
-     * handle tensor coord visible for this class instance.
-     */
+ * handle tensor coord visible for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorCoordVisible(tensor, tensorCoord);
+ */
 private tensorCoordVisible(tensor: TensorRecord, tensorCoord: number[]): boolean {
         return !tensor.visibleCoords || tensor.visibleCoords.has(coordKey(tensorCoord));
     }
 
         /**
-     * handle layout axis labels for this class instance.
-     */
+ * handle layout axis labels for this class instance.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutAxisLabels(spec);
+ */
 private layoutAxisLabels(spec: TensorViewSpec): string[] {
         return layoutAxisLabels(spec, this.state.collapseHiddenAxes);
     }
 
         /**
-     * handle mesh context for this class instance.
-     */
+ * handle mesh context for this class instance.
+ *
+ * @returns Computed value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * meshContext();
+ */
 private meshContext() {
         // viewer-mesh is deliberately stateless; this context is the narrow bridge
         // that lets mesh construction ask the viewer for current render settings.
@@ -451,8 +546,15 @@ private meshContext() {
     }
 
         /**
-     * handle tensor extent for mode for this class instance.
-     */
+ * handle tensor extent for mode for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param mode - mode input used by this operation ('2d' | '3d').
+ * @returns Computed Vec3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorExtentForMode(tensor, mode);
+ */
 private tensorExtentForMode(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
         const shape = layoutShape(tensor.view, this.state.collapseHiddenAxes);
         if (mode === '2d') {
@@ -464,8 +566,15 @@ private tensorExtentForMode(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
     }
 
         /**
-     * handle auto tensor offset for this class instance.
-     */
+ * handle auto tensor offset for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param mode - mode input used by this operation ('2d' | '3d').
+ * @returns Computed Vec3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * autoTensorOffset(tensor, mode);
+ */
 private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
         // new tensors are placed to the right of the current world extent so demos
         // can append tensors without manually managing offsets.
@@ -481,8 +590,14 @@ private autoTensorOffset(tensor: TensorRecord, mode: '2d' | '3d'): Vec3 {
     }
 
         /**
-     * handle relayout tensor offsets for this class instance.
-     */
+ * handle relayout tensor offsets for this class instance.
+ *
+ * @param mode - mode input used by this operation ('2d' | '3d').
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * relayoutTensorOffsets(mode);
+ */
 private relayoutTensorOffsets(mode: '2d' | '3d' = this.state.displayMode): void {
         const tensors = Array.from(this.tensors.values());
         if (tensors.length < 2) {
@@ -511,8 +626,13 @@ private relayoutTensorOffsets(mode: '2d' | '3d' = this.state.displayMode): void 
     }
 
         /**
-     * handle relayout auto offsets for this class instance.
-     */
+ * handle relayout auto offsets for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * relayoutAutoOffsets();
+ */
 private relayoutAutoOffsets(): void {
         let maxRight = Number.NEGATIVE_INFINITY;
         this.tensors.forEach((tensor) => {
@@ -526,8 +646,15 @@ private relayoutAutoOffsets(): void {
     }
 
         /**
-     * handle hover value for this class instance.
-     */
+ * handle hover value for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @returns Computed Pick<HoverInfo, 'value' | 'colorSource'> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * hoverValue(tensor, tensorCoord);
+ */
 private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo, 'value' | 'colorSource'> {
         const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : null;
         return {
@@ -541,8 +668,16 @@ private hoverValue(tensor: TensorRecord, tensorCoord: number[]): Pick<HoverInfo,
     }
 
         /**
-     * handle heatmap normalized value for this class instance.
-     */
+ * handle heatmap normalized value for this class instance.
+ *
+ * @param value - Value supplied by the caller.
+ * @param min - min input used by this operation (number).
+ * @param max - max input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * heatmapNormalizedValue(value, min, max);
+ */
 private heatmapNormalizedValue(value: number, min: number, max: number): number {
         const scaledValue = this.state.logScale ? signedLog1p(value) : value;
         const scaledMin = this.state.logScale ? signedLog1p(min) : min;
@@ -552,8 +687,13 @@ private heatmapNormalizedValue(value: number, min: number, max: number): number 
     }
 
         /**
-     * handle sync2 dcamera for this class instance.
-     */
+ * handle sync2 dcamera for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sync2DCamera();
+ */
 private sync2DCamera(): void {
         const zoom = normalizeCanvasZoom(this.canvasZoom);
         this.canvasZoom = zoom;
@@ -568,8 +708,15 @@ private sync2DCamera(): void {
     }
 
         /**
-     * handle canvas pointer to world for this class instance.
-     */
+ * handle canvas pointer to world for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canvasPointerToWorld(clientX, clientY);
+ */
 private canvasPointerToWorld(clientX: number, clientY: number): { x: number; y: number } {
         const rect = this.flatCanvas.getBoundingClientRect();
         const scaleX = this.flatCanvas.width / Math.max(1, rect.width);
@@ -581,8 +728,16 @@ private canvasPointerToWorld(clientX: number, clientY: number): { x: number; y: 
     }
 
         /**
-     * handle pick entries for this class instance.
-     */
+ * handle pick entries for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @param point2D - point2 d input used by this operation ({ x: number; y: number }).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * pickEntries(clientX, clientY, point2D);
+ */
 private pickEntries(clientX: number, clientY: number, point2D?: { x: number; y: number }): PickMesh[] {
         const currentTensorId = this.state.hover?.tensorId;
         const activeTensorId = this.state.activeTensorId;
@@ -606,8 +761,15 @@ private pickEntries(clientX: number, clientY: number, point2D?: { x: number; y: 
     }
 
         /**
-     * handle canvas pointer to hover for this class instance.
-     */
+ * handle canvas pointer to hover for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canvasPointerToHover(clientX, clientY);
+ */
 private canvasPointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
         const point = this.canvasPointerToWorld(clientX, clientY);
         const entries = this.pickEntries(clientX, clientY, point);
@@ -644,8 +806,15 @@ private canvasPointerToHover(clientX: number, clientY: number): { hover: HoverIn
     }
 
         /**
-     * handle scene pointer to hover for this class instance.
-     */
+ * handle scene pointer to hover for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * scenePointerToHover(clientX, clientY);
+ */
 private scenePointerToHover(clientX: number, clientY: number): { hover: HoverInfo; position: Vector3 } | null {
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -684,8 +853,15 @@ private scenePointerToHover(clientX: number, clientY: number): { hover: HoverInf
     }
 
         /**
-     * handle same hover for this class instance.
-     */
+ * handle same hover for this class instance.
+ *
+ * @param left - left input used by this operation (HoverInfo | null).
+ * @param right - right input used by this operation (HoverInfo | null).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sameHover(left, right);
+ */
 private sameHover(left: HoverInfo | null, right: HoverInfo | null): boolean {
         return !!left
             && !!right
@@ -695,8 +871,13 @@ private sameHover(left: HoverInfo | null, right: HoverInfo | null): boolean {
     }
 
         /**
-     * handle selection count for this class instance.
-     */
+ * handle selection count for this class instance.
+ *
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionCount();
+ */
 private selectionCount(): number {
         let count = 0;
         this.selectionEntries().forEach((entries) => {
@@ -706,15 +887,26 @@ private selectionCount(): number {
     }
 
         /**
-     * handle selection entries for this class instance.
-     */
+ * handle selection entries for this class instance.
+ *
+ * @returns Collection computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionEntries();
+ */
 private selectionEntries(): Map<string, Set<string>> {
         return this.selectedCells;
     }
 
         /**
-     * handle selection coords for this class instance.
-     */
+ * handle selection coords for this class instance.
+ *
+ * @param entries - entries input used by this operation (Map<string, Set<string>>).
+ * @returns Computed SelectionCoords value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionCoords(entries);
+ */
 private selectionCoords(entries: Map<string, Set<string>> = this.selectionEntries()): SelectionCoords {
         return new Map(Array.from(entries.entries(), ([tensorId, coords]) => [
             tensorId,
@@ -723,8 +915,15 @@ private selectionCoords(entries: Map<string, Set<string>> = this.selectionEntrie
     }
 
         /**
-     * handle selection enabled for this class instance.
-     */
+ * handle selection enabled for this class instance.
+ *
+ * @param displayMode - display mode input used by this operation ('2d' | '3d').
+ * @param dimensionMappingScheme - dimension mapping scheme input used by this operation (DimensionMappingScheme).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionEnabled(displayMode, dimensionMappingScheme);
+ */
 private selectionEnabled(
         displayMode: '2d' | '3d' = this.state.displayMode,
         dimensionMappingScheme: DimensionMappingScheme = this.state.dimensionMappingScheme,
@@ -733,15 +932,29 @@ private selectionEnabled(
     }
 
         /**
-     * return whether selected cell for this class instance.
-     */
+ * return whether selected cell for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isSelectedCell(tensorId, tensorCoord);
+ */
 private isSelectedCell(tensorId: string, tensorCoord: number[]): boolean {
         return this.selectionEntries().get(tensorId)?.has(coordKey(tensorCoord)) ?? false;
     }
 
         /**
-     * return whether highlighted cell for this class instance.
-     */
+ * return whether highlighted cell for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isHighlightedCell(tensorId, tensorCoord);
+ */
 private isHighlightedCell(tensorId: string, tensorCoord: number[]): boolean {
         const key = coordKey(tensorCoord);
         if (this.selectionDrag) return this.previewSelectedCells.get(tensorId)?.has(key) ?? false;
@@ -750,13 +963,30 @@ private isHighlightedCell(tensorId: string, tensorCoord: number[]): boolean {
     }
 
         /**
-     * handle selected color for this class instance.
-     */
+ * handle selected color for this class instance.
+ *
+ * @param baseColor - base color input used by this operation (Color).
+ * @returns Computed Color value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectedColor(baseColor);
+ */
 private selectedColor(baseColor: Color): Color {
         return baseColor.clone().lerp(ACTIVE_COLOR, SELECTION_TINT_ALPHA);
     }
 
-    /** Return one cell's base color before any committed or preview selection tint is applied. */
+    /**
+ * Return one cell's base color before any committed or preview selection tint is applied.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @param value - Value supplied by the caller.
+ * @param heatmapRange - heatmap range input used by this operation ({ min: number; max: number } | null).
+ * @returns Computed Color value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * baseCellColor(tensor, tensorCoord, value, heatmapRange);
+ */
     private baseCellColor(
         tensor: TensorRecord,
         tensorCoord: number[],
@@ -777,15 +1007,27 @@ private selectedColor(baseColor: Color): Color {
     }
 
         /**
-     * clone selection entries for this class instance.
-     */
+ * clone selection entries for this class instance.
+ *
+ * @param entries - entries input used by this operation (Map<string, Set<string>>).
+ * @returns Collection computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneSelectionEntries(entries);
+ */
 private cloneSelectionEntries(entries: Map<string, Set<string>>): Map<string, Set<string>> {
         return new Map(Array.from(entries.entries(), ([tensorId, coords]) => [tensorId, new Set(coords)]));
     }
 
         /**
-     * handle selection box bounds for this class instance.
-     */
+ * handle selection box bounds for this class instance.
+ *
+ * @param drag - drag input used by this operation (SelectionDragState).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionBoxBounds(drag);
+ */
 private selectionBoxBounds(drag: SelectionDragState): { left: number; right: number; top: number; bottom: number } {
         const start = drag.source === '2d' && drag.startWorld
             ? this.projectCanvasPoint(drag.startWorld.x, drag.startWorld.y)
@@ -800,8 +1042,15 @@ private selectionBoxBounds(drag: SelectionDragState): { left: number; right: num
     }
 
         /**
-     * handle canvas pixel to world for this class instance.
-     */
+ * handle canvas pixel to world for this class instance.
+ *
+ * @param x - x input used by this operation (number).
+ * @param y - y input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canvasPixelToWorld(x, y);
+ */
 private canvasPixelToWorld(x: number, y: number): { x: number; y: number } {
         return {
             x: (x - this.flatCanvas.width / 2 - this.canvasPan.x) / (CANVAS_WORLD_SCALE * this.canvasZoom),
@@ -810,15 +1059,31 @@ private canvasPixelToWorld(x: number, y: number): { x: number; y: number } {
     }
 
         /**
-     * decode selection index for this class instance.
-     */
+ * decode selection index for this class instance.
+ *
+ * @param index - Index used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * decodeSelectionIndex(index, shape);
+ */
 private decodeSelectionIndex(index: number, shape: number[]): number[] {
         return shape.length === 0 ? [] : unravelIndex(index, shape);
     }
 
         /**
-     * handle monotonic index range for this class instance.
-     */
+ * handle monotonic index range for this class instance.
+ *
+ * @param length - length input used by this operation (number).
+ * @param valueAt - value at input used by this operation ((index: number) => number).
+ * @param lower - lower input used by this operation (number).
+ * @param upper - upper input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * monotonicIndexRange(length, valueAt, lower, upper);
+ */
 private monotonicIndexRange(
         length: number,
         valueAt: (index: number) => number,
@@ -846,8 +1111,15 @@ private monotonicIndexRange(
     }
 
         /**
-     * handle fast box selection entries2 d for this class instance.
-     */
+ * handle fast box selection entries2 d for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param box - box input used by this operation ({ left: number; right: number; top: number; bottom: number }).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fastBoxSelectionEntries2D(tensor, box);
+ */
 private fastBoxSelectionEntries2D(
         tensor: TensorRecord,
         box: { left: number; right: number; top: number; bottom: number },
@@ -902,8 +1174,14 @@ private fastBoxSelectionEntries2D(
     }
 
         /**
-     * project scene point for this class instance.
-     */
+ * project scene point for this class instance.
+ *
+ * @param point - point input used by this operation (Vector3).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * projectScenePoint(point);
+ */
 private projectScenePoint(point: Vector3): { x: number; y: number } | null {
         const projected = point.clone().project(this.camera);
         if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) return null;
@@ -914,8 +1192,16 @@ private projectScenePoint(point: Vector3): { x: number; y: number } | null {
     }
 
         /**
-     * handle canvas cell bounds for this class instance.
-     */
+ * handle canvas cell bounds for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param layoutCoord - Coordinate used by this operation.
+ * @param bias - bias input used by this operation (readonly [number, number]).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canvasCellBounds(tensor, layoutCoord, bias);
+ */
 private canvasCellBounds(
         tensor: TensorRecord,
         layoutCoord: number[],
@@ -940,8 +1226,15 @@ private canvasCellBounds(
     }
 
         /**
-     * handle scene cell bounds for this class instance.
-     */
+ * handle scene cell bounds for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param layoutCoord - Coordinate used by this operation.
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sceneCellBounds(tensor, layoutCoord);
+ */
 private sceneCellBounds(
         tensor: TensorRecord,
         layoutCoord: number[],
@@ -969,8 +1262,14 @@ private sceneCellBounds(
     }
 
         /**
-     * handle box selection entries for this class instance.
-     */
+ * handle box selection entries for this class instance.
+ *
+ * @param drag - drag input used by this operation (SelectionDragState).
+ * @returns Collection computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * boxSelectionEntries(drag);
+ */
 private boxSelectionEntries(drag: SelectionDragState): Map<string, Set<string>> {
         if (!this.selectionEnabled()) return new Map();
         const entries = new Map<string, Set<string>>();
@@ -1001,8 +1300,14 @@ private boxSelectionEntries(drag: SelectionDragState): Map<string, Set<string>> 
     }
 
         /**
-     * update selection preview for this class instance.
-     */
+ * update selection preview for this class instance.
+ *
+ * @param drag - drag input used by this operation (SelectionDragState).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * updateSelectionPreview(drag);
+ */
 private updateSelectionPreview(drag: SelectionDragState): void {
         const selected = this.boxSelectionEntries(drag);
         const sourceTensorId = this.selectionSourceTensorId(drag, selected);
@@ -1028,8 +1333,15 @@ private updateSelectionPreview(drag: SelectionDragState): void {
     }
 
         /**
-     * handle selection source tensor id for this class instance.
-     */
+ * handle selection source tensor id for this class instance.
+ *
+ * @param drag - drag input used by this operation (SelectionDragState).
+ * @param selected - selected input used by this operation (Map<string, Set<string>>).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionSourceTensorId(drag, selected);
+ */
 private selectionSourceTensorId(
         drag: SelectionDragState,
         selected: Map<string, Set<string>>,
@@ -1064,20 +1376,44 @@ private selectionSourceTensorId(
         return bestTensorId ?? drag.tensorId ?? tensorIds[0]!;
     }
 
-    /** Return the shader-side committed-selection attribute for one 2D mesh, if present. */
+    /**
+ * Return the shader-side committed-selection attribute for one 2D mesh, if present.
+ *
+ * @param mesh - mesh input used by this operation (InstancedMesh).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionStateAttribute(mesh);
+ */
     private selectionStateAttribute(mesh: InstancedMesh): InstancedBufferAttribute | null {
         const attribute = mesh.geometry.getAttribute('selectionState');
         return attribute instanceof InstancedBufferAttribute ? attribute : null;
     }
 
-    /** Return the live preview uniforms for one 2D mesh, if its material was patched for selection preview. */
+    /**
+ * Return the live preview uniforms for one 2D mesh, if its material was patched for selection preview.
+ *
+ * @param mesh - mesh input used by this operation (InstancedMesh).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionPreviewUniforms(mesh);
+ */
     private selectionPreviewUniforms(mesh: InstancedMesh): SelectionPreviewUniforms | null {
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         const uniforms = material?.userData.selectionPreviewUniforms as SelectionPreviewUniforms | undefined;
         return uniforms ?? null;
     }
 
-    /** Patch one 2D instanced material so committed selection and drag-preview tint are computed in the shader. */
+    /**
+ * Patch one 2D instanced material so committed selection and drag-preview tint are computed in the shader.
+ *
+ * @param mesh - mesh input used by this operation (InstancedMesh).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * installSelectionPreviewShader(mesh);
+ */
     private installSelectionPreviewShader(mesh: InstancedMesh): void {
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         if (!(material instanceof MeshBasicMaterial)) return;
@@ -1129,7 +1465,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
         material.needsUpdate = true;
     }
 
-    /** Update live preview uniforms for every 2D tensor mesh from the current drag box. */
+    /**
+ * Update live preview uniforms for every 2D tensor mesh from the current drag box.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncSelectionPreviewState();
+ */
     private syncSelectionPreviewState(): void {
         const drag = this.selectionEnabled() ? this.selectionDrag : null;
         const box = drag ? this.selectionBoxBounds(drag) : null;
@@ -1152,8 +1495,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, selectionColor, ${SELECTION_TINT_ALPHA}
     }
 
         /**
-     * refresh tensor colors for this class instance.
-     */
+ * refresh tensor colors for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * refreshTensorColors(tensorId);
+ */
 private refreshTensorColors(tensorId: string): void {
         const tensor = this.tensors.get(tensorId);
         const group = this.tensorMeshes.get(tensorId);
@@ -1185,8 +1534,14 @@ private refreshTensorColors(tensorId: string): void {
     }
 
         /**
-     * refresh selection visuals for this class instance.
-     */
+ * refresh selection visuals for this class instance.
+ *
+ * @param tensorIds - tensor ids input used by this operation (string[]).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * refreshSelectionVisuals(tensorIds);
+ */
 private refreshSelectionVisuals(...tensorIds: string[]): void {
         const ids = new Set(tensorIds);
         ids.forEach((tensorId) => this.refreshTensorColors(tensorId));
@@ -1194,8 +1549,14 @@ private refreshSelectionVisuals(...tensorIds: string[]): void {
     }
 
         /**
-     * clear selection for this class instance.
-     */
+ * clear selection for this class instance.
+ *
+ * @param emit - emit input used by this operation (value).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearSelection(emit);
+ */
 private clearSelection(emit = true): void {
         if (!this.selectionDrag && this.selectedCells.size === 0) return;
         const tensorIds = new Set(this.selectedCells.keys());
@@ -1211,8 +1572,18 @@ private clearSelection(emit = true): void {
     }
 
         /**
-     * handle begin selection drag for this class instance.
-     */
+ * handle begin selection drag for this class instance.
+ *
+ * @param source - source input used by this operation ('2d' | '3d').
+ * @param hover - hover input used by this operation (HoverInfo | null).
+ * @param mode - mode input used by this operation ('replace' | 'add' | 'remove').
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * beginSelectionDrag(source, hover, mode, clientX, clientY);
+ */
 private beginSelectionDrag(
         source: '2d' | '3d',
         hover: HoverInfo | null,
@@ -1244,8 +1615,16 @@ private beginSelectionDrag(
     }
 
         /**
-     * update selection drag for this class instance.
-     */
+ * update selection drag for this class instance.
+ *
+ * @param source - source input used by this operation ('2d' | '3d').
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * updateSelectionDrag(source, clientX, clientY);
+ */
 private updateSelectionDrag(
         source: '2d' | '3d',
         clientX: number,
@@ -1260,8 +1639,13 @@ private updateSelectionDrag(
     }
 
         /**
-     * handle finalize selection drag for this class instance.
-     */
+ * handle finalize selection drag for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * finalizeSelectionDrag();
+ */
 private finalizeSelectionDrag(): void {
         const drag = this.selectionDrag;
         if (!drag) return;
@@ -1288,8 +1672,15 @@ private finalizeSelectionDrag(): void {
     }
 
         /**
-     * handle overlay point for this class instance.
-     */
+ * handle overlay point for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * overlayPoint(clientX, clientY);
+ */
 private overlayPoint(clientX: number, clientY: number): { x: number; y: number } {
         const rect = this.container.getBoundingClientRect();
         const scaleX = this.flatCanvas.width / Math.max(1, rect.width);
@@ -1301,8 +1692,13 @@ private overlayPoint(clientX: number, clientY: number): { x: number; y: number }
     }
 
         /**
-     * sync selection box for this class instance.
-     */
+ * sync selection box for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncSelectionBox();
+ */
 private syncSelectionBox(): void {
         const drag = this.selectionDrag;
         if (!drag) {
@@ -1323,8 +1719,14 @@ private syncSelectionBox(): void {
     }
 
         /**
-     * handle hover position for this class instance.
-     */
+ * handle hover position for this class instance.
+ *
+ * @param hover - hover input used by this operation (HoverInfo).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * hoverPosition(hover);
+ */
 private hoverPosition(hover: HoverInfo): Vector3 | null {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return null;
@@ -1338,8 +1740,16 @@ private hoverPosition(hover: HoverInfo): Vector3 | null {
     }
 
         /**
-     * sync hover outline for this class instance.
-     */
+ * sync hover outline for this class instance.
+ *
+ * @param hover - hover input used by this operation (HoverInfo | null).
+ * @param source - source input used by this operation ('2d' | '3d').
+ * @param outlinePosition - outline position input used by this operation (Vector3).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncHoverOutline(hover, source, outlinePosition);
+ */
 private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): boolean {
         const outline = source === '3d' ? this.hoverOutline : this.hoverOutline2D;
         const otherOutline = source === '3d' ? this.hoverOutline2D : this.hoverOutline;
@@ -1357,8 +1767,16 @@ private syncHoverOutline(hover: HoverInfo | null, source: '2d' | '3d', outlinePo
     }
 
         /**
-     * handle hovered cell contains pointer for this class instance.
-     */
+ * handle hovered cell contains pointer for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @param hover - hover input used by this operation (HoverInfo | null).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * hoveredCellContainsPointer(clientX, clientY, hover);
+ */
 private hoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo | null): boolean {
         if (!hover) return false;
         return this.state.displayMode === '2d'
@@ -1367,8 +1785,16 @@ private hoveredCellContainsPointer(clientX: number, clientY: number, hover: Hove
     }
 
         /**
-     * handle canvas hovered cell contains pointer for this class instance.
-     */
+ * handle canvas hovered cell contains pointer for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @param hover - hover input used by this operation (HoverInfo).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canvasHoveredCellContainsPointer(clientX, clientY, hover);
+ */
 private canvasHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
@@ -1387,8 +1813,16 @@ private canvasHoveredCellContainsPointer(clientX: number, clientY: number, hover
     }
 
         /**
-     * handle scene hovered cell contains pointer for this class instance.
-     */
+ * handle scene hovered cell contains pointer for this class instance.
+ *
+ * @param clientX - client x input used by this operation (number).
+ * @param clientY - client y input used by this operation (number).
+ * @param hover - hover input used by this operation (HoverInfo).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sceneHoveredCellContainsPointer(clientX, clientY, hover);
+ */
 private sceneHoveredCellContainsPointer(clientX: number, clientY: number, hover: HoverInfo): boolean {
         const tensor = this.tensors.get(hover.tensorId);
         if (!tensor) return false;
@@ -1419,8 +1853,15 @@ private sceneHoveredCellContainsPointer(clientX: number, clientY: number, hover:
     }
 
         /**
-     * project canvas point for this class instance.
-     */
+ * project canvas point for this class instance.
+ *
+ * @param x - x input used by this operation (number).
+ * @param y - y input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * projectCanvasPoint(x, y);
+ */
 private projectCanvasPoint(x: number, y: number): { x: number; y: number } {
         return {
             x: this.flatCanvas.width / 2 + this.canvasPan.x + (x * CANVAS_WORLD_SCALE * this.canvasZoom),
@@ -1428,7 +1869,17 @@ private projectCanvasPoint(x: number, y: number): { x: number; y: number } {
         };
     }
 
-    /** Fit one tensor title to the tensor's visible width in 2d canvas pixels. */
+    /**
+ * Fit one tensor title to the tensor's visible width in 2d canvas pixels.
+ *
+ * @param name - name input used by this operation (string).
+ * @param preferredFontSize - preferred font size input used by this operation (number).
+ * @param outlineExtent2D - outline extent2 d input used by this operation ({ x: number; y: number }).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fitTensorNameFontSize(name, preferredFontSize, outlineExtent2D);
+ */
     private fitTensorNameFontSize(
         name: string,
         preferredFontSize: number,
@@ -1441,8 +1892,14 @@ private projectCanvasPoint(x: number, y: number): { x: number; y: number } {
     }
 
         /**
-     * fit canvas view for this class instance.
-     */
+ * fit canvas view for this class instance.
+ *
+ * @param bounds - bounds input used by this operation (Box3 | null).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fitCanvasView(bounds);
+ */
 private fitCanvasView(bounds: Box3 | null = null): void {
         if (!bounds) {
             this.canvasPan = { x: 0, y: 0 };
@@ -1633,8 +2090,14 @@ private fitCanvasView(bounds: Box3 | null = null): void {
     };
 
         /**
-     * handle zoom by for this class instance.
-     */
+ * handle zoom by for this class instance.
+ *
+ * @param scale - scale input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * zoomBy(scale);
+ */
 private zoomBy(scale: number): void {
         if (this.camera instanceof OrthographicCamera) {
             this.canvasZoom = normalizeCanvasZoom(this.canvasZoom / scale);
@@ -1647,8 +2110,13 @@ private zoomBy(scale: number): void {
     }
 
         /**
-     * handle request render for this class instance.
-     */
+ * handle request render for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * requestRender();
+ */
 private requestRender(): void {
         if (this.renderPending) return;
         this.renderPending = true;
@@ -1667,8 +2135,13 @@ private requestRender(): void {
     }
 
         /**
-     * handle scene bounds for this class instance.
-     */
+ * handle scene bounds for this class instance.
+ *
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sceneBounds();
+ */
 private sceneBounds(): Box3 | null {
         const groups = Array.from(this.tensorMeshes.values());
         if (groups.length === 0) return null;
@@ -1681,8 +2154,13 @@ private sceneBounds(): Box3 | null {
     }
 
         /**
-     * fit camera for this class instance.
-     */
+ * fit camera for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fitCamera();
+ */
 private fitCamera(): void {
         const bounds = this.sceneBounds();
         if (this.state.displayMode === '2d') {
@@ -1714,8 +2192,14 @@ private fitCamera(): void {
     }
 
         /**
-     * rebuild all meshes for this class instance.
-     */
+ * rebuild all meshes for this class instance.
+ *
+ * @param options - Options that tune this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * rebuildAllMeshes(options);
+ */
 private rebuildAllMeshes(options: { fitCamera?: boolean } = {}): void {
         const shouldFitCamera = options.fitCamera ?? false;
         this.relayoutAutoOffsets();
@@ -1752,20 +2236,40 @@ private rebuildAllMeshes(options: { fitCamera?: boolean } = {}): void {
     }
 
         /**
-     * build tensor group for this class instance.
-     */
+ * build tensor group for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @returns Computed Group value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildTensorGroup(tensor);
+ */
 private buildTensorGroup(tensor: TensorRecord): Group {
         return buildTensorGroup(this.meshContext(), tensor);
     }
 
-    /** updates instance colors in place when only the sliced tensor indices changed. */
+    /**
+ * updates instance colors in place when only the sliced tensor indices changed.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param previousView - previous view input used by this operation (TensorViewSpec).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * updateSliceMesh(tensor, previousView);
+ */
     private updateSliceMesh(tensor: TensorRecord, previousView: TensorViewSpec): boolean {
         return updateSliceMesh(this.meshContext(), tensor, previousView);
     }
 
         /**
-     * handle render2 d for this class instance.
-     */
+ * handle render2 d for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * render2D();
+ */
 private render2D(): void {
         // 2d is a hybrid render: webgl draws cells for speed, then canvas draws
         // labels and annotations that would be expensive as thousands of meshes.
@@ -1781,8 +2285,13 @@ private render2D(): void {
     }
 
         /**
-     * handle draw2 dmarkers for this class instance.
-     */
+ * handle draw2 dmarkers for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * draw2DMarkers();
+ */
 private draw2DMarkers(): void {
         this.flatContext.save();
         this.tensors.forEach((tensor) => {
@@ -1826,8 +2335,13 @@ private draw2DMarkers(): void {
     }
 
         /**
-     * handle draw2 dghost layers for this class instance.
-     */
+ * handle draw2 dghost layers for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * draw2DGhostLayers();
+ */
 private draw2DGhostLayers(): void {
         this.flatContext.save();
         this.flatContext.textAlign = 'center';
@@ -1849,8 +2363,13 @@ private draw2DGhostLayers(): void {
     }
 
         /**
-     * handle draw2 dlayer tips for this class instance.
-     */
+ * handle draw2 dlayer tips for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * draw2DLayerTips();
+ */
 private draw2DLayerTips(): void {
         this.flatContext.save();
         this.tensors.forEach((tensor) => {
@@ -1875,8 +2394,13 @@ private draw2DLayerTips(): void {
     }
 
         /**
-     * handle draw2 dcell labels for this class instance.
-     */
+ * handle draw2 dcell labels for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * draw2DCellLabels();
+ */
 private draw2DCellLabels(): void {
         this.flatContext.save();
         this.flatContext.textAlign = 'center';
@@ -1898,8 +2422,17 @@ private draw2DCellLabels(): void {
     }
 
         /**
-     * handle draw2 dcell text for this class instance.
-     */
+ * handle draw2 dcell text for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @param text - Text supplied by the caller.
+ * @param bounds - bounds input used by this operation ({ left: number; right: number; top: number; bottom: number }).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * draw2DCellText(tensor, tensorCoord, text, bounds);
+ */
 private draw2DCellText(
         tensor: TensorRecord,
         tensorCoord: number[],
@@ -1926,8 +2459,14 @@ private draw2DCellText(
     }
 
         /**
-     * escape svg text for this class instance.
-     */
+ * escape svg text for this class instance.
+ *
+ * @param text - Text supplied by the caller.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * escapeSvgText(text);
+ */
 private escapeSvgText(text: string): string {
         return text
             .replace(/&/g, '&amp;')
@@ -1937,8 +2476,15 @@ private escapeSvgText(text: string): string {
     }
 
         /**
-     * handle linear index for this class instance.
-     */
+ * handle linear index for this class instance.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearIndex(coord, shape);
+ */
 private linearIndex(coord: number[], shape: number[]): number {
         let index = 0;
         coord.forEach((value, axis) => {
@@ -1948,8 +2494,17 @@ private linearIndex(coord: number[], shape: number[]): number {
     }
 
         /**
-     * handle cell color for this class instance.
-     */
+ * handle cell color for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @param value - Value supplied by the caller.
+ * @param heatmapRange - heatmap range input used by this operation ({ min: number; max: number } | null).
+ * @returns Computed Color value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cellColor(tensor, tensorCoord, value, heatmapRange);
+ */
 private cellColor(
         tensor: TensorRecord,
         tensorCoord: number[],
@@ -1961,8 +2516,15 @@ private cellColor(
     }
 
         /**
-     * handle cell label color for this class instance.
-     */
+ * handle cell label color for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param tensorCoord - Coordinate used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cellLabelColor(tensor, tensorCoord);
+ */
 private cellLabelColor(tensor: TensorRecord, tensorCoord: number[]): string {
         const value = tensor.hasData ? numericValue(tensor.data, this.linearIndex(tensorCoord, tensor.shape)) : 0;
         const heatmapRange = this.state.heatmap ? tensor.valueRange : null;
@@ -1972,8 +2534,15 @@ private cellLabelColor(tensor: TensorRecord, tensorCoord: number[]): string {
     }
 
         /**
-     * apply color instructions for this class instance.
-     */
+ * apply color instructions for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param instructions - instructions input used by this operation (ColorInstruction[]).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyColorInstructions(tensorId, instructions);
+ */
 private applyColorInstructions(tensorId: string, instructions: ColorInstruction[]): void {
         const tensor = this.requireTensor(tensorId);
         tensor.customColors.clear();
@@ -1991,8 +2560,18 @@ private applyColorInstructions(tensorId: string, instructions: ColorInstruction[
     }
 
         /**
-     * apply colors for this class instance.
-     */
+ * apply colors for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param arg1 - arg1 input used by this operation (Uint8ClampedArray | Float32Array | number[][] | number[]).
+ * @param arg2 - arg2 input used by this operation (RGB | HueSaturation | number[]).
+ * @param arg3 - arg3 input used by this operation (number[] | RGB | HueSaturation).
+ * @param arg4 - arg4 input used by this operation (RGB | HueSaturation | number[]).
+ * @returns Nothing; the function updates state in place.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * applyColors(tensor, arg1, arg2, arg3, arg4);
+ */
 private applyColors(
         tensor: TensorRecord,
         arg1: Uint8ClampedArray | Float32Array | number[][] | number[],
@@ -2031,7 +2610,15 @@ private applyColors(
                 const color = parseCustomColor(arg4 as number[]);
                 const ranges = shape.map((dim, axis) => Array.from({ length: dim }, (_entry, index) => base[axis] + index * jumps[axis]));
                 const coord = new Array(shape.length).fill(0);
-                /** recursively enumerate the rectangular region covered by this color instruction. */
+                /**
+ * recursively enumerate the rectangular region covered by this color instruction.
+ *
+ * @param axis - axis index used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * visit(axis);
+ */
                 const visit = (axis: number): void => {
                     if (axis === shape.length) {
                         tensor.customColors.set(coordKey(coord.slice()), color);
@@ -2048,40 +2635,65 @@ private applyColors(
     }
 
         /**
-     * emit for this class instance.
-     */
+ * emit for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emit();
+ */
 private emit(): void {
         const snapshot = this.getSnapshot();
         this.listeners.forEach((listener) => listener(snapshot));
     }
 
         /**
-     * emit hover for this class instance.
-     */
+ * emit hover for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emitHover();
+ */
 private emitHover(): void {
         const hover = this.getHover();
         this.hoverListeners.forEach((listener) => listener(hover));
     }
 
         /**
-     * emit selection for this class instance.
-     */
+ * emit selection for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emitSelection();
+ */
 private emitSelection(): void {
         const selection = this.getSelectedCoords();
         this.selectionListeners.forEach((listener) => listener(selection));
     }
 
         /**
-     * emit selection preview for this class instance.
-     */
+ * emit selection preview for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emitSelectionPreview();
+ */
 private emitSelectionPreview(): void {
         const selection = this.selectionDrag ? this.selectionCoords(this.selectionDrag.previewSelections) : new Map();
         this.selectionPreviewListeners.forEach((listener) => listener(selection));
     }
 
         /**
-     * clear hover for this class instance.
-     */
+ * clear hover for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearHover();
+ */
 private clearHover(): void {
         this.state.hover = null;
         this.state.lastHover = null;
@@ -2092,8 +2704,13 @@ private clearHover(): void {
     }
 
         /**
-     * reset loaded state for this class instance.
-     */
+ * reset loaded state for this class instance.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * resetLoadedState();
+ */
 private resetLoadedState(): void {
         Array.from(this.tensorMeshes.values()).forEach((group) => this.scene.remove(group));
         this.tensorMeshes.clear();
@@ -2112,8 +2729,14 @@ private resetLoadedState(): void {
     }
 
         /**
-     * apply display mode for this class instance.
-     */
+ * apply display mode for this class instance.
+ *
+ * @param mode - mode input used by this operation ('2d' | '3d').
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyDisplayMode(mode);
+ */
 private applyDisplayMode(mode: '2d' | '3d'): void {
         const previousTarget = this.controls.target.clone();
         this.state.displayMode = mode;
@@ -2137,8 +2760,16 @@ private applyDisplayMode(mode: '2d' | '3d'): void {
     }
 
         /**
-     * assign tensor view for this class instance.
-     */
+ * assign tensor view for this class instance.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param spec - spec input used by this operation (string).
+ * @param hiddenIndices - hidden indices input used by this operation (number[]).
+ * @returns Computed TensorViewSnapshot value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * assignTensorView(tensor, spec, hiddenIndices);
+ */
 private assignTensorView(tensor: TensorRecord, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const parsed = parseTensorView(tensor.shape, spec, hiddenIndices ?? tensor.view.hiddenIndices, tensor.axisLabels);
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
@@ -2150,8 +2781,14 @@ private assignTensorView(tensor: TensorRecord, spec: string, hiddenIndices?: num
     }
 
         /**
-     * clear slice state from other tensors for this class instance.
-     */
+ * clear slice state from other tensors for this class instance.
+ *
+ * @param activeTensorId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearSliceStateFromOtherTensors(activeTensorId);
+ */
 private clearSliceStateFromOtherTensors(activeTensorId: string): void {
         this.tensors.forEach((tensor) => {
             if (tensor.id === activeTensorId || tensor.view.sliceTokens.length === 0) return;
@@ -2160,8 +2797,14 @@ private clearSliceStateFromOtherTensors(activeTensorId: string): void {
     }
 
         /**
-     * apply snapshot for this class instance.
-     */
+ * apply snapshot for this class instance.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applySnapshot(snapshot);
+ */
 private applySnapshot(snapshot: ViewerSnapshot): void {
         this.clearSelection(false);
         this.state.heatmap = snapshot.heatmap;
@@ -2220,8 +2863,14 @@ private applySnapshot(snapshot: ViewerSnapshot): void {
     }
 
         /**
-     * return whether should auto fit snapshot for this class instance.
-     */
+ * return whether should auto fit snapshot for this class instance.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * shouldAutoFitSnapshot(snapshot);
+ */
 private shouldAutoFitSnapshot(snapshot: ViewerSnapshot): boolean {
         // generated demos historically wrote the default camera even when the view
         // had never been fitted, so treat that exact pose as "no camera saved".
@@ -2238,8 +2887,16 @@ private shouldAutoFitSnapshot(snapshot: ViewerSnapshot): boolean {
     }
 
         /**
-     * update hover for this class instance.
-     */
+ * update hover for this class instance.
+ *
+ * @param hover - hover input used by this operation (HoverInfo | null).
+ * @param source - source input used by this operation ('2d' | '3d').
+ * @param outlinePosition - outline position input used by this operation (Vector3).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * updateHover(hover, source, outlinePosition);
+ */
 private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePosition?: Vector3): void {
         const outlineChanged = this.syncHoverOutline(hover, source, outlinePosition);
         if (this.sameHover(this.state.hover, hover)) {
@@ -2259,7 +2916,15 @@ private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePositio
         this.emitHover();
     }
 
-    /** Build the public metadata and dense-data status payload for one tensor. */
+    /**
+ * Build the public metadata and dense-data status payload for one tensor.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @returns Computed TensorStatus value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorStatus(tensor);
+ */
     private tensorStatus(tensor: TensorRecord): TensorStatus {
         return {
             id: tensor.id,
@@ -2273,7 +2938,17 @@ private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePositio
         };
     }
 
-    /** Replace or clear one tensor's dense payload while keeping its metadata stable. */
+    /**
+ * Replace or clear one tensor's dense payload while keeping its metadata stable.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param data - data input used by this operation (NumericArray | null).
+ * @param dtype - dtype input used by this operation (DType).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * assignTensorData(tensor, data, dtype);
+ */
     private assignTensorData(tensor: TensorRecord, data: NumericArray | null, dtype: DType = tensor.dtype): void {
         if (data) validateTensorPayload(dtype, tensor.shape, data.byteLength);
         tensor.dtype = dtype;
@@ -2282,7 +2957,19 @@ private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePositio
         tensor.valueRange = data ? computeMinMax(data) : null;
     }
 
-    /** Add one tensor and immediately rebuild the rendered scene. */
+    /**
+ * Add one tensor and immediately rebuild the rendered scene.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param data - data input used by this operation (NumericArray).
+ * @param name - name input used by this operation (string).
+ * @param offset - offset input used by this operation (Vec3).
+ * @param dtype - dtype input used by this operation (DType).
+ * @returns Computed TensorHandle value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * addTensor(shape, data, name, offset, dtype);
+ */
     public addTensor(shape: number[], data: NumericArray, name?: string, offset?: Vec3, dtype?: DType): TensorHandle {
         logEvent('tensor:add', { shape, name, offset, dtype });
         return this.insertTensor(shape, data, {
@@ -2292,7 +2979,19 @@ private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePositio
         });
     }
 
-    /** Add one metadata-only tensor and render it without loading per-cell numeric values. */
+    /**
+ * Add one metadata-only tensor and render it without loading per-cell numeric values.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param dtype - dtype input used by this operation (DType).
+ * @param name - name input used by this operation (string).
+ * @param offset - offset input used by this operation (Vec3).
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @returns Computed TensorHandle value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * addMetadataTensor(shape, dtype, name, offset, axisLabels);
+ */
     public addMetadataTensor(shape: number[], dtype: DType, name?: string, offset?: Vec3, axisLabels?: string[]): TensorHandle {
         logEvent('tensor:add-metadata', { shape, dtype, name, offset, axisLabels });
         return this.insertTensor(shape, null, {
@@ -2304,8 +3003,16 @@ private updateHover(hover: HoverInfo | null, source: '2d' | '3d', outlinePositio
     }
 
         /**
-     * insert tensor for this class instance.
-     */
+ * insert tensor for this class instance.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param data - data input used by this operation (NumericArray | null).
+ * @param options - Options that tune this operation.
+ * @returns Computed TensorHandle value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * insertTensor(shape, data, options);
+ */
 private insertTensor(
         shape: number[],
         data: NumericArray | null,
@@ -2359,7 +3066,15 @@ private insertTensor(
         return this.tensorStatus(tensor);
     }
 
-    /** Remove one tensor by id. */
+    /**
+ * Remove one tensor by id.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * removeTensor(tensorId);
+ */
     public removeTensor(tensorId: string): void {
         logEvent('tensor:remove', tensorId);
         this.tensors.delete(tensorId);
@@ -2385,7 +3100,14 @@ private insertTensor(
         this.rebuildAllMeshes();
     }
 
-    /** Remove every loaded tensor and reset hover and active state. */
+    /**
+ * Remove every loaded tensor and reset hover and active state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clear();
+ */
     public clear(): void {
         logEvent('tensor:clear');
         this.resetLoadedState();
@@ -2394,7 +3116,14 @@ private insertTensor(
         this.emit();
     }
 
-    /** Capture the full serializable viewer snapshot. */
+    /**
+ * Capture the full serializable viewer snapshot.
+ *
+ * @returns Computed ViewerSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getSnapshot();
+ */
     public getSnapshot(): ViewerSnapshot {
         return {
             version: 1,
@@ -2430,7 +3159,14 @@ private insertTensor(
         };
     }
 
-    /** Export the current viewport exactly as rendered, wrapped in an SVG file. */
+    /**
+ * Export the current viewport exactly as rendered, wrapped in an SVG file.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * exportCurrentViewSvg();
+ */
     public exportCurrentViewSvg(): string {
         if (this.state.displayMode === '2d') {
             this.render2D();
@@ -2449,7 +3185,14 @@ private insertTensor(
 </svg>`;
     }
 
-    /** Export the current 2D viewport as true SVG primitives. */
+    /**
+ * Export the current 2D viewport as true SVG primitives.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * exportCurrentViewSvg2D();
+ */
     private exportCurrentViewSvg2D(): string {
         const width = this.flatCanvas.width;
         const height = this.flatCanvas.height;
@@ -2580,12 +3323,28 @@ private insertTensor(
 </svg>`;
     }
 
-    /** Convert one three.js color into an SVG rgb() string. */
+    /**
+ * Convert one three.js color into an SVG rgb() string.
+ *
+ * @param color - color input used by this operation (Color).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * svgColor(color);
+ */
     private svgColor(color: Color): string {
         return `rgb(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)})`;
     }
 
-    /** Escape text so it is safe to place inside SVG text nodes. */
+    /**
+ * Escape text so it is safe to place inside SVG text nodes.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * svgEscape(value);
+ */
     private svgEscape(value: string): string {
         return value
             .replaceAll('&', '&amp;')
@@ -2595,49 +3354,107 @@ private insertTensor(
             .replaceAll("'", '&apos;');
     }
 
-    /** Fit a 2D SVG label font size into the given pixel width. */
+    /**
+ * Fit a 2D SVG label font size into the given pixel width.
+ *
+ * @param text - Text supplied by the caller.
+ * @param baseSize - base size input used by this operation (number).
+ * @param maxWidth - max width input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fittedSvgFontSize(text, baseSize, maxWidth);
+ */
     private fittedSvgFontSize(text: string, baseSize: number, maxWidth: number): number {
         this.flatContext.font = `700 ${baseSize}px "IBM Plex Sans", "Segoe UI", sans-serif`;
         const measuredWidth = this.flatContext.measureText(text).width;
         return measuredWidth > 0 ? Math.min(baseSize, (maxWidth / measuredWidth) * baseSize) : baseSize;
     }
 
-    /** Restore a previously captured viewer snapshot. */
+    /**
+ * Restore a previously captured viewer snapshot.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * restoreSnapshot(snapshot);
+ */
     public restoreSnapshot(snapshot: ViewerSnapshot): void {
         logEvent('snapshot:restore', snapshot);
         this.applySnapshot(snapshot);
         this.rebuildAllMeshes();
     }
 
-    /** Subscribe to snapshot updates and immediately receive the current state. */
+    /**
+ * Subscribe to snapshot updates and immediately receive the current state.
+ *
+ * @param listener - listener input used by this operation ((snapshot: ViewerSnapshot) => void).
+ * @returns Computed () => void value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * subscribe(listener);
+ */
     public subscribe(listener: (snapshot: ViewerSnapshot) => void): () => void {
         this.listeners.add(listener);
         listener(this.getSnapshot());
         return () => this.listeners.delete(listener);
     }
 
-    /** Subscribe to hover changes and immediately receive the current hover state. */
+    /**
+ * Subscribe to hover changes and immediately receive the current hover state.
+ *
+ * @param listener - listener input used by this operation ((hover: HoverInfo | null) => void).
+ * @returns Computed () => void value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * subscribeHover(listener);
+ */
     public subscribeHover(listener: (hover: HoverInfo | null) => void): () => void {
         this.hoverListeners.add(listener);
         listener(this.getHover());
         return () => this.hoverListeners.delete(listener);
     }
 
-    /** Subscribe to selection changes and immediately receive the current selection. */
+    /**
+ * Subscribe to selection changes and immediately receive the current selection.
+ *
+ * @param listener - listener input used by this operation ((selection: SelectionCoords) => void).
+ * @returns Computed () => void value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * subscribeSelection(listener);
+ */
     public subscribeSelection(listener: (selection: SelectionCoords) => void): () => void {
         this.selectionListeners.add(listener);
         listener(this.getSelectedCoords());
         return () => this.selectionListeners.delete(listener);
     }
 
-    /** Subscribe to live drag-preview selection changes. */
+    /**
+ * Subscribe to live drag-preview selection changes.
+ *
+ * @param listener - listener input used by this operation ((selection: SelectionCoords) => void).
+ * @returns Computed () => void value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * subscribeSelectionPreview(listener);
+ */
     public subscribeSelectionPreview(listener: (selection: SelectionCoords) => void): () => void {
         this.selectionPreviewListeners.add(listener);
         listener(this.selectionDrag ? this.selectionCoords(this.selectionDrag.previewSelections) : new Map());
         return () => this.selectionPreviewListeners.delete(listener);
     }
 
-    /** Switch between 2D and 3D display modes. */
+    /**
+ * Switch between 2D and 3D display modes.
+ *
+ * @param mode - mode input used by this operation ('2d' | '3d').
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setDisplayMode(mode);
+ */
     public setDisplayMode(mode: '2d' | '3d'): void {
         logEvent('display:mode', mode);
         this.applyDisplayMode(mode);
@@ -2645,12 +3462,27 @@ private insertTensor(
         this.rebuildAllMeshes({ fitCamera: mode === '3d' });
     }
 
-    /** Return the primary left-drag interaction mode. */
+    /**
+ * Return the primary left-drag interaction mode.
+ *
+ * @returns Computed InteractionMode value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getInteractionMode();
+ */
     public getInteractionMode(): InteractionMode {
         return this.state.interactionMode;
     }
 
-    /** Set the primary left-drag interaction mode. */
+    /**
+ * Set the primary left-drag interaction mode.
+ *
+ * @param mode - mode input used by this operation (InteractionMode).
+ * @returns Computed InteractionMode value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setInteractionMode(mode);
+ */
     public setInteractionMode(mode: InteractionMode): InteractionMode {
         this.state.interactionMode = mode;
         this.syncInteractionMode();
@@ -2659,7 +3491,15 @@ private insertTensor(
         return this.state.interactionMode;
     }
 
-    /** Toggle grayscale heatmap coloring on or off. */
+    /**
+ * Toggle grayscale heatmap coloring on or off.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleHeatmap(force);
+ */
     public toggleHeatmap(force?: boolean): boolean {
         this.state.heatmap = force ?? !this.state.heatmap;
         logEvent('display:heatmap', this.state.heatmap);
@@ -2672,7 +3512,15 @@ private insertTensor(
         return this.state.heatmap;
     }
 
-    /** Set the multiplicative gap growth between higher-level dimension blocks. */
+    /**
+ * Set the multiplicative gap growth between higher-level dimension blocks.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setDimensionBlockGapMultiple(value);
+ */
     public setDimensionBlockGapMultiple(value: number): number {
         const nextValue = Number.isFinite(value) ? Math.max(1, Math.min(100, value)) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
         if (nextValue === this.state.dimensionBlockGapMultiple) return nextValue;
@@ -2684,7 +3532,15 @@ private insertTensor(
         return nextValue;
     }
 
-    /** Toggle whether inter-block gaps are rendered at all. */
+    /**
+ * Toggle whether inter-block gaps are rendered at all.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleDisplayGaps(force);
+ */
     public toggleDisplayGaps(force?: boolean): boolean {
         this.state.displayGaps = force ?? !this.state.displayGaps;
         logEvent('display:gaps', this.state.displayGaps);
@@ -2694,7 +3550,15 @@ private insertTensor(
         return this.state.displayGaps;
     }
 
-    /** Toggle the dimension-guide overlays. */
+    /**
+ * Toggle the dimension-guide overlays.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleDimensionLines(force);
+ */
     public toggleDimensionLines(force?: boolean): boolean {
         this.state.showDimensionLines = force ?? !this.state.showDimensionLines;
         logEvent('display:dimension-lines', this.state.showDimensionLines);
@@ -2702,7 +3566,15 @@ private insertTensor(
         return this.state.showDimensionLines;
     }
 
-    /** Toggle the tensor-name labels. */
+    /**
+ * Toggle the tensor-name labels.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleTensorNames(force);
+ */
     public toggleTensorNames(force?: boolean): boolean {
         this.state.showTensorNames = force ?? !this.state.showTensorNames;
         logEvent('display:tensor-names', this.state.showTensorNames);
@@ -2710,7 +3582,15 @@ private insertTensor(
         return this.state.showTensorNames;
     }
 
-    /** Toggle signed-log heatmap normalization. */
+    /**
+ * Toggle signed-log heatmap normalization.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleLogScale(force);
+ */
     public toggleLogScale(force?: boolean): boolean {
         this.state.logScale = force ?? !this.state.logScale;
         logEvent('display:log-scale', this.state.logScale);
@@ -2718,7 +3598,15 @@ private insertTensor(
         return this.state.logScale;
     }
 
-    /** Toggle whether sliced axes collapse into the same rendered position. */
+    /**
+ * Toggle whether sliced axes collapse into the same rendered position.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleCollapseHiddenAxes(force);
+ */
     public toggleCollapseHiddenAxes(force?: boolean): boolean {
         this.state.collapseHiddenAxes = force ?? !this.state.collapseHiddenAxes;
         logEvent('display:collapse-hidden-axes', this.state.collapseHiddenAxes);
@@ -2728,12 +3616,28 @@ private insertTensor(
         return this.state.collapseHiddenAxes;
     }
 
-    /** Backward-compatible alias for {@link toggleCollapseHiddenAxes}. */
+    /**
+ * Backward-compatible alias for {@link toggleCollapseHiddenAxes}.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleShowSlicesInSamePlace(force);
+ */
     public toggleShowSlicesInSamePlace(force?: boolean): boolean {
         return this.toggleCollapseHiddenAxes(force);
     }
 
-    /** Change how dimensions are assigned to the x, y, and z layout families. */
+    /**
+ * Change how dimensions are assigned to the x, y, and z layout families.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed DimensionMappingScheme value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setDimensionMappingScheme(value);
+ */
     public setDimensionMappingScheme(value: DimensionMappingScheme): DimensionMappingScheme {
         const nextValue = value === 'contiguous' ? 'contiguous' : 'z-order';
         if (nextValue === this.state.dimensionMappingScheme) return nextValue;
@@ -2747,7 +3651,15 @@ private insertTensor(
         return nextValue;
     }
 
-    /** Toggle whether the host UI should show an inspector panel. */
+    /**
+ * Toggle whether the host UI should show an inspector panel.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleInspectorPanel(force);
+ */
     public toggleInspectorPanel(force?: boolean): boolean {
         this.state.showInspectorPanel = force ?? !this.state.showInspectorPanel;
         logEvent('widget:inspector', this.state.showInspectorPanel);
@@ -2755,7 +3667,15 @@ private insertTensor(
         return this.state.showInspectorPanel;
     }
 
-    /** Toggle whether the host UI should show a selection-summary panel. */
+    /**
+ * Toggle whether the host UI should show a selection-summary panel.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleSelectionPanel(force);
+ */
     public toggleSelectionPanel(force?: boolean): boolean {
         this.state.showSelectionPanel = force ?? !this.state.showSelectionPanel;
         logEvent('widget:selection', this.state.showSelectionPanel);
@@ -2763,14 +3683,30 @@ private insertTensor(
         return this.state.showSelectionPanel;
     }
 
-    /** Toggle whether the host UI should show hover-detail widgets. */
+    /**
+ * Toggle whether the host UI should show hover-detail widgets.
+ *
+ * @param force - force input used by this operation (boolean).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleHoverDetailsPanel(force);
+ */
     public toggleHoverDetailsPanel(force?: boolean): boolean {
         this.state.showHoverDetailsPanel = force ?? !this.state.showHoverDetailsPanel;
         this.emit();
         return this.state.showHoverDetailsPanel;
     }
 
-    /** Return the current rendered extent for one tensor in world units. */
+    /**
+ * Return the current rendered extent for one tensor in world units.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Computed Vec3 value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * getViewDims(tensorId);
+ */
     public getViewDims(tensorId: string): Vec3 {
         const tensor = this.tensors.get(tensorId);
         if (!tensor) throw new Error(`Unknown tensor ${tensorId}.`);
@@ -2778,12 +3714,28 @@ private insertTensor(
         return [extent.x, extent.y, extent.z];
     }
 
-    /** Return the current metadata and dense-data availability for one tensor. */
+    /**
+ * Return the current metadata and dense-data availability for one tensor.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Computed TensorStatus value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getTensorStatus(tensorId);
+ */
     public getTensorStatus(tensorId: string): TensorStatus {
         return this.tensorStatus(this.requireTensor(tensorId));
     }
 
-    /** Return the current canonical view string and slice indices for one tensor. */
+    /**
+ * Return the current canonical view string and slice indices for one tensor.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Computed TensorViewSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getTensorView(tensorId);
+ */
     public getTensorView(tensorId: string): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         return {
@@ -2792,13 +3744,22 @@ private insertTensor(
         };
     }
 
-    /** Apply a new tensor-view string and optional sliced indices to one tensor.
-     *
-     * This is a virtual view transform. The viewer does not transpose or rewrite
-     * the stored tensor buffer; it reparses the axis order and remaps displayed
-     * coordinates back to the original tensor coordinates during render, hover,
-     * and value lookup.
-     */
+    /**
+ * Apply a new tensor-view string and optional sliced indices to one tensor.
+ *
+ * This is a virtual view transform. The viewer does not transpose or rewrite
+ * the stored tensor buffer; it reparses the axis order and remaps displayed
+ * coordinates back to the original tensor coordinates during render, hover,
+ * and value lookup.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param spec - spec input used by this operation (string).
+ * @param hiddenIndices - hidden indices input used by this operation (number[]).
+ * @returns Computed TensorViewSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setTensorView(tensorId, spec, hiddenIndices);
+ */
     public setTensorView(tensorId: string, spec: string, hiddenIndices?: number[]): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         const snapshot = this.assignTensorView(tensor, spec, hiddenIndices);
@@ -2809,7 +3770,17 @@ private insertTensor(
         return snapshot;
     }
 
-    /** Attach dense numeric data to one existing tensor without changing its shape or view. */
+    /**
+ * Attach dense numeric data to one existing tensor without changing its shape or view.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param data - data input used by this operation (NumericArray).
+ * @param dtype - dtype input used by this operation (DType).
+ * @returns Computed TensorStatus value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setTensorData(tensorId, data, dtype);
+ */
     public setTensorData(tensorId: string, data: NumericArray, dtype?: DType): TensorStatus {
         const tensor = this.requireTensor(tensorId);
         this.assignTensorData(tensor, data, dtype ?? tensor.dtype);
@@ -2819,7 +3790,15 @@ private insertTensor(
         return this.tensorStatus(tensor);
     }
 
-    /** Drop the dense payload for one tensor and keep only its metadata, view, and colors. */
+    /**
+ * Drop the dense payload for one tensor and keep only its metadata, view, and colors.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Computed TensorStatus value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearTensorData(tensorId);
+ */
     public clearTensorData(tensorId: string): TensorStatus {
         const tensor = this.requireTensor(tensorId);
         this.assignTensorData(tensor, null, tensor.dtype);
@@ -2829,7 +3808,16 @@ private insertTensor(
         return this.tensorStatus(tensor);
     }
 
-    /** Ask the host to hydrate a metadata-only tensor if a requester callback was provided. */
+    /**
+ * Ask the host to hydrate a metadata-only tensor if a requester callback was provided.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param reason - reason input used by this operation (TensorDataRequestReason).
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * ensureTensorData(tensorId, reason);
+ */
     public async ensureTensorData(tensorId: string, reason: TensorDataRequestReason = 'explicit'): Promise<boolean> {
         const tensor = this.requireTensor(tensorId);
         if (tensor.hasData) return true;
@@ -2851,18 +3839,55 @@ private insertTensor(
     }
 
         /**
-     * color tensor for this class instance.
-     */
+ * color tensor for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param colors - colors input used by this operation (Uint8ClampedArray | Float32Array).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * colorTensor(tensorId, colors);
+ */
 public colorTensor(tensorId: string, colors: Uint8ClampedArray | Float32Array): void;
         /**
-     * color tensor for this class instance.
-     */
+ * color tensor for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param coords - Coordinates used by this operation.
+ * @param color - color input used by this operation (RGB | HueSaturation).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * colorTensor(tensorId, coords, color);
+ */
 public colorTensor(tensorId: string, coords: number[][], color: RGB | HueSaturation): void;
         /**
-     * color tensor for this class instance.
-     */
+ * color tensor for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param base - base input used by this operation (number[]).
+ * @param shape - Tensor shape used by this operation.
+ * @param jumps - jumps input used by this operation (number[]).
+ * @param color - color input used by this operation (RGB | HueSaturation).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * colorTensor(tensorId, base, shape, jumps, color);
+ */
 public colorTensor(tensorId: string, base: number[], shape: number[], jumps: number[], color: RGB | HueSaturation): void;
-    /** Apply dense, coordinate, or region-based custom colors to one tensor. */
+    /**
+ * Apply dense, coordinate, or region-based custom colors to one tensor.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param arg1 - arg1 input used by this operation (Uint8ClampedArray | Float32Array | number[][] | number[]).
+ * @param arg2 - arg2 input used by this operation (RGB | HueSaturation | number[]).
+ * @param arg3 - arg3 input used by this operation (number[] | RGB | HueSaturation).
+ * @param arg4 - arg4 input used by this operation (RGB | HueSaturation).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * colorTensor(tensorId, arg1, arg2, arg3, arg4);
+ */
     public colorTensor(
         tensorId: string,
         arg1: Uint8ClampedArray | Float32Array | number[][] | number[],
@@ -2884,13 +3909,30 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         this.rebuildAllMeshes();
     }
 
-    /** Remove all custom colors from one tensor. */
+    /**
+ * Remove all custom colors from one tensor.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearTensorColors(tensorId);
+ */
     public clearTensorColors(tensorId: string): void {
         this.requireTensor(tensorId).customColors.clear();
         this.rebuildAllMeshes();
     }
 
-    /** Restrict one tensor to a coordinate mask, or clear the mask with `null`. */
+    /**
+ * Restrict one tensor to a coordinate mask, or clear the mask with `null`.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param coords - Coordinates used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setTensorVisibleCoords(tensorId, coords);
+ */
     public setTensorVisibleCoords(tensorId: string, coords: number[][] | null): void {
         const tensor = this.requireTensor(tensorId);
         tensor.visibleCoords = coords ? new Set(coords.map((coord) => coordKey(coord))) : null;
@@ -2898,7 +3940,16 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         this.rebuildAllMeshes();
     }
 
-    /** Attach or clear 2D per-cell text labels for one tensor. */
+    /**
+ * Attach or clear 2D per-cell text labels for one tensor.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param labels - labels input used by this operation (Array<{ coord: number[]; text: string }> | null).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setTensorCellLabels(tensorId, labels);
+ */
     public setTensorCellLabels(tensorId: string, labels: Array<{ coord: number[]; text: string }> | null): void {
         const tensor = this.requireTensor(tensorId);
         tensor.cellLabels = labels?.length
@@ -2907,7 +3958,16 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         this.requestRender();
     }
 
-    /** Draw extra 2D-only copies of tensor cells with a small positional bias. */
+    /**
+ * Draw extra 2D-only copies of tensor cells with a small positional bias.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param layers - layers input used by this operation (Array<{ coord: number[]; color: RGB; bias: readonly [number, number]; layer: number; text?: string | null }> | null).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setTensorGhostLayers(tensorId, layers);
+ */
     public setTensorGhostLayers(
         tensorId: string,
         layers: Array<{ coord: number[]; color: RGB; bias: readonly [number, number]; layer: number; text?: string | null }> | null,
@@ -2926,29 +3986,66 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         else this.requestRender();
     }
 
-    /** Alias for {@link getSnapshot}. */
+    /**
+ * Alias for {@link getSnapshot}.
+ *
+ * @returns Computed Readonly<ViewerSnapshot> value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getState();
+ */
     public getState(): Readonly<ViewerSnapshot> {
         return this.getSnapshot();
     }
 
-    /** Return the current hover payload, or the last hover when the pointer just left. */
+    /**
+ * Return the current hover payload, or the last hover when the pointer just left.
+ *
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getHover();
+ */
     public getHover(): HoverInfo | null {
         const hover = this.state.hover ?? this.state.lastHover;
         return hover ? { ...hover } : null;
     }
 
-    /** Return only the cell currently under the pointer, without falling back to last hover. */
+    /**
+ * Return only the cell currently under the pointer, without falling back to last hover.
+ *
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getLiveHover();
+ */
     public getLiveHover(): HoverInfo | null {
         return this.state.hover ? { ...this.state.hover } : null;
     }
 
-    /** Return the current selected coordinates grouped by tensor id. */
+    /**
+ * Return the current selected coordinates grouped by tensor id.
+ *
+ * @returns Computed SelectionCoords value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getSelectedCoords();
+ */
     public getSelectedCoords(): SelectionCoords {
         if (!this.selectionEnabled()) return new Map();
         return this.selectionCoords();
     }
 
-    /** Replace the current selection with the provided coordinates. */
+    /**
+ * Replace the current selection with the provided coordinates.
+ *
+ * @param selection - Selection data used by this operation.
+ * @param emit - emit input used by this operation (value).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setSelectedCoords(selection, emit);
+ */
     public setSelectedCoords(selection: SelectionCoords, emit = true): void {
         if (!this.selectionEnabled()) {
             this.clearSelection(false);
@@ -2975,7 +4072,15 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         if (emit) this.emit();
     }
 
-    /** Replace the current non-committed highlight overlay. */
+    /**
+ * Replace the current non-committed highlight overlay.
+ *
+ * @param selection - Selection data used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setPreviewSelectedCoords(selection);
+ */
     public setPreviewSelectedCoords(selection: SelectionCoords): void {
         const nextEntries = new Map<string, Set<string>>();
         selection.forEach((coords, tensorId) => {
@@ -2988,7 +4093,14 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         if (touched.size !== 0) this.refreshSelectionVisuals(...touched);
     }
 
-    /** Return selection count plus summary stats across selected cells with loaded values. */
+    /**
+ * Return selection count plus summary stats across selected cells with loaded values.
+ *
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getSelectionSummary();
+ */
     public getSelectionSummary(): {
         count: number;
         availableCount: number;
@@ -3031,7 +4143,16 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         };
     }
 
-    /** Load a manifest plus decoded tensor buffers into the viewer. */
+    /**
+ * Load a manifest plus decoded tensor buffers into the viewer.
+ *
+ * @param manifest - manifest input used by this operation (BundleManifest).
+ * @param tensors - tensors input used by this operation (Map<string, NumericArray>).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * loadBundleData(manifest, tensors);
+ */
     public loadBundleData(manifest: BundleManifest, tensors: Map<string, NumericArray>): void {
         const safeManifest = validateBundleManifest(manifest);
         const shouldFitCamera = this.shouldAutoFitSnapshot(safeManifest.viewer);
@@ -3065,13 +4186,27 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         this.rebuildAllMeshes({ fitCamera: shouldFitCamera });
     }
 
-    /** Refit the active camera to the loaded tensors using the current viewport size. */
+    /**
+ * Refit the active camera to the loaded tensors using the current viewport size.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * refitView();
+ */
     public refitView(): void {
         this.fitCamera();
         this.emit();
     }
 
-    /** Build the demo-side inspector model for the currently active tensor. */
+    /**
+ * Build the demo-side inspector model for the currently active tensor.
+ *
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * getInspectorModel();
+ */
     public getInspectorModel(): {
         handle: TensorHandle | null;
         tensors: Array<{ id: string; name: string }>;
@@ -3124,7 +4259,15 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         };
     }
 
-    /** Mark one tensor as active without changing its data or view. */
+    /**
+ * Mark one tensor as active without changing its data or view.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setActiveTensor(tensorId);
+ */
     public setActiveTensor(tensorId: string): void {
         this.requireTensor(tensorId);
         this.state.activeTensorId = tensorId;
@@ -3132,7 +4275,17 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         this.emit();
     }
 
-    /** Set the flattened value of one slice token. */
+    /**
+ * Set the flattened value of one slice token.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param token - token input used by this operation (string).
+ * @param value - Value supplied by the caller.
+ * @returns Computed TensorViewSnapshot value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * setSliceTokenValue(tensorId, token, value);
+ */
     public setSliceTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         const tensor = this.requireTensor(tensorId);
         const sliceToken = tensor.view.sliceTokens.find((entry) => entry.key === token || entry.token === token);
@@ -3152,12 +4305,29 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         }));
     }
 
-    /** Backward-compatible alias for {@link setSliceTokenValue}. */
+    /**
+ * Backward-compatible alias for {@link setSliceTokenValue}.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param token - token input used by this operation (string).
+ * @param value - Value supplied by the caller.
+ * @returns Computed TensorViewSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setHiddenTokenValue(tensorId, token, value);
+ */
     public setHiddenTokenValue(tensorId: string, token: string, value: number): TensorViewSnapshot {
         return this.setSliceTokenValue(tensorId, token, value);
     }
 
-    /** Export the current 2D viewport as an SVG blob. */
+    /**
+ * Export the current 2D viewport as an SVG blob.
+ *
+ * @returns Computed Blob value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * saveSvg();
+ */
     public saveSvg(): Blob {
         if (this.state.displayMode !== '2d') {
             throw new Error('SVG export is only available in 2D.');
@@ -3355,7 +4525,14 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
         return new Blob(parts, { type: 'image/svg+xml;charset=utf-8' });
     }
 
-    /** Dispose the renderer, listeners, and DOM nodes created by this viewer. */
+    /**
+ * Dispose the renderer, listeners, and DOM nodes created by this viewer.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * destroy();
+ */
     public destroy(): void {
         window.removeEventListener('resize', this.resize);
         window.removeEventListener('keydown', this.onKeyDown);
@@ -3368,8 +4545,14 @@ public colorTensor(tensorId: string, base: number[], shape: number[], jumps: num
     }
 
         /**
-     * handle require tensor for this class instance.
-     */
+ * handle require tensor for this class instance.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @returns Computed TensorRecord value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * requireTensor(tensorId);
+ */
 private requireTensor(tensorId: string): TensorRecord {
         const tensor = this.tensors.get(tensorId);
         if (!tensor) throw new Error(`Unknown tensor ${tensorId}.`);

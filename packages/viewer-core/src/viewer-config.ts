@@ -23,7 +23,12 @@ const LOG_ENABLED = (() => {
     }
 })();
 
-/** Construction-time viewer options that do not need full state persistence. */
+/**
+ * Construction-time viewer options that do not need full state persistence.
+ *
+ * @example
+ * const value: ViewerOptions = {} as ViewerOptions;
+ */
 export type ViewerOptions = {
     background?: string;
     requestTensorData?: (tensor: TensorStatus, reason: TensorDataRequestReason) => Promise<NumericArray | null | undefined> | NumericArray | null | undefined;
@@ -31,6 +36,9 @@ export type ViewerOptions = {
 
 /**
  * shape of mesh meta data used by the viewer.
+ *
+ * @example
+ * const value: MeshMeta = {} as MeshMeta;
  */
 export type MeshMeta = {
     tensorId: string;
@@ -39,6 +47,9 @@ export type MeshMeta = {
 
 /**
  * shape of pick mesh data used by the viewer.
+ *
+ * @example
+ * const value: PickMesh = {} as PickMesh;
  */
 export type PickMesh = {
     tensorId: string;
@@ -54,6 +65,9 @@ export type PickMesh = {
 
 /**
  * shape of selection drag state data used by the viewer.
+ *
+ * @example
+ * const value: SelectionDragState = {} as SelectionDragState;
  */
 export type SelectionDragState = {
     source: '2d' | '3d';
@@ -68,6 +82,9 @@ export type SelectionDragState = {
 
 /**
  * shape of selection preview uniforms data used by the viewer.
+ *
+ * @example
+ * const value: SelectionPreviewUniforms = {} as SelectionPreviewUniforms;
  */
 export type SelectionPreviewUniforms = {
     selectionPreviewActive: { value: number };
@@ -78,6 +95,13 @@ export type SelectionPreviewUniforms = {
 
 /**
  * return log event for the current viewer state.
+ *
+ * @param event - Browser event that triggered this handler.
+ * @param details - details input used by this operation (unknown).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * logEvent(event, details);
  */
 export function logEvent(event: string, details?: unknown): void {
     if (!LOG_ENABLED) return;
@@ -87,6 +111,12 @@ export function logEvent(event: string, details?: unknown): void {
 
 /**
  * normalize canvas zoom for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeCanvasZoom(value);
  */
 export function normalizeCanvasZoom(value: number): number {
     if (Number.isNaN(value) || value <= 0) return MIN_CANVAS_ZOOM;

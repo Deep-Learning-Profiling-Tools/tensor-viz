@@ -18,6 +18,9 @@ import {
 
 /**
  * shape of inspector coord entry data used by the viewer.
+ *
+ * @example
+ * const value: InspectorCoordEntry = {} as InspectorCoordEntry;
  */
 export type InspectorCoordEntry = {
     title: string;
@@ -29,6 +32,9 @@ export type InspectorCoordEntry = {
 
 /**
  * shape of linear layout notice data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutNotice = {} as LinearLayoutNotice;
  */
 export type LinearLayoutNotice = {
     tone: 'error' | 'success';
@@ -37,27 +43,45 @@ export type LinearLayoutNotice = {
 
 /**
  * shape of linear layout cell text state data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutCellTextState = {} as LinearLayoutCellTextState;
  */
 export type LinearLayoutCellTextState = Record<string, boolean>;
 /**
  * shape of linear layout multi input state data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutMultiInputState = {} as LinearLayoutMultiInputState;
  */
 export type LinearLayoutMultiInputState = Record<string, number>;
 /**
  * shape of linear layout tensor views state data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutTensorViewsState = {} as LinearLayoutTensorViewsState;
  */
 export type LinearLayoutTensorViewsState = Record<string, TensorViewSnapshot>;
 /**
  * shape of linear layout form state data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutFormState = {} as LinearLayoutFormState;
  */
 export type LinearLayoutFormState = ComposeLayoutState;
 /**
  * shape of linear layout channel data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutChannel = {} as LinearLayoutChannel;
  */
 export type LinearLayoutChannel = 'H' | 'S' | 'L';
 
 /**
  * shape of linear layout selection map data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutSelectionMap = {} as LinearLayoutSelectionMap;
  */
 export type LinearLayoutSelectionMap = {
     injective: boolean;
@@ -79,6 +103,9 @@ export type LinearLayoutSelectionMap = {
 
 /**
  * shape of linear layout ui state data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutUiState = {} as LinearLayoutUiState;
  */
 export type LinearLayoutUiState = {
     linearLayoutState: LinearLayoutFormState;
@@ -97,6 +124,9 @@ export type LinearLayoutUiState = {
 
 /**
  * shape of linear layout ui context data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutUiContext = {} as LinearLayoutUiContext;
  */
 export type LinearLayoutUiContext = {
     viewer: TensorViewer;
@@ -121,6 +151,11 @@ const LINEAR_LAYOUT_STORAGE_KEY = 'tensor-viz-linear-layout-spec';
 
 /**
  * load linear layout state for the current viewer state.
+ *
+ * @returns Computed LinearLayoutFormState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * loadLinearLayoutState();
  */
 export function loadLinearLayoutState(): LinearLayoutFormState {
     const fallback = defaultLinearLayoutState();
@@ -146,6 +181,12 @@ export function loadLinearLayoutState(): LinearLayoutFormState {
 
 /**
  * return store linear layout state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * storeLinearLayoutState(state);
  */
 export function storeLinearLayoutState(state: LinearLayoutFormState): void {
     try {
@@ -157,6 +198,12 @@ export function storeLinearLayoutState(state: LinearLayoutFormState): void {
 
 /**
  * return whether linear layout state for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is LinearLayoutFormState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isLinearLayoutState(value);
  */
 export function isLinearLayoutState(value: unknown): value is LinearLayoutFormState {
     return isComposeLayoutState(value);
@@ -164,6 +211,11 @@ export function isLinearLayoutState(value: unknown): value is LinearLayoutFormSt
 
 /**
  * return default linear layout state for the current viewer state.
+ *
+ * @returns Computed LinearLayoutFormState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultLinearLayoutState();
  */
 export function defaultLinearLayoutState(): LinearLayoutFormState {
     return defaultComposeLayoutState();
@@ -171,6 +223,11 @@ export function defaultLinearLayoutState(): LinearLayoutFormState {
 
 /**
  * return empty linear layout state for the current viewer state.
+ *
+ * @returns Computed LinearLayoutFormState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emptyLinearLayoutState();
  */
 export function emptyLinearLayoutState(): LinearLayoutFormState {
     return emptyComposeLayoutState();
@@ -178,6 +235,12 @@ export function emptyLinearLayoutState(): LinearLayoutFormState {
 
 /**
  * clone linear layout state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed LinearLayoutFormState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneLinearLayoutState(state);
  */
 export function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayoutFormState {
     return cloneComposeLayoutState(state);
@@ -185,6 +248,12 @@ export function cloneLinearLayoutState(state: LinearLayoutFormState): LinearLayo
 
 /**
  * return default linear layout cell text state for the current viewer state.
+ *
+ * @param labels - labels input used by this operation (string[]).
+ * @returns Computed LinearLayoutCellTextState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultLinearLayoutCellTextState(labels);
  */
 export function defaultLinearLayoutCellTextState(labels: string[] = []): LinearLayoutCellTextState {
     return Object.fromEntries(labels.map((label) => [label, true]));
@@ -192,6 +261,12 @@ export function defaultLinearLayoutCellTextState(labels: string[] = []): LinearL
 
 /**
  * clone linear layout cell text state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed LinearLayoutCellTextState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneLinearLayoutCellTextState(state);
  */
 export function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState): LinearLayoutCellTextState {
     return { ...state };
@@ -199,6 +274,11 @@ export function cloneLinearLayoutCellTextState(state: LinearLayoutCellTextState)
 
 /**
  * return default linear layout multi input state for the current viewer state.
+ *
+ * @returns Computed LinearLayoutMultiInputState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultLinearLayoutMultiInputState();
  */
 export function defaultLinearLayoutMultiInputState(): LinearLayoutMultiInputState {
     return {};
@@ -206,6 +286,12 @@ export function defaultLinearLayoutMultiInputState(): LinearLayoutMultiInputStat
 
 /**
  * clone linear layout multi input state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed LinearLayoutMultiInputState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneLinearLayoutMultiInputState(state);
  */
 export function cloneLinearLayoutMultiInputState(state: LinearLayoutMultiInputState): LinearLayoutMultiInputState {
     return { ...state };
@@ -213,6 +299,12 @@ export function cloneLinearLayoutMultiInputState(state: LinearLayoutMultiInputSt
 
 /**
  * return whether linear layout multi input state for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is LinearLayoutMultiInputState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isLinearLayoutMultiInputState(value);
  */
 export function isLinearLayoutMultiInputState(value: unknown): value is LinearLayoutMultiInputState {
     if (!value || typeof value !== 'object') return false;
@@ -221,6 +313,12 @@ export function isLinearLayoutMultiInputState(value: unknown): value is LinearLa
 
 /**
  * clone linear layout tensor views state for the current viewer state.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed LinearLayoutTensorViewsState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneLinearLayoutTensorViewsState(state);
  */
 export function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViewsState): LinearLayoutTensorViewsState {
     return Object.fromEntries(Object.entries(state).map(([tensorId, view]) => [
@@ -231,6 +329,12 @@ export function cloneLinearLayoutTensorViewsState(state: LinearLayoutTensorViews
 
 /**
  * return whether linear layout cell text state for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is LinearLayoutCellTextState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isLinearLayoutCellTextState(value);
  */
 export function isLinearLayoutCellTextState(value: unknown): value is LinearLayoutCellTextState {
     if (!value || typeof value !== 'object') return false;
@@ -239,6 +343,12 @@ export function isLinearLayoutCellTextState(value: unknown): value is LinearLayo
 
 /**
  * return snapshot tensor views for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Computed LinearLayoutTensorViewsState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * snapshotTensorViews(snapshot);
  */
 export function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTensorViewsState {
     return Object.fromEntries(snapshot.tensors.map((tensor) => [
@@ -249,6 +359,12 @@ export function snapshotTensorViews(snapshot: ViewerSnapshot): LinearLayoutTenso
 
 /**
  * compose layout meta for tab for the current viewer state.
+ *
+ * @param tab - Session tab used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutMetaForTab(tab);
  */
 export function composeLayoutMetaForTab(tab: LoadedBundleDocument): ComposeLayoutMeta | null {
     const candidate = (tab.manifest.viewer as { composeLayoutMeta?: unknown }).composeLayoutMeta;
@@ -257,6 +373,12 @@ export function composeLayoutMetaForTab(tab: LoadedBundleDocument): ComposeLayou
 
 /**
  * return whether linear layout tab for the current viewer state.
+ *
+ * @param tab - Session tab used by this operation.
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isLinearLayoutTab(tab);
  */
 export function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
     return composeLayoutMetaForTab(tab) !== null;
@@ -264,6 +386,13 @@ export function isLinearLayoutTab(tab: LoadedBundleDocument): boolean {
 
 /**
  * sync linear layout state for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tab - Session tab used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncLinearLayoutState(ctx, tab);
  */
 export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
     if (!isLinearLayoutTab(tab)) return;
@@ -304,6 +433,13 @@ export function syncLinearLayoutState(ctx: LinearLayoutUiContext, tab: LoadedBun
 
 /**
  * sync linear layout cell text state for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tab - Session tab used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncLinearLayoutCellTextState(ctx, tab);
  */
 export function syncLinearLayoutCellTextState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
     if (!isLinearLayoutTab(tab)) {
@@ -331,6 +467,13 @@ export function syncLinearLayoutCellTextState(ctx: LinearLayoutUiContext, tab: L
 
 /**
  * sync linear layout multi input state for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tab - Session tab used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncLinearLayoutMultiInputState(ctx, tab);
  */
 export function syncLinearLayoutMultiInputState(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): void {
     if (!isLinearLayoutTab(tab)) {
@@ -354,6 +497,13 @@ export function syncLinearLayoutMultiInputState(ctx: LinearLayoutUiContext, tab:
 
 /**
  * refresh linear layout matrix preview for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param state - State object read or updated by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * refreshLinearLayoutMatrixPreview(ctx, state);
  */
 export function refreshLinearLayoutMatrixPreview(ctx: LinearLayoutUiContext, state = ctx.state.linearLayoutState): void {
     try {
@@ -365,6 +515,13 @@ export function refreshLinearLayoutMatrixPreview(ctx: LinearLayoutUiContext, sta
 
 /**
  * return legacy editor state for the current viewer state.
+ *
+ * @param raw - raw input used by this operation (Record<string, unknown>).
+ * @param fallback - fallback input used by this operation (LinearLayoutFormState).
+ * @returns Computed LinearLayoutFormState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * legacyEditorState(raw, fallback);
  */
 function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutFormState): LinearLayoutFormState {
     const textByLabel = new Map<string, string>([['T', '[]'], ['W', '[]'], ['R', '[]']]);
@@ -426,6 +583,13 @@ function legacyEditorState(raw: Record<string, unknown>, fallback: LinearLayoutF
 
 /**
  * parse bases field for the current viewer state.
+ *
+ * @param label - label input used by this operation (string).
+ * @param value - Value supplied by the caller.
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseBasesField(label, value);
  */
 function parseBasesField(label: string, value: string): number[][] {
     if (!value.trim()) return [];
@@ -449,6 +613,12 @@ function parseBasesField(label: string, value: string): number[][] {
 
 /**
  * return matrix preview from blocks for the current viewer state.
+ *
+ * @param blocks - blocks input used by this operation (MatrixBlock[]).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * matrixPreviewFromBlocks(blocks);
  */
 function matrixPreviewFromBlocks(blocks: MatrixBlock[]): string {
     return blocks.map((block) => {

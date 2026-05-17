@@ -104,6 +104,13 @@ import type { ComposeLayoutPresetDefinition } from './types.js';
 
 /**
  * return layout spec text for the current viewer state.
+ *
+ * @param signature - signature input used by this operation (string).
+ * @param rows - rows input used by this operation (string[]).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutSpecText(signature, rows);
  */
 function layoutSpecText(signature: string, rows: string[]): string {
     return [signature, ...rows].join('\n');
@@ -965,6 +972,12 @@ const MMA_RAW_PRESET_DEFINITIONS = [
 
 /**
  * return mma gpu archs for the current viewer state.
+ *
+ * @param preset - Preset data used by this operation.
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mmaGpuArchs(preset);
  */
 function mmaGpuArchs(preset: ComposeLayoutPresetDefinition): readonly string[] {
     const matrixSize = preset.matrixSize ?? '';

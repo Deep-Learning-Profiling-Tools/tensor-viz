@@ -12,7 +12,12 @@ import type {
 import type { AppShellWidgetSlot } from './app-shell.js';
 import type { ControlSpec } from './control-dock.js';
 
-/** one searchable command palette action contributed by the shell or an extension. */
+/**
+ * one searchable command palette action contributed by the shell or an extension.
+ *
+ * @example
+ * const value: CommandAction = {} as CommandAction;
+ */
 export type CommandAction = {
     action: string;
     label: string;
@@ -20,12 +25,16 @@ export type CommandAction = {
     keywords: string;
 };
 
-/** one sidebar widget contract rendered by the shared demo shell.
+/**
+ * one sidebar widget contract rendered by the shared demo shell.
  *
  * widgets are deliberately data-driven: the shell owns collapse, drag, and
  * visibility plumbing, while each widget owns only its rendered body and event
  * bindings. for example, the core tensor-view widget and the linear-layout
  * preset widget both use this shape even though they live in different modules.
+ *
+ * @example
+ * const value: DemoWidgetSpec = {} as DemoWidgetSpec;
  */
 export type DemoWidgetSpec = {
     id: string;
@@ -36,7 +45,12 @@ export type DemoWidgetSpec = {
     render: (ctx: DemoExtensionContext, snapshot: ViewerSnapshot) => void;
 };
 
-/** extra controls an extension can place under the core tensor-view slice sliders. */
+/**
+ * extra controls an extension can place under the core tensor-view slice sliders.
+ *
+ * @example
+ * const value: DemoTensorViewSliderSpec = {} as DemoTensorViewSliderSpec;
+ */
 export type DemoTensorViewSliderSpec = {
     id: string;
     label: string;
@@ -46,18 +60,27 @@ export type DemoTensorViewSliderSpec = {
     onChange: (value: number) => void;
 };
 
-/** tensor-view metadata supplied by an extension for one active tensor.
+/**
+ * tensor-view metadata supplied by an extension for one active tensor.
  *
  * the linear-layout extension uses this to restore original axis labels and add
  * a multi-input slider. a future sparsity extension could contribute a mask
  * slider through the same shape without changing the core tensor-view widget.
+ *
+ * @example
+ * const value: DemoTensorViewContribution = {} as DemoTensorViewContribution;
  */
 export type DemoTensorViewContribution = {
     axisLabels?: readonly string[];
     sliders?: DemoTensorViewSliderSpec[];
 };
 
-/** one row in the hover inspector's coordinate list. */
+/**
+ * one row in the hover inspector's coordinate list.
+ *
+ * @example
+ * const value: DemoInspectorCoordEntry = {} as DemoInspectorCoordEntry;
+ */
 export type DemoInspectorCoordEntry = {
     title: string;
     labels: string[];
@@ -66,12 +89,16 @@ export type DemoInspectorCoordEntry = {
     hovered: boolean;
 };
 
-/** host services exposed to demo extensions.
+/**
+ * host services exposed to demo extensions.
  *
  * extensions use this object instead of importing app-entry internals. the
  * linear-layout extension uses `loadTabTensors` for baked examples and `render`
  * after widget edits; a future profiler extension could use the same active-tab
  * and widget services without adding new app-entry branches.
+ *
+ * @example
+ * const value: DemoExtensionContext = {} as DemoExtensionContext;
  */
 export type DemoExtensionContext = {
     viewer: TensorViewer;
@@ -87,15 +114,24 @@ export type DemoExtensionContext = {
     render: () => void;
 };
 
-/** raw session-tab shape before an extension normalizes it into a loaded document. */
+/**
+ * raw session-tab shape before an extension normalizes it into a loaded document.
+ *
+ * @example
+ * const value: LoadedSessionTab = {} as LoadedSessionTab;
+ */
 export type LoadedSessionTab = SessionBundleManifest['tabs'][number];
 
-/** behavior hooks for one demo feature package.
+/**
+ * behavior hooks for one demo feature package.
  *
  * hooks are optional so a feature can expose only the surfaces it needs. for
  * example, linear-layout implements session migration, hover, controls, and
  * widgets; a simple annotation extension might only contribute widgets and
  * commands while sharing the same lifecycle attributes.
+ *
+ * @example
+ * const value: DemoAppExtension = {} as DemoAppExtension;
  */
 export type DemoAppExtension = {
     id: string;
@@ -129,7 +165,12 @@ export type DemoAppExtension = {
     selection?: (ctx: DemoExtensionContext, selection: SelectionCoords) => void;
 };
 
-/** factory shape used by the static registry before the shell context exists. */
+/**
+ * factory shape used by the static registry before the shell context exists.
+ *
+ * @example
+ * const value: DemoExtensionFactory = {} as DemoExtensionFactory;
+ */
 export type DemoExtensionFactory = {
     widgetSlots: AppShellWidgetSlot[];
     create: (ctx: DemoExtensionContext) => DemoAppExtension;

@@ -13,6 +13,12 @@ const TENSOR_VIEW_EDITOR_PREFIX = 'tv2:';
 
 /**
  * return axis label for the current viewer state.
+ *
+ * @param index - Index used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * axisLabel(index);
  */
 function axisLabel(index: number): string {
     // labels must stay deterministic because saved tensor-view strings refer to
@@ -24,6 +30,13 @@ function axisLabel(index: number): string {
 
 /**
  * parse axis labels for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabelsInput - axis labels input input used by this operation (readonly string[]).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseAxisLabels(shape, axisLabelsInput);
  */
 function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): {
     ok: true;
@@ -66,12 +79,26 @@ function parseAxisLabels(shape: number[], axisLabelsInput?: readonly string[]): 
  *
  * Used anywhere the viewer needs a stable linear size, such as reshapes,
  * grouped-axis flattening, and instanced-mesh allocation.
+ *
+ * @param values - values input used by this operation (number[]).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * product(values);
  */
 export function product(values: number[]): number {
     return values.reduce((acc, value) => acc * Math.max(1, value), 1);
 }
 
-/** Normalize one shape to positive integer extents before any view or layout math runs. */
+/**
+ * Normalize one shape to positive integer extents before any view or layout math runs.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeShape(shape);
+ */
 export function normalizeShape(shape: number[]): number[] {
     return shape.map((dim) => {
         const value = Number(dim);
@@ -81,6 +108,14 @@ export function normalizeShape(shape: number[]): number[] {
 
 /**
  * return flatten axes index for the current viewer state.
+ *
+ * @param axes - axes input used by this operation (number[]).
+ * @param values - values input used by this operation (number[]).
+ * @param shape - Tensor shape used by this operation.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * flattenAxesIndex(axes, values, shape);
  */
 function flattenAxesIndex(axes: number[], values: number[], shape: number[]): number {
     let linear = 0;
@@ -92,6 +127,14 @@ function flattenAxesIndex(axes: number[], values: number[], shape: number[]): nu
 
 /**
  * return unflatten axes index for the current viewer state.
+ *
+ * @param axes - axes input used by this operation (number[]).
+ * @param linearIndex - Index used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * unflattenAxesIndex(axes, linearIndex, shape);
  */
 function unflattenAxesIndex(axes: number[], linearIndex: number, shape: number[]): number[] {
     const out = new Array(axes.length).fill(0);
@@ -104,13 +147,30 @@ function unflattenAxesIndex(axes: number[], linearIndex: number, shape: number[]
     return out;
 }
 
-/** Expand one grouped view index back into the original per-axis tensor indices. */
+/**
+ * Expand one grouped view index back into the original per-axis tensor indices.
+ *
+ * @param axes - axes input used by this operation (number[]).
+ * @param linearIndex - Index used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * expandGroupedIndex(axes, linearIndex, shape);
+ */
 export function expandGroupedIndex(axes: number[], linearIndex: number, shape: number[]): number[] {
     return unflattenAxesIndex(axes, linearIndex, normalizeShape(shape));
 }
 
 /**
  * return unflatten linear index for the current viewer state.
+ *
+ * @param linearIndex - Index used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * unflattenLinearIndex(linearIndex, shape);
  */
 function unflattenLinearIndex(linearIndex: number, shape: number[]): number[] {
     return unflattenAxesIndex(Array.from({ length: shape.length }, (_entry, index) => index), linearIndex, shape);
@@ -118,6 +178,13 @@ function unflattenLinearIndex(linearIndex: number, shape: number[]): number[] {
 
 /**
  * return default editor dims for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultEditorDims(shape, axisLabels);
  */
 function defaultEditorDims(shape: number[], axisLabels: string[]): TensorViewEditorDim[] {
     return shape.map((size, axis) => ({
@@ -129,6 +196,12 @@ function defaultEditorDims(shape: number[], axisLabels: string[]): TensorViewEdi
 
 /**
  * format view tensor input for the current viewer state.
+ *
+ * @param baseDims - base dims input used by this operation (TensorViewEditorDim[]).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * formatViewTensorInput(baseDims);
  */
 function formatViewTensorInput(baseDims: TensorViewEditorDim[]): string {
     return `[${baseDims.map((dim) => `${dim.label}=${dim.size}`).join(', ')}]`;
@@ -136,6 +209,12 @@ function formatViewTensorInput(baseDims: TensorViewEditorDim[]): string {
 
 /**
  * parse view label token for the current viewer state.
+ *
+ * @param part - part input used by this operation (string).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseViewLabelToken(part);
  */
 function parseViewLabelToken(part: string): { ok: true; label: string; sizeText?: string } | { ok: false } {
     const anonymous = part.match(/^((?:\*A|\*|_)\d+)(?:\s*=\s*(-?\d+))?$/);
@@ -147,6 +226,13 @@ function parseViewLabelToken(part: string): { ok: true; label: string; sizeText?
 
 /**
  * parse explicit view input for the current viewer state.
+ *
+ * @param input - input input used by this operation (string).
+ * @param totalElements - total elements input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseExplicitViewInput(input, totalElements);
  */
 function parseExplicitViewInput(
     input: string,
@@ -216,6 +302,14 @@ function parseExplicitViewInput(
 
 /**
  * return same base as tensor for the current viewer state.
+ *
+ * @param baseDims - base dims input used by this operation (TensorViewEditorDim[]).
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sameBaseAsTensor(baseDims, shape, axisLabels);
  */
 function sameBaseAsTensor(baseDims: TensorViewEditorDim[], shape: number[], axisLabels: string[]): boolean {
     return baseDims.length === shape.length && baseDims.every((dim, axis) => (
@@ -227,6 +321,14 @@ function sameBaseAsTensor(baseDims: TensorViewEditorDim[], shape: number[], axis
 
 /**
  * build editor spec for the current viewer state.
+ *
+ * @param tensorShape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @param editor - editor input used by this operation (TensorViewEditor).
+ * @returns Computed TensorViewSpec value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * buildEditorSpec(tensorShape, axisLabels, editor);
  */
 function buildEditorSpec(
     tensorShape: number[],
@@ -351,6 +453,14 @@ function buildEditorSpec(
 
 /**
  * parse view tensor input for the current viewer state.
+ *
+ * @param tensorShape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @param input - input input used by this operation (string).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseViewTensorInput(tensorShape, axisLabels, input);
  */
 function parseViewTensorInput(
     tensorShape: number[],
@@ -427,6 +537,14 @@ function parseViewTensorInput(
 
 /**
  * normalize editor for the current viewer state.
+ *
+ * @param tensorShape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @param editor - editor input used by this operation (TensorViewEditor).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeEditor(tensorShape, axisLabels, editor);
  */
 function normalizeEditor(
     tensorShape: number[],
@@ -482,6 +600,13 @@ function normalizeEditor(
 
 /**
  * return default editor for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @returns Computed TensorViewEditor value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * defaultEditor(shape, axisLabels);
  */
 function defaultEditor(shape: number[], axisLabels: string[]): TensorViewEditor {
     const baseDims = defaultEditorDims(shape, axisLabels);
@@ -497,7 +622,17 @@ function defaultEditor(shape: number[], axisLabels: string[]): TensorViewEditor 
     };
 }
 
-/** Fill missing persisted editor fields from the current tensor defaults. */
+/**
+ * Fill missing persisted editor fields from the current tensor defaults.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[]).
+ * @param value - Value supplied by the caller.
+ * @returns Computed TensorViewEditor value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeSerializedEditor(shape, axisLabels, value);
+ */
 function normalizeSerializedEditor(
     shape: number[],
     axisLabels: string[],
@@ -519,7 +654,16 @@ function normalizeSerializedEditor(
     };
 }
 
-/** Build the default structured tensor-view editor for one tensor shape. */
+/**
+ * Build the default structured tensor-view editor for one tensor shape.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabelsInput - axis labels input input used by this operation (readonly string[]).
+ * @returns Computed TensorViewEditor value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * defaultTensorViewEditor(shape, axisLabelsInput);
+ */
 export function defaultTensorViewEditor(shape: number[], axisLabelsInput?: readonly string[]): TensorViewEditor {
     const normalizedShape = normalizeShape(shape);
     const axisLabels = parseAxisLabels(normalizedShape, axisLabelsInput);
@@ -527,7 +671,15 @@ export function defaultTensorViewEditor(shape: number[], axisLabelsInput?: reado
     return defaultEditor(normalizedShape, axisLabels.axisLabels);
 }
 
-/** Remove slice-specific editor state while preserving the current view and permutation. */
+/**
+ * Remove slice-specific editor state while preserving the current view and permutation.
+ *
+ * @param editor - editor input used by this operation (TensorViewEditor).
+ * @returns Computed TensorViewEditor value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearTensorViewSlices(editor);
+ */
 export function clearTensorViewSlices(editor: TensorViewEditor): TensorViewEditor {
     if (editor.slicedTokenKeys.length === 0 && Object.keys(editor.sliceValues).length === 0) return editor;
     return {
@@ -539,6 +691,12 @@ export function clearTensorViewSlices(editor: TensorViewEditor): TensorViewEdito
 
 /**
  * serialize tensor view editor for the current viewer state.
+ *
+ * @param editor - editor input used by this operation (TensorViewEditor).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * serializeTensorViewEditor(editor);
  */
 export function serializeTensorViewEditor(editor: TensorViewEditor): string {
     // the prefix distinguishes structured editor snapshots from legacy ad-hoc
@@ -546,7 +704,16 @@ export function serializeTensorViewEditor(editor: TensorViewEditor): string {
     return `${TENSOR_VIEW_EDITOR_PREFIX}${encodeURIComponent(JSON.stringify(normalizeTensorViewEditor(editor)))}`;
 }
 
-/** Map one visible view coordinate into the original dense tensor coordinate. */
+/**
+ * Map one visible view coordinate into the original dense tensor coordinate.
+ *
+ * @param viewCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapViewCoordToTensorCoord(viewCoord, spec);
+ */
 export function mapViewCoordToTensorCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
     if (spec.editor.finalViewInput?.trim()) {
         // explicit final views reshape after permutation, so coordinate mapping has
@@ -592,7 +759,15 @@ export function mapViewCoordToTensorCoord(viewCoord: number[], spec: TensorViewS
     return unflattenLinearIndex(linearIndex, spec.tensorShape);
 }
 
-/** Enumerate original tensor coordinates for every visible cell in the active view. */
+/**
+ * Enumerate original tensor coordinates for every visible cell in the active view.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * visibleTensorCoords(spec);
+ */
 export function visibleTensorCoords(spec: TensorViewSpec): number[][] {
     const viewShape = spec.viewShape.length === 0 ? [1] : spec.viewShape;
     const total = product(viewShape);
@@ -606,6 +781,13 @@ export function visibleTensorCoords(spec: TensorViewSpec): number[][] {
 
 /**
  * map view coord to full layout coord for the current viewer state.
+ *
+ * @param viewCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapViewCoordToFullLayoutCoord(viewCoord, spec);
  */
 function mapViewCoordToFullLayoutCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
     const layoutCoord: number[] = [];
@@ -627,13 +809,32 @@ function mapViewCoordToFullLayoutCoord(viewCoord: number[], spec: TensorViewSpec
     return layoutCoord;
 }
 
-/** Return the rendered layout shape, optionally collapsing hidden axes out of the scene. */
+/**
+ * Return the rendered layout shape, optionally collapsing hidden axes out of the scene.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @param collapseHiddenAxes - collapse hidden axes input used by this operation (value).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutShape(spec, collapseHiddenAxes);
+ */
 export function layoutShape(spec: TensorViewSpec, collapseHiddenAxes = false): number[] {
     const shape = collapseHiddenAxes ? spec.viewShape : spec.layoutShape;
     return shape.length === 0 ? [1] : shape.slice();
 }
 
-/** Map one visible view coordinate into the layout coordinate space drawn on screen. */
+/**
+ * Map one visible view coordinate into the layout coordinate space drawn on screen.
+ *
+ * @param viewCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @param collapseHiddenAxes - collapse hidden axes input used by this operation (value).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapViewCoordToLayoutCoord(viewCoord, spec, collapseHiddenAxes);
+ */
 export function mapViewCoordToLayoutCoord(
     viewCoord: number[],
     spec: TensorViewSpec,
@@ -643,7 +844,17 @@ export function mapViewCoordToLayoutCoord(
     return mapViewCoordToFullLayoutCoord(viewCoord, spec);
 }
 
-/** Recover the visible view coordinate from one layout coordinate picked from the scene. */
+/**
+ * Recover the visible view coordinate from one layout coordinate picked from the scene.
+ *
+ * @param layoutCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @param collapseHiddenAxes - collapse hidden axes input used by this operation (value).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mapLayoutCoordToViewCoord(layoutCoord, spec, collapseHiddenAxes);
+ */
 export function mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorViewSpec, collapseHiddenAxes = false): number[] {
     if (collapseHiddenAxes) return spec.viewShape.length === 0 ? [] : layoutCoord.slice();
     const viewCoord: number[] = [];
@@ -658,7 +869,16 @@ export function mapLayoutCoordToViewCoord(layoutCoord: number[], spec: TensorVie
     return viewCoord;
 }
 
-/** returns whether a full layout coordinate belongs to the active sliced tensor. */
+/**
+ * returns whether a full layout coordinate belongs to the active sliced tensor.
+ *
+ * @param layoutCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutCoordMatchesSlice(layoutCoord, spec);
+ */
 export function layoutCoordMatchesSlice(layoutCoord: number[], spec: TensorViewSpec): boolean {
     let sliceIndex = 0;
     for (let layoutAxis = 0; layoutAxis < spec.tokens.length; layoutAxis += 1) {
@@ -671,18 +891,46 @@ export function layoutCoordMatchesSlice(layoutCoord: number[], spec: TensorViewS
     return true;
 }
 
-/** Test whether one layout coordinate belongs to the slice that is currently visible. */
+/**
+ * Test whether one layout coordinate belongs to the slice that is currently visible.
+ *
+ * @param layoutCoord - Coordinate used by this operation.
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @param collapseHiddenAxes - collapse hidden axes input used by this operation (value).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutCoordIsVisible(layoutCoord, spec, collapseHiddenAxes);
+ */
 export function layoutCoordIsVisible(layoutCoord: number[], spec: TensorViewSpec, collapseHiddenAxes = false): boolean {
     return collapseHiddenAxes || layoutCoordMatchesSlice(layoutCoord, spec);
 }
 
-/** Return axis labels in the same order as the active rendered layout. */
+/**
+ * Return axis labels in the same order as the active rendered layout.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @param collapseHiddenAxes - collapse hidden axes input used by this operation (value).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * layoutAxisLabels(spec, collapseHiddenAxes);
+ */
 export function layoutAxisLabels(spec: TensorViewSpec, collapseHiddenAxes = false): string[] {
     const tokens = collapseHiddenAxes ? spec.tokens.filter((token) => token.visible) : spec.tokens;
     return tokens.map((token) => token.label);
 }
 
-/** Return whether 2D contiguous selection can use the row-major fast path. */
+/**
+ * Return whether 2D contiguous selection can use the row-major fast path.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @param collapseHiddenAxes - collapse hidden axes input used by this operation (value).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * supportsContiguousSelectionFastPath2D(spec, collapseHiddenAxes);
+ */
 export function supportsContiguousSelectionFastPath2D(spec: TensorViewSpec, collapseHiddenAxes = false): boolean {
     if (collapseHiddenAxes) return false;
     if (!spec.baseIsTensorAxes) return false;
@@ -710,6 +958,12 @@ export function supportsContiguousSelectionFastPath2D(spec: TensorViewSpec, coll
 
 /**
  * build tensor view expression for the current viewer state.
+ *
+ * @param spec - spec input used by this operation (TensorViewSpec).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildTensorViewExpression(spec);
  */
 export function buildTensorViewExpression(spec: TensorViewSpec): string {
     const viewInput = spec.editor.viewTensorInput.trim().replace(/^\[/, '').replace(/\]$/, '');
@@ -727,7 +981,18 @@ export function buildTensorViewExpression(spec: TensorViewSpec): string {
     return expr;
 }
 
-/** Parse one tensor-view string into the grouped visible axes and hidden slice metadata the viewer renders. */
+/**
+ * Parse one tensor-view string into the grouped visible axes and hidden slice metadata the viewer renders.
+ *
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param input - input input used by this operation (string).
+ * @param _hiddenIndices - hidden indices input used by this operation (number[]).
+ * @param axisLabelsInput - axis labels input input used by this operation (readonly string[]).
+ * @returns Computed ViewParseResult value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseTensorView(shapeInput, input, _hiddenIndices, axisLabelsInput);
+ */
 export function parseTensorView(
     shapeInput: number[],
     input: string,

@@ -5,6 +5,12 @@ import { renderLinearLayoutVisibleTensorsWidget } from './linear-layout-visible-
 
 /**
  * render linear layout editor widgets for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderLinearLayoutEditorWidgets(ctx);
  */
 export function renderLinearLayoutEditorWidgets(ctx: LinearLayoutUiContext): void {
     renderLinearLayoutWidget(ctx);

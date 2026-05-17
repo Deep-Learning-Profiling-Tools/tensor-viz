@@ -10,6 +10,13 @@ import type { ComposeLayoutPresetDefinition } from './types.js';
 
 /**
  * return swizzle bases for the current viewer state.
+ *
+ * @param leadingVectors - leading vectors input used by this operation (number).
+ * @param major - major input used by this operation ('MN-major' | 'K-major').
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * swizzleBases(leadingVectors, major);
  */
 function swizzleBases(leadingVectors: number, major: 'MN-major' | 'K-major'): string {
     const contiguousBases = Array.from({ length: leadingVectors }, (_, index) => major === 'MN-major'

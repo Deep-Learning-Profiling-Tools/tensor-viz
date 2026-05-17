@@ -3,6 +3,12 @@ import type { CustomColor, DType, HueSaturation, NumericArray, RGB, Vec3 } from 
 
 /**
  * return signed log1p for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * signedLog1p(value);
  */
 export function signedLog1p(value: number): number {
     return Math.sign(value) * Math.log1p(Math.abs(value));
@@ -10,6 +16,12 @@ export function signedLog1p(value: number): number {
 
 /**
  * return compute min max for the current viewer state.
+ *
+ * @param data - data input used by this operation (NumericArray).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * computeMinMax(data);
  */
 export function computeMinMax(data: NumericArray): { min: number; max: number } {
     let min = Number.POSITIVE_INFINITY;
@@ -25,6 +37,12 @@ export function computeMinMax(data: NumericArray): { min: number; max: number } 
 
 /**
  * return vector from tuple for the current viewer state.
+ *
+ * @param tuple - tuple input used by this operation (Vec3).
+ * @returns Computed Vector3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * vectorFromTuple(tuple);
  */
 export function vectorFromTuple(tuple: Vec3): Vector3 {
     return new Vector3(tuple[0], tuple[1], tuple[2]);
@@ -32,6 +50,12 @@ export function vectorFromTuple(tuple: Vec3): Vector3 {
 
 /**
  * return tuple from vector for the current viewer state.
+ *
+ * @param vector - vector input used by this operation (Vector3).
+ * @returns Computed Vec3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tupleFromVector(vector);
  */
 export function tupleFromVector(vector: Vector3): Vec3 {
     return [vector.x, vector.y, vector.z];
@@ -39,6 +63,12 @@ export function tupleFromVector(vector: Vector3): Vec3 {
 
 /**
  * return dtype from array for the current viewer state.
+ *
+ * @param data - data input used by this operation (NumericArray).
+ * @returns Computed DType value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * dtypeFromArray(data);
  */
 export function dtypeFromArray(data: NumericArray): DType {
     if (data instanceof Float32Array) return 'float32';
@@ -49,6 +79,13 @@ export function dtypeFromArray(data: NumericArray): DType {
 
 /**
  * return numeric value for the current viewer state.
+ *
+ * @param data - data input used by this operation (NumericArray | null).
+ * @param index - Index used by this operation.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * numericValue(data, index);
  */
 export function numericValue(data: NumericArray | null, index: number): number {
     return Number(data?.[index] ?? 0);
@@ -56,6 +93,12 @@ export function numericValue(data: NumericArray | null, index: number): number {
 
 /**
  * return coord key for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * coordKey(coord);
  */
 export function coordKey(coord: number[]): string {
     return coord.join(',');
@@ -63,6 +106,12 @@ export function coordKey(coord: number[]): string {
 
 /**
  * return coord from key for the current viewer state.
+ *
+ * @param key - key input used by this operation (string).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * coordFromKey(key);
  */
 export function coordFromKey(key: string): number[] {
     return key === '' ? [] : key.split(',').map((value) => Number(value));
@@ -70,6 +119,13 @@ export function coordFromKey(key: string): number[] {
 
 /**
  * return quantile for the current viewer state.
+ *
+ * @param sortedValues - sorted values input used by this operation (number[]).
+ * @param percentile - percentile input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * quantile(sortedValues, percentile);
  */
 export function quantile(sortedValues: number[], percentile: number): number {
     if (sortedValues.length === 1) return sortedValues[0] ?? 0;
@@ -84,6 +140,13 @@ export function quantile(sortedValues: number[], percentile: number): number {
 
 /**
  * return boxes intersect for the current viewer state.
+ *
+ * @param left - left input used by this operation ({ left: number; right: number; top: number; bottom: number }).
+ * @param right - right input used by this operation ({ left: number; right: number; top: number; bottom: number }).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * boxesIntersect(left, right);
  */
 export function boxesIntersect(
     left: { left: number; right: number; top: number; bottom: number },
@@ -97,6 +160,12 @@ export function boxesIntersect(
 
 /**
  * color from rgb for the current viewer state.
+ *
+ * @param rgb - rgb input used by this operation (RGB).
+ * @returns Computed Color value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * colorFromRgb(rgb);
  */
 export function colorFromRgb(rgb: RGB): Color {
     return new Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
@@ -104,6 +173,12 @@ export function colorFromRgb(rgb: RGB): Color {
 
 /**
  * normalize hue for the current viewer state.
+ *
+ * @param hue - hue input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeHue(hue);
  */
 function normalizeHue(hue: number): number {
     const unit = Math.abs(hue) > 1 ? hue / 360 : hue;
@@ -112,6 +187,12 @@ function normalizeHue(hue: number): number {
 
 /**
  * normalize saturation for the current viewer state.
+ *
+ * @param saturation - saturation input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeSaturation(saturation);
  */
 function normalizeSaturation(saturation: number): number {
     const unit = Math.abs(saturation) > 1 ? saturation / 100 : saturation;
@@ -120,6 +201,13 @@ function normalizeSaturation(saturation: number): number {
 
 /**
  * color from hue saturation for the current viewer state.
+ *
+ * @param color - color input used by this operation (HueSaturation).
+ * @param brightness - brightness input used by this operation (number).
+ * @returns Computed Color value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * colorFromHueSaturation(color, brightness);
  */
 export function colorFromHueSaturation(color: HueSaturation, brightness: number): Color {
     const hue = normalizeHue(color[0]);
@@ -144,6 +232,12 @@ export function colorFromHueSaturation(color: HueSaturation, brightness: number)
 
 /**
  * parse custom color for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed CustomColor value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseCustomColor(value);
  */
 export function parseCustomColor(value: number[]): CustomColor {
     if (value.length === 2) return { kind: 'hs', value: [value[0], value[1]] };

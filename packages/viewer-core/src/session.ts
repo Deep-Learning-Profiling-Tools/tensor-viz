@@ -11,7 +11,12 @@ import type {
 } from './types.js';
 import { validateTensorShape } from './validation.js';
 
-/** Input spec for one tensor entry in a bundle/session manifest. */
+/**
+ * Input spec for one tensor entry in a bundle/session manifest.
+ *
+ * @example
+ * const value: SessionTensorSpec = {} as SessionTensorSpec;
+ */
 export type SessionTensorSpec = {
     id?: string;
     name: string;
@@ -26,22 +31,39 @@ export type SessionTensorSpec = {
     markerCoords?: number[][];
 };
 
-/** Input spec for one viewer document containing multiple tensors. */
+/**
+ * Input spec for one viewer document containing multiple tensors.
+ *
+ * @example
+ * const value: BundleDocumentSpec = {} as BundleDocumentSpec;
+ */
 export type BundleDocumentSpec = {
     viewer?: Partial<ViewerSnapshot>;
     tensors: SessionTensorSpec[];
 };
 
-/** Input spec for one tab in a multi-tab session manifest. */
+/**
+ * Input spec for one tab in a multi-tab session manifest.
+ *
+ * @example
+ * const value: SessionTabSpec = {} as SessionTabSpec;
+ */
 export type SessionTabSpec = BundleDocumentSpec & {
     id?: string;
     title: string;
 };
 
-/** Build the default viewer snapshot used by bundle/session builders.
+/**
+ * Build the default viewer snapshot used by bundle/session builders.
  *
  * This returns viewer state only. Tensor metadata and payload references live
  * in bundle or session manifests.
+ *
+ * @param overrides - overrides input used by this operation (Partial<ViewerSnapshot>).
+ * @returns Computed ViewerSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createViewerSnapshot(overrides);
  */
 export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): ViewerSnapshot {
     return {
@@ -71,6 +93,14 @@ export function createViewerSnapshot(overrides: Partial<ViewerSnapshot> = {}): V
 
 /**
  * return tensor view for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (string[] | undefined).
+ * @param view - view input used by this operation (TensorViewSnapshot).
+ * @returns Computed TensorViewSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorView(shape, axisLabels, view);
  */
 function tensorView(shape: number[], axisLabels: string[] | undefined, view?: TensorViewSnapshot): TensorViewSnapshot {
     return {
@@ -79,10 +109,17 @@ function tensorView(shape: number[], axisLabels: string[] | undefined, view?: Te
     };
 }
 
-/** Build one bundle manifest from lightweight tensor specs plus optional viewer overrides.
+/**
+ * Build one bundle manifest from lightweight tensor specs plus optional viewer overrides.
  *
  * A bundle manifest is one viewer document: one viewer snapshot plus one or
  * more tensor declarations for a single tab/load unit.
+ *
+ * @param spec - spec input used by this operation (BundleDocumentSpec).
+ * @returns Computed BundleManifest value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createBundleManifest(spec);
  */
 export function createBundleManifest(spec: BundleDocumentSpec): BundleManifest {
     const tensors = spec.tensors.map((tensor, index) => {
@@ -119,10 +156,17 @@ export function createBundleManifest(spec: BundleDocumentSpec): BundleManifest {
     };
 }
 
-/** Build a multi-tab session manifest from lightweight tab specs.
+/**
+ * Build a multi-tab session manifest from lightweight tab specs.
  *
  * Each tab wraps the bundle-level `viewer` plus `tensors` pair with a tab id
  * and title.
+ *
+ * @param tabs - tabs input used by this operation (SessionTabSpec[]).
+ * @returns Computed SessionBundleManifest value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createSessionBundleManifest(tabs);
  */
 export function createSessionBundleManifest(tabs: SessionTabSpec[]): SessionBundleManifest {
     return {

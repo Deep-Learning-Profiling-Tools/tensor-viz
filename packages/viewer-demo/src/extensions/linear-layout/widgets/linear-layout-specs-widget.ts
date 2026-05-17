@@ -35,6 +35,11 @@ import {
 
 /**
  * return linear layout specs help html for the current viewer state.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutSpecsHelpHtml();
  */
 function linearLayoutSpecsHelpHtml(): string {
     return `
@@ -110,6 +115,11 @@ function linearLayoutSpecsHelpHtml(): string {
 
 /**
  * return linear layout operation help html for the current viewer state.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutOperationHelpHtml();
  */
 function linearLayoutOperationHelpHtml(): string {
     return `
@@ -190,6 +200,12 @@ function linearLayoutOperationHelpHtml(): string {
 
 /**
  * render linear layout widget for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderLinearLayoutWidget(ctx);
  */
 export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
     const showLocalStatus = ctx.state.linearLayoutNotice?.text !== VISIBLE_TENSORS_ERROR;
@@ -275,6 +291,12 @@ export function renderLinearLayoutWidget(ctx: LinearLayoutUiContext): void {
 
 /**
  * load baked linear layout tabs for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * loadBakedLinearLayoutTabs(ctx);
  */
 export async function loadBakedLinearLayoutTabs(ctx: LinearLayoutUiContext): Promise<boolean> {
     const examples = bakedComposeLayoutExamples();

@@ -13,23 +13,41 @@ import {
 
 /**
  * shape of compose layout preset selection data used by the viewer.
+ *
+ * @example
+ * const value: ComposeLayoutPresetSelection = {} as ComposeLayoutPresetSelection;
  */
 export type ComposeLayoutPresetSelection = Record<string, string>;
 
-/** normalized field metadata consumed directly by the preset widget. */
+/**
+ * normalized field metadata consumed directly by the preset widget.
+ *
+ * @example
+ * const value: ComposeLayoutPresetField = {} as ComposeLayoutPresetField;
+ */
 export type ComposeLayoutPresetField = Required<Omit<ComposeLayoutPresetFieldDefinition, 'values'>> & {
     id: string;
     values: string[];
 };
 
-/** editor state inserted when a preset selection resolves to one layout. */
+/**
+ * editor state inserted when a preset selection resolves to one layout.
+ *
+ * @example
+ * const value: ComposeLayoutPresetState = {} as ComposeLayoutPresetState;
+ */
 export type ComposeLayoutPresetState = {
     specsText: string;
     operationText: string;
     inputName: string;
 };
 
-/** normalized preset with compatibility aliases for older widget call sites. */
+/**
+ * normalized preset with compatibility aliases for older widget call sites.
+ *
+ * @example
+ * const value: ComposeLayoutPreset = {} as ComposeLayoutPreset;
+ */
 export type ComposeLayoutPreset = {
     title: string;
     facets: Record<string, string[]>;
@@ -43,7 +61,12 @@ export type ComposeLayoutPreset = {
     state: ComposeLayoutPresetState;
 };
 
-/** options keyed by field name plus legacy plural aliases. */
+/**
+ * options keyed by field name plus legacy plural aliases.
+ *
+ * @example
+ * const value: ComposeLayoutPresetOptions = {} as ComposeLayoutPresetOptions;
+ */
 export type ComposeLayoutPresetOptions = Record<string, string[]> & {
     gpuArchs: string[];
     instructions: string[];
@@ -79,12 +102,27 @@ const COMPOSE_LAYOUT_PRESET_FIELDS = mergedPresetFields([
 
 const COMPOSE_LAYOUT_PRESET_CATALOG = PRESET_DEFINITIONS.map((definition) => composeLayoutPreset(definition));
 
-/** build an empty selection that includes every registered field key. */
+/**
+ * build an empty selection that includes every registered field key.
+ *
+ * @returns Computed ComposeLayoutPresetSelection value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * emptyComposeLayoutPresetSelection();
+ */
 export function emptyComposeLayoutPresetSelection(): ComposeLayoutPresetSelection {
     return Object.fromEntries(COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => [field.key, '']));
 }
 
-/** clone external selection data while dropping unknown/non-string values. */
+/**
+ * clone external selection data while dropping unknown/non-string values.
+ *
+ * @param selection - Selection data used by this operation.
+ * @returns Computed ComposeLayoutPresetSelection value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneComposeLayoutPresetSelection(selection);
+ */
 export function cloneComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
@@ -98,13 +136,28 @@ export function cloneComposeLayoutPresetSelection(
     return cloned;
 }
 
-/** validate persisted preset selection state before it is copied into the editor. */
+/**
+ * validate persisted preset selection state before it is copied into the editor.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Computed value is ComposeLayoutPresetSelection value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * isComposeLayoutPresetSelection(value);
+ */
 export function isComposeLayoutPresetSelection(value: unknown): value is ComposeLayoutPresetSelection {
     if (!value || typeof value !== 'object') return false;
     return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string');
 }
 
-/** return field metadata in render order. */
+/**
+ * return field metadata in render order.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutPresetFields();
+ */
 export function composeLayoutPresetFields(): ComposeLayoutPresetField[] {
     return COMPOSE_LAYOUT_PRESET_FIELDS.map((field) => ({
         ...field,
@@ -113,12 +166,26 @@ export function composeLayoutPresetFields(): ComposeLayoutPresetField[] {
     }));
 }
 
-/** return the internal catalog for invariant tests and model-level matching. */
+/**
+ * return the internal catalog for invariant tests and model-level matching.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutPresetCatalog();
+ */
 export function composeLayoutPresetCatalog(): ComposeLayoutPreset[] {
     return COMPOSE_LAYOUT_PRESET_CATALOG;
 }
 
-/** return a cloned catalog for UI code that may derive temporary state from presets. */
+/**
+ * return a cloned catalog for UI code that may derive temporary state from presets.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutPresets();
+ */
 export function composeLayoutPresets(): ComposeLayoutPreset[] {
     return composeLayoutPresetCatalog().map((preset) => ({
         ...preset,
@@ -128,7 +195,15 @@ export function composeLayoutPresets(): ComposeLayoutPreset[] {
     }));
 }
 
-/** infer the selector values for an editor state that exactly matches a preset. */
+/**
+ * infer the selector values for an editor state that exactly matches a preset.
+ *
+ * @param state - State object read or updated by this operation.
+ * @returns Computed ComposeLayoutPresetSelection value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * matchedComposeLayoutPresetSelection(state);
+ */
 export function matchedComposeLayoutPresetSelection(
     state: ComposeLayoutPresetState,
 ): ComposeLayoutPresetSelection {
@@ -145,7 +220,15 @@ export function matchedComposeLayoutPresetSelection(
     ]));
 }
 
-/** compute the valid dropdown/text options after applying the current selection. */
+/**
+ * compute the valid dropdown/text options after applying the current selection.
+ *
+ * @param selection - Selection data used by this operation.
+ * @returns Computed ComposeLayoutPresetOptions value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutPresetOptions(selection);
+ */
 export function composeLayoutPresetOptions(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetOptions {
@@ -174,7 +257,15 @@ export function composeLayoutPresetOptions(
     return options;
 }
 
-/** clear invalid field values and autofill singleton options. */
+/**
+ * clear invalid field values and autofill singleton options.
+ *
+ * @param selection - Selection data used by this operation.
+ * @returns Computed ComposeLayoutPresetSelection value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeComposeLayoutPresetSelection(selection);
+ */
 export function normalizeComposeLayoutPresetSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPresetSelection {
@@ -186,7 +277,15 @@ export function normalizeComposeLayoutPresetSelection(
     return normalized;
 }
 
-/** resolve a fully specified selection to exactly one preset. */
+/**
+ * resolve a fully specified selection to exactly one preset.
+ *
+ * @param selection - Selection data used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutPresetForSelection(selection);
+ */
 export function composeLayoutPresetForSelection(
     selection: ComposeLayoutPresetSelection | undefined,
 ): ComposeLayoutPreset | null {
@@ -199,6 +298,12 @@ export function composeLayoutPresetForSelection(
 
 /**
  * return merged preset fields for the current viewer state.
+ *
+ * @param definitions - definitions input used by this operation (readonly ComposeLayoutPresetFieldDefinition[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mergedPresetFields(definitions);
  */
 function mergedPresetFields(definitions: readonly ComposeLayoutPresetFieldDefinition[]): ComposeLayoutPresetField[] {
     const fields = new Map<string, ComposeLayoutPresetField>();
@@ -210,6 +315,13 @@ function mergedPresetFields(definitions: readonly ComposeLayoutPresetFieldDefini
 
 /**
  * normalize preset field definition for the current viewer state.
+ *
+ * @param definition - definition input used by this operation (ComposeLayoutPresetFieldDefinition).
+ * @param current - current input used by this operation (ComposeLayoutPresetField).
+ * @returns Computed ComposeLayoutPresetField value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizePresetFieldDefinition(definition, current);
  */
 function normalizePresetFieldDefinition(
     definition: ComposeLayoutPresetFieldDefinition,
@@ -231,6 +343,12 @@ function normalizePresetFieldDefinition(
 
 /**
  * return inferred preset field definition for the current viewer state.
+ *
+ * @param key - key input used by this operation (string).
+ * @returns Computed ComposeLayoutPresetFieldDefinition value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * inferredPresetFieldDefinition(key);
  */
 function inferredPresetFieldDefinition(key: string): ComposeLayoutPresetFieldDefinition {
     const label = key
@@ -247,6 +365,12 @@ function inferredPresetFieldDefinition(key: string): ComposeLayoutPresetFieldDef
 
 /**
  * return preset operation text for the current viewer state.
+ *
+ * @param specsText - Text supplied by the caller.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetOperationText(specsText);
  */
 function presetOperationText(specsText: string): string {
     const signature = specsText.split('\n', 1)[0]?.trim() ?? '';
@@ -256,6 +380,13 @@ function presetOperationText(specsText: string): string {
 
 /**
  * return axis comment for the current viewer state.
+ *
+ * @param label - label input used by this operation (string).
+ * @param signature - signature input used by this operation ({ inputs: string[]; outputs: string[] }).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * axisComment(label, signature);
  */
 function axisComment(label: string, signature: { inputs: string[]; outputs: string[] }): string {
     if (label === 'T') return 'T = thread (AKA lane)';
@@ -281,6 +412,13 @@ function axisComment(label: string, signature: { inputs: string[]; outputs: stri
 
 /**
  * return annotated layout specs text for the current viewer state.
+ *
+ * @param specsText - Text supplied by the caller.
+ * @param comments - comments input used by this operation (string[]).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * annotatedLayoutSpecsText(specsText, comments);
  */
 function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): string {
     const lines = specsText.replace(/\r\n/g, '\n').split('\n');
@@ -297,6 +435,12 @@ function annotatedLayoutSpecsText(specsText: string, comments: string[] = []): s
 
 /**
  * return preset definition facets for the current viewer state.
+ *
+ * @param definition - definition input used by this operation (ComposeLayoutPresetDefinition).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetDefinitionFacets(definition);
  */
 function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Record<string, string[]> {
     // every normalized preset receives every known field key.  Empty arrays mean
@@ -309,6 +453,13 @@ function presetDefinitionFacets(definition: ComposeLayoutPresetDefinition): Reco
 
 /**
  * return preset definition facet values for the current viewer state.
+ *
+ * @param definition - definition input used by this operation (ComposeLayoutPresetDefinition).
+ * @param key - key input used by this operation (string).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetDefinitionFacetValues(definition, key);
  */
 function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, key: string): string[] {
     const facet = definition.facets?.[key];
@@ -323,6 +474,12 @@ function presetDefinitionFacetValues(definition: ComposeLayoutPresetDefinition, 
 
 /**
  * normalize preset facet value for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizePresetFacetValue(value);
  */
 function normalizePresetFacetValue(value: ComposeLayoutPresetFacetValue): string[] {
     const values = Array.isArray(value) ? value : [value];
@@ -331,6 +488,13 @@ function normalizePresetFacetValue(value: ComposeLayoutPresetFacetValue): string
 
 /**
  * return preset facet scalar for the current viewer state.
+ *
+ * @param facets - facets input used by this operation (Record<string, string[]>).
+ * @param key - key input used by this operation (string).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetFacetScalar(facets, key);
  */
 function presetFacetScalar(facets: Record<string, string[]>, key: string): string {
     return facets[key]?.[0] ?? '';
@@ -338,6 +502,12 @@ function presetFacetScalar(facets: Record<string, string[]>, key: string): strin
 
 /**
  * compose layout preset for the current viewer state.
+ *
+ * @param definition - definition input used by this operation (ComposeLayoutPresetDefinition).
+ * @returns Computed ComposeLayoutPreset value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * composeLayoutPreset(definition);
  */
 function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): ComposeLayoutPreset {
     const inputName = definition.inputName ?? 'Hardware Layout';
@@ -385,6 +555,13 @@ function composeLayoutPreset(definition: ComposeLayoutPresetDefinition): Compose
 
 /**
  * return filtered presets for the current viewer state.
+ *
+ * @param presets - presets input used by this operation (ComposeLayoutPreset[]).
+ * @param filters - filters input used by this operation (ComposeLayoutPresetSelection).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * filteredPresets(presets, filters);
  */
 function filteredPresets(
     presets: ComposeLayoutPreset[],
@@ -398,6 +575,13 @@ function filteredPresets(
 
 /**
  * return normalized preset field for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param options - Options that tune this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizedPresetField(value, options);
  */
 function normalizedPresetField(value: string, options: string[]): string {
     if (options.includes(value)) return value;
@@ -406,6 +590,13 @@ function normalizedPresetField(value: string, options: string[]): string {
 
 /**
  * return unique preset facet values for the current viewer state.
+ *
+ * @param presets - presets input used by this operation (ComposeLayoutPreset[]).
+ * @param field - Preset field metadata used by this operation.
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * uniquePresetFacetValues(presets, field);
  */
 function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeLayoutPresetField): string[] {
     const values = new Set(presets.flatMap((preset) => preset.facets[field.key] ?? []));
@@ -419,6 +610,14 @@ function uniquePresetFacetValues(presets: ComposeLayoutPreset[], field: ComposeL
 
 /**
  * return preset field is complete for the current viewer state.
+ *
+ * @param preset - Preset data used by this operation.
+ * @param selection - Selection data used by this operation.
+ * @param key - key input used by this operation (string).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetFieldIsComplete(preset, selection, key);
  */
 function presetFieldIsComplete(
     preset: ComposeLayoutPreset,
@@ -432,6 +631,12 @@ function presetFieldIsComplete(
 
 /**
  * return canonical layout specs text for the current viewer state.
+ *
+ * @param specsText - Text supplied by the caller.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * canonicalLayoutSpecsText(specsText);
  */
 function canonicalLayoutSpecsText(specsText: string): string {
     try {

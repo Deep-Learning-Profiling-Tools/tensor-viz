@@ -112,6 +112,11 @@ const SESSION_MAX_TENSOR_BYTES = VIEWER_LIMITS.maxPayloadBytes;
 
 /**
  * return session api token for the current viewer state.
+ *
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sessionApiToken();
  */
 function sessionApiToken(): string | null {
     return new URLSearchParams(window.location.search).get('token')
@@ -123,6 +128,9 @@ const sessionToken = sessionApiToken();
 // extension host services
 /**
  * shape of inspector refs data used by the viewer.
+ *
+ * @example
+ * const value: InspectorRefs = {} as InspectorRefs;
  */
 type InspectorRefs = {
     hoveredTensor: HTMLDivElement;
@@ -155,6 +163,9 @@ const extensionContext: DemoExtensionContext = {
 
 /**
  * shape of sidebar widget id data used by the viewer.
+ *
+ * @example
+ * const value: SidebarWidgetId = {} as SidebarWidgetId;
  */
 type SidebarWidgetId = string;
 
@@ -229,6 +240,13 @@ const collapsedWidgets = new Set<SidebarWidgetId>(widgetSpecs.filter((spec) => s
 // tooltip plumbing
 /**
  * return log ui for the current viewer state.
+ *
+ * @param event - Browser event that triggered this handler.
+ * @param details - details input used by this operation (unknown).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * logUi(event, details);
  */
 function logUi(event: string, details?: unknown): void {
     if (details === undefined) console.log('[tensor-viz-ui]', event);
@@ -237,6 +255,11 @@ function logUi(event: string, details?: unknown): void {
 
 /**
  * hide info tooltip for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * hideInfoTooltip();
  */
 function hideInfoTooltip(): void {
     activeInfoTarget = null;
@@ -245,6 +268,12 @@ function hideInfoTooltip(): void {
 
 /**
  * place info tooltip for the current viewer state.
+ *
+ * @param target - target input used by this operation (HTMLElement).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * placeInfoTooltip(target);
  */
 function placeInfoTooltip(target: HTMLElement): void {
     const text = target.dataset.info?.trim();
@@ -272,6 +301,11 @@ function placeInfoTooltip(target: HTMLElement): void {
 
 /**
  * hide control tooltip for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * hideControlTooltip();
  */
 function hideControlTooltip(): void {
     activeControlButton = null;
@@ -280,6 +314,12 @@ function hideControlTooltip(): void {
 
 /**
  * place control tooltip for the current viewer state.
+ *
+ * @param button - button input used by this operation (HTMLButtonElement).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * placeControlTooltip(button);
  */
 function placeControlTooltip(button: HTMLButtonElement): void {
     const label = button.dataset.tooltipLabel?.trim();
@@ -384,6 +424,13 @@ controlDock.addEventListener('scroll', () => {
 // command palette
 /**
  * return selection count value for the current viewer state.
+ *
+ * @param summary - summary input used by this operation (ReturnType<TensorViewer['getSelectionSummary']>).
+ * @param enabled - enabled input used by this operation (boolean).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionCountValue(summary, enabled);
  */
 function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean): string {
     if (!enabled) return 'Unavailable';
@@ -393,6 +440,14 @@ function selectionCountValue(summary: ReturnType<TensorViewer['getSelectionSumma
 
 /**
  * return selection stat value for the current viewer state.
+ *
+ * @param summary - summary input used by this operation (ReturnType<TensorViewer['getSelectionSummary']>).
+ * @param enabled - enabled input used by this operation (boolean).
+ * @param key - key input used by this operation (keyof NonNullable<ReturnType<TensorViewer['getSelectionSummary']>['stats']>).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionStatValue(summary, enabled, key);
  */
 function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummary']>, enabled: boolean, key: keyof NonNullable<ReturnType<TensorViewer['getSelectionSummary']>['stats']>): string {
     if (!enabled || !summary.stats) return '—';
@@ -401,6 +456,11 @@ function selectionStatValue(summary: ReturnType<TensorViewer['getSelectionSummar
 
 /**
  * return command actions for the current viewer state.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * commandActions();
  */
 function commandActions(): CommandAction[] {
     return [
@@ -429,6 +489,11 @@ function commandActions(): CommandAction[] {
 
 /**
  * return tab actions for the current viewer state.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tabActions();
  */
 function tabActions(): CommandAction[] {
     return sessionTabs.map((tab) => ({
@@ -441,6 +506,11 @@ function tabActions(): CommandAction[] {
 
 /**
  * return palette actions for the current viewer state.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * paletteActions();
  */
 function paletteActions(): CommandAction[] {
     return commandPaletteMode === 'tabs' ? tabActions() : commandActions();
@@ -448,6 +518,13 @@ function paletteActions(): CommandAction[] {
 
 /**
  * return fuzzy score for the current viewer state.
+ *
+ * @param candidate - candidate input used by this operation (string).
+ * @param query - query input used by this operation (string).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fuzzyScore(candidate, query);
  */
 function fuzzyScore(candidate: string, query: string): number | null {
     let score = 0;
@@ -471,6 +548,11 @@ function fuzzyScore(candidate: string, query: string): number | null {
 
 /**
  * return filtered command actions for the current viewer state.
+ *
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * filteredCommandActions();
  */
 function filteredCommandActions(): CommandAction[] {
     const query = commandPaletteInput.value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -489,6 +571,12 @@ function filteredCommandActions(): CommandAction[] {
 // sidebar widget lifecycle
 /**
  * return visible sidebar widgets for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * visibleSidebarWidgets(snapshot);
  */
 function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
     // widget visibility is derived from the active tab and viewer state instead
@@ -498,6 +586,13 @@ function visibleSidebarWidgets(snapshot: ViewerSnapshot): SidebarWidgetId[] {
 
 /**
  * return widget title for the current viewer state.
+ *
+ * @param widgetId - Stable identifier used by this operation.
+ * @param info - info input used by this operation (string).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * widgetTitle(widgetId, info);
  */
 function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
     const title = sidebarWidgetLabels[widgetId];
@@ -521,6 +616,11 @@ function widgetTitle(widgetId: SidebarWidgetId, info: string): string {
 
 /**
  * apply sidebar order for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applySidebarOrder();
  */
 function applySidebarOrder(): void {
     sidebar.replaceChildren(sidebarHeader, ...widgetOrder.map((widgetId) => sidebarWidgets[widgetId]), sidebarScrollPad);
@@ -529,6 +629,13 @@ function applySidebarOrder(): void {
 
 /**
  * sync widget header state for the current viewer state.
+ *
+ * @param widgetId - Stable identifier used by this operation.
+ * @param widget - widget input used by this operation (HTMLElement).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncWidgetHeaderState(widgetId, widget);
  */
 function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): void {
     const collapsed = collapsedWidgets.has(widgetId);
@@ -542,6 +649,11 @@ function syncWidgetHeaderState(widgetId: SidebarWidgetId, widget: HTMLElement): 
 
 /**
  * sync sidebar drag state for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncSidebarDragState();
  */
 function syncSidebarDragState(): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
@@ -558,6 +670,12 @@ function syncSidebarDragState(): void {
 
 /**
  * toggle widget collapse for the current viewer state.
+ *
+ * @param widgetId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleWidgetCollapse(widgetId);
  */
 function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
     const header = sidebarWidgets[widgetId].querySelector<HTMLElement>(`[data-widget-collapse="${widgetId}"]`);
@@ -581,6 +699,12 @@ function toggleWidgetCollapse(widgetId: SidebarWidgetId): void {
 
 /**
  * return sidebar widget slot for the current viewer state.
+ *
+ * @param clientY - client y input used by this operation (number).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * sidebarWidgetSlot(clientY);
  */
 function sidebarWidgetSlot(clientY: number): number | null {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
@@ -594,6 +718,13 @@ function sidebarWidgetSlot(clientY: number): number | null {
 
 /**
  * move sidebar widget to slot for the current viewer state.
+ *
+ * @param widgetId - Stable identifier used by this operation.
+ * @param slot - slot input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * moveSidebarWidgetToSlot(widgetId, slot);
  */
 function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void {
     const visible = visibleSidebarWidgets(viewer.getSnapshot());
@@ -612,6 +743,11 @@ function moveSidebarWidgetToSlot(widgetId: SidebarWidgetId, slot: number): void 
 
 /**
  * clear sidebar drag state for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearSidebarDragState();
  */
 function clearSidebarDragState(): void {
     draggedWidgetId = null;
@@ -622,6 +758,12 @@ function clearSidebarDragState(): void {
 
 /**
  * return widget icon for the current viewer state.
+ *
+ * @param widgetId - Stable identifier used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * widgetIcon(widgetId);
  */
 function widgetIcon(widgetId: SidebarWidgetId): string {
     return sidebarWidgetIcons[widgetId] ?? '';
@@ -629,6 +771,11 @@ function widgetIcon(widgetId: SidebarWidgetId): string {
 
 /**
  * render command palette for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderCommandPalette();
  */
 function renderCommandPalette(): void {
     if (!commandPaletteOpen) return;
@@ -658,6 +805,11 @@ function renderCommandPalette(): void {
 
 /**
  * open command palette for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * openCommandPalette();
  */
 function openCommandPalette(): void {
     commandPaletteMode = 'actions';
@@ -673,6 +825,11 @@ function openCommandPalette(): void {
 
 /**
  * open tab palette for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * openTabPalette();
  */
 function openTabPalette(): void {
     commandPaletteMode = 'tabs';
@@ -688,6 +845,11 @@ function openTabPalette(): void {
 
 /**
  * close command palette for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * closeCommandPalette();
  */
 function closeCommandPalette(): void {
     if (!commandPaletteOpen) return;
@@ -700,6 +862,12 @@ function closeCommandPalette(): void {
 
 /**
  * set sidebar width for the current viewer state.
+ *
+ * @param width - width input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setSidebarWidth(width);
  */
 function setSidebarWidth(width: number): void {
     const maxWidth = Math.max(0, app.clientWidth - sidebarSplitter.offsetWidth);
@@ -718,6 +886,11 @@ window.addEventListener('resize', () => {
 // tab documents
 /**
  * return active tab for the current viewer state.
+ *
+ * @returns Computed LoadedBundleDocument | undefined value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * activeTab();
  */
 function activeTab(): LoadedBundleDocument | undefined {
     return sessionTabs.find((tab) => tab.id === activeTabId);
@@ -725,6 +898,11 @@ function activeTab(): LoadedBundleDocument | undefined {
 
 /**
  * return next tab title for the current viewer state.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * nextTabTitle();
  */
 function nextTabTitle(): string {
     const used = new Set(sessionTabs.map((tab) => tab.title));
@@ -735,6 +913,14 @@ function nextTabTitle(): string {
 
 /**
  * clone tab document for the current viewer state.
+ *
+ * @param tab - Session tab used by this operation.
+ * @param id - Stable identifier used by this operation.
+ * @param title - title input used by this operation (string).
+ * @returns Computed LoadedBundleDocument value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * cloneTabDocument(tab, id, title);
  */
 function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string): LoadedBundleDocument {
     return {
@@ -747,6 +933,13 @@ function cloneTabDocument(tab: LoadedBundleDocument, id: string, title: string):
 
 /**
  * return normalized tensor view snapshot for the current viewer state.
+ *
+ * @param tensor - Tensor record used by this operation.
+ * @param views - views input used by this operation (Array<ViewerSnapshot['tensors'][number]['view'] | undefined>).
+ * @returns Computed ViewerSnapshot['tensors'][number]['view'] value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * normalizedTensorViewSnapshot(tensor, views);
  */
 function normalizedTensorViewSnapshot(
     tensor: BundleManifest['tensors'][number],
@@ -776,6 +969,13 @@ function normalizedTensorViewSnapshot(
 
 /**
  * normalize viewer snapshot for the current viewer state.
+ *
+ * @param tab - Session tab used by this operation.
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Computed ViewerSnapshot value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeViewerSnapshot(tab, snapshot);
  */
 function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnapshot): ViewerSnapshot {
     return {
@@ -794,6 +994,11 @@ function normalizeViewerSnapshot(tab: LoadedBundleDocument, snapshot: ViewerSnap
 
 /**
  * clear tab title edit for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * clearTabTitleEdit();
  */
 function clearTabTitleEdit(): void {
     editingTab = null;
@@ -801,6 +1006,11 @@ function clearTabTitleEdit(): void {
 
 /**
  * capture active tab snapshot for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * captureActiveTabSnapshot();
  */
 function captureActiveTabSnapshot(): void {
     const tab = activeTab();
@@ -817,6 +1027,12 @@ function captureActiveTabSnapshot(): void {
 
 /**
  * close tab for the current viewer state.
+ *
+ * @param tabId - Stable identifier used by this operation.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * closeTab(tabId);
  */
 async function closeTab(tabId: string): Promise<void> {
     const index = sessionTabs.findIndex((tab) => tab.id === tabId);
@@ -844,6 +1060,11 @@ async function closeTab(tabId: string): Promise<void> {
 
 /**
  * render tab strip for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderTabStrip();
  */
 function renderTabStrip(): void {
     tabStrip.classList.remove('hidden');
@@ -947,6 +1168,11 @@ function renderTabStrip(): void {
 
 /**
  * add new tab for the current viewer state.
+ *
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * addNewTab();
  */
 async function addNewTab(): Promise<void> {
     const currentTab = activeTab();
@@ -974,6 +1200,11 @@ async function addNewTab(): Promise<void> {
 
 /**
  * close current tab for the current viewer state.
+ *
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * closeCurrentTab();
  */
 async function closeCurrentTab(): Promise<void> {
     if (activeTabId) await closeTab(activeTabId);
@@ -981,6 +1212,12 @@ async function closeCurrentTab(): Promise<void> {
 
 /**
  * render control dock for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderControlDock(snapshot);
  */
 function renderControlDock(snapshot: ViewerSnapshot): void {
     const canSelect = selectionEnabled(snapshot);
@@ -1093,6 +1330,12 @@ function renderControlDock(snapshot: ViewerSnapshot): void {
 
 /**
  * load tab for the current viewer state.
+ *
+ * @param tabId - Stable identifier used by this operation.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * loadTab(tabId);
  */
 async function loadTab(tabId: string): Promise<void> {
     const tab = sessionTabs.find((entry) => entry.id === tabId);
@@ -1235,6 +1478,12 @@ sidebar.addEventListener('pointercancel', (event) => {
 // sidebar rendering
 /**
  * update sidebar for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * updateSidebar(snapshot);
  */
 function updateSidebar(snapshot: ViewerSnapshot): void {
     const visible = new Set(visibleSidebarWidgets(snapshot));
@@ -1249,6 +1498,13 @@ function updateSidebar(snapshot: ViewerSnapshot): void {
 
 /**
  * capture sidebar anchor for the current viewer state.
+ *
+ * @param element - element input used by this operation (HTMLElement | null).
+ * @param selector - selector input used by this operation (string).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * captureSidebarAnchor(element, selector);
  */
 function captureSidebarAnchor(element: HTMLElement | null, selector: string): { selector: string; top: number } | null {
     if (!element) return null;
@@ -1257,6 +1513,12 @@ function captureSidebarAnchor(element: HTMLElement | null, selector: string): { 
 
 /**
  * render preserving sidebar scroll for the current viewer state.
+ *
+ * @param anchor - anchor input used by this operation ({ selector: string; top: number } | null).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderPreservingSidebarScroll(anchor);
  */
 function renderPreservingSidebarScroll(anchor: { selector: string; top: number } | null = null): void {
     const previousScrollTop = sidebar.scrollTop;
@@ -1276,7 +1538,15 @@ function renderPreservingSidebarScroll(anchor: { selector: string; top: number }
 }
 
 // tensor-view editor
-/** keep compact textareas at their content height so widget fields stay visually aligned. */
+/**
+ * keep compact textareas at their content height so widget fields stay visually aligned.
+ *
+ * @param textarea - textarea input used by this operation (HTMLTextAreaElement).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * autosizeTextarea(textarea);
+ */
 function autosizeTextarea(textarea: HTMLTextAreaElement): void {
     textarea.style.height = '0';
     textarea.style.height = `${textarea.scrollHeight}px`;
@@ -1284,6 +1554,13 @@ function autosizeTextarea(textarea: HTMLTextAreaElement): void {
 
 /**
  * return begin tensor view slider drag for the current viewer state.
+ *
+ * @param slider - slider input used by this operation (HTMLInputElement).
+ * @param pointerId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * beginTensorViewSliderDrag(slider, pointerId);
  */
 function beginTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
     suspendTensorViewRender = true;
@@ -1293,6 +1570,13 @@ function beginTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number):
 
 /**
  * return end tensor view slider drag for the current viewer state.
+ *
+ * @param slider - slider input used by this operation (HTMLInputElement).
+ * @param pointerId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * endTensorViewSliderDrag(slider, pointerId);
  */
 function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): void {
     if (activeTensorViewSliderPointerId !== pointerId) return;
@@ -1304,6 +1588,14 @@ function endTensorViewSliderDrag(slider: HTMLInputElement, pointerId: number): v
 
 /**
  * apply tensor view editor for the current viewer state.
+ *
+ * @param tensorId - Stable identifier used by this operation.
+ * @param editor - editor input used by this operation (TensorViewEditor).
+ * @param anchor - anchor input used by this operation ({ selector: string; top: number } | null).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyTensorViewEditor(tensorId, editor, anchor);
  */
 function applyTensorViewEditor(
     tensorId: string,
@@ -1327,6 +1619,12 @@ function applyTensorViewEditor(
 
 /**
  * return tensor call input value for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorCallInputValue(value);
  */
 function tensorCallInputValue(value: string): string {
     return value.replace(/^\[/, '').replace(/\]$/, '');
@@ -1334,6 +1632,12 @@ function tensorCallInputValue(value: string): string {
 
 /**
  * parse integer term for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseIntegerTerm(value);
  */
 function parseIntegerTerm(value: string): number {
     const term = value.trim();
@@ -1346,6 +1650,13 @@ function parseIntegerTerm(value: string): number {
 
 /**
  * parse shape spec for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param totalElements - total elements input used by this operation (number).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseShapeSpec(value, totalElements);
  */
 function parseShapeSpec(
     value: string,
@@ -1383,6 +1694,12 @@ function parseShapeSpec(
 
 /**
  * parse integer list input for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseIntegerListInput(value);
  */
 function parseIntegerListInput(value: string): number[] {
     return value.split(',').map(parseIntegerTerm).filter((part) => Number.isFinite(part));
@@ -1390,6 +1707,16 @@ function parseIntegerListInput(value: string): number[] {
 
 /**
  * build step4 editor for the current viewer state.
+ *
+ * @param previous - previous input used by this operation (TensorViewEditor).
+ * @param viewInput - view input input used by this operation (string).
+ * @param permuteInput - permute input input used by this operation (string).
+ * @param finalViewInput - final view input input used by this operation (string | null).
+ * @param totalElements - total elements input used by this operation (number).
+ * @returns Computed TensorViewEditor value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildStep4Editor(previous, viewInput, permuteInput, finalViewInput, totalElements);
  */
 function buildStep4Editor(
     previous: TensorViewEditor,
@@ -1419,6 +1746,13 @@ function buildStep4Editor(
 
 /**
  * return tensor view help html for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axisLabels - axis labels input used by this operation (readonly string[]).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * tensorViewHelpHtml(shape, axisLabels);
  */
 function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly string[]): string {
     const shapeText = escapeHtml(shape.join(', '));
@@ -1455,6 +1789,14 @@ function tensorViewHelpHtml(shape: readonly number[], axisLabels: readonly strin
 
 /**
  * parse tensor view expression input for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @param previous - previous input used by this operation (TensorViewEditor).
+ * @param shape - Tensor shape used by this operation.
+ * @returns Computed TensorViewEditor value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseTensorViewExpressionInput(value, previous, shape);
  */
 function parseTensorViewExpressionInput(
     value: string,
@@ -1464,7 +1806,15 @@ function parseTensorViewExpressionInput(
     const text = value.trim();
     if (!text.startsWith('tensor')) throw new Error('Tensor View must start with "tensor".');
     let rest = text.slice('tensor'.length);
-    /** consume one chained tensor-view call and return its raw argument text. */
+    /**
+ * consume one chained tensor-view call and return its raw argument text.
+ *
+ * @param name - name input used by this operation ('view' | 'permute').
+ * @returns Computed value, or null when no value is available.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * consumeCall(name);
+ */
     const consumeCall = (name: 'view' | 'permute'): string | null => {
         if (!rest.startsWith(`.${name}(`)) return null;
         const start = name.length + 2;
@@ -1518,6 +1868,12 @@ function parseTensorViewExpressionInput(
 
 /**
  * render tensor view widget for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderTensorViewWidget(snapshot);
  */
 function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) return;
@@ -1646,14 +2002,29 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         `;
         const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
-        /** refresh the editable tensor-view expression without rebuilding the widget. */
+        /**
+ * refresh the editable tensor-view expression without rebuilding the widget.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncTensorViewInput();
+ */
         const syncTensorViewInput = (): void => {
             const tensorViewInput = tensorViewWidget.querySelector<HTMLTextAreaElement>('#tensor-view-input');
             if (!tensorViewInput) return;
             tensorViewInput.value = viewer.getInspectorModel().preview;
             autosizeTextarea(tensorViewInput);
         };
-        /** apply one slice slider value and notify extensions that tensor-view state changed. */
+        /**
+ * apply one slice slider value and notify extensions that tensor-view state changed.
+ *
+ * @param nextValue - next value input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyValue(nextValue);
+ */
         const applyValue = (nextValue: number): void => {
             logUi('slice-token:update', { tensorId: model.handle!.id, token: token.token, value: nextValue });
             viewer.setSliceTokenValue(model.handle!.id, token.key, nextValue);
@@ -1700,7 +2071,15 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
         `;
         const slider = row.querySelector<HTMLInputElement>(`#${sliderId}`);
         const number = row.querySelector<HTMLInputElement>(`#${sliderId}-number`);
-        /** route extension-owned slider changes through the extension callback. */
+        /**
+ * route extension-owned slider changes through the extension callback.
+ *
+ * @param nextValue - next value input used by this operation (number).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyValue(nextValue);
+ */
         const applyValue = (nextValue: number): void => {
             sliderSpec.onChange(nextValue);
         };
@@ -1733,6 +2112,12 @@ function renderTensorViewWidget(snapshot: ViewerSnapshot): void {
 
 /**
  * render inspector widget for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderInspectorWidget(snapshot);
  */
 function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
@@ -1765,7 +2150,16 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
     if (!inspectorRefs) return;
     const hover = viewer.getHover();
     const hoveredStatus = hover ? viewer.getTensorStatus(hover.tensorId) : null;
-    /** format one coordinate as fixed-width binary tokens for the inspector. */
+    /**
+ * format one coordinate as fixed-width binary tokens for the inspector.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * binaryCoord(coord, shape);
+ */
     const binaryCoord = (coord: number[] | null, shape: readonly number[] | undefined): string => {
         if (!coord || !shape) return '';
         return formatAxisTokens(
@@ -1814,6 +2208,12 @@ function renderInspectorWidget(snapshot: ViewerSnapshot): void {
 
 /**
  * render selection widget for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderSelectionWidget(snapshot);
  */
 function renderSelectionWidget(snapshot: ViewerSnapshot): void {
     const model = viewer.getInspectorModel();
@@ -1846,6 +2246,12 @@ function renderSelectionWidget(snapshot: ViewerSnapshot): void {
 
 /**
  * render advanced settings widget for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderAdvancedSettingsWidget(snapshot);
  */
 function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
     const currentValue = snapshot.dimensionBlockGapMultiple ?? 3;
@@ -1927,6 +2333,12 @@ function renderAdvancedSettingsWidget(snapshot: ViewerSnapshot): void {
 // render cycle
 /**
  * render for the current viewer state.
+ *
+ * @param snapshot - Viewer snapshot used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * render(snapshot);
  */
 function render(snapshot: ViewerSnapshot): void {
     if (suspendTensorViewRender) {
@@ -1958,6 +2370,12 @@ function render(snapshot: ViewerSnapshot): void {
 // python session loading
 /**
  * return safe data file for the current viewer state.
+ *
+ * @param dataFile - data file input used by this operation (string).
+ * @returns Text formatted for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * safeDataFile(dataFile);
  */
 function safeDataFile(dataFile: string): string {
     if (!DATA_FILE_PATTERN.test(dataFile) || dataFile.includes('..')) {
@@ -1968,6 +2386,12 @@ function safeDataFile(dataFile: string): string {
 
 /**
  * return api url for the current viewer state.
+ *
+ * @param path - path input used by this operation (string).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * apiUrl(path);
  */
 function apiUrl(path: string): string {
     const url = new URL(path, window.location.href);
@@ -1977,6 +2401,13 @@ function apiUrl(path: string): string {
 
 /**
  * return bounded array buffer for the current viewer state.
+ *
+ * @param response - response input used by this operation (Response).
+ * @param options - Options that tune this operation.
+ * @returns Promise that resolves to the computed value.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * boundedArrayBuffer(response, options);
  */
 async function boundedArrayBuffer(
     response: Response,
@@ -2034,7 +2465,15 @@ async function boundedArrayBuffer(
     return bytes.buffer;
 }
 
-/** loads one tab's raw tensor payloads from the local python session server. */
+/**
+ * loads one tab's raw tensor payloads from the local python session server.
+ *
+ * @param tensors - tensors input used by this operation (BundleManifest['tensors']).
+ * @returns Promise that resolves to the computed value.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * loadTabTensors(tensors);
+ */
 async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<string, NumericArray>> {
     const entries: Array<readonly [string, NumericArray]> = [];
     for (const tensor of tensors.filter((entry) => entry.dataFile)) {
@@ -2052,7 +2491,15 @@ async function loadTabTensors(tensors: BundleManifest['tensors']): Promise<Map<s
     return new Map(entries);
 }
 
-/** loads one session tab from the raw manifest plus tensor-byte endpoints. */
+/**
+ * loads one session tab from the raw manifest plus tensor-byte endpoints.
+ *
+ * @param tab - Session tab used by this operation.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * loadSessionTab(tab);
+ */
 async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promise<LoadedBundleDocument> {
     for (const extension of extensions) {
         const loaded = await extension.loadSessionTab?.(extensionContext, tab);
@@ -2072,6 +2519,11 @@ async function loadSessionTab(tab: SessionBundleManifest['tabs'][number]): Promi
 
 /**
  * try load session for the current viewer state.
+ *
+ * @returns Promise that resolves to the computed value.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * tryLoadSession();
  */
 async function tryLoadSession(): Promise<boolean> {
     const response = await fetch(apiUrl('/api/session.json'), { cache: 'no-store' });
@@ -2120,6 +2572,11 @@ async function tryLoadSession(): Promise<boolean> {
 
 /**
  * return seed demo tensor for the current viewer state.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * seedDemoTensor();
  */
 function seedDemoTensor(): void {
     sessionTabs.forEach((tab) => {
@@ -2139,6 +2596,13 @@ function seedDemoTensor(): void {
 
 /**
  * download svg for the current viewer state.
+ *
+ * @param filename - filename input used by this operation (string).
+ * @param svg - svg input used by this operation (string).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * downloadSvg(filename, svg);
  */
 function downloadSvg(filename: string, svg: string): void {
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -2152,6 +2616,11 @@ function downloadSvg(filename: string, svg: string): void {
 
 /**
  * return svg filename for the current viewer state.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * svgFilename();
  */
 function svgFilename(): string {
     const title = activeTab()?.title ?? 'tensor-viz';
@@ -2161,6 +2630,11 @@ function svgFilename(): string {
 
 /**
  * return current svg document for the current viewer state.
+ *
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * currentSvgDocument();
  */
 async function currentSvgDocument(): Promise<string> {
     if (viewer.getSnapshot().displayMode !== '2d') return viewer.exportCurrentViewSvg();
@@ -2169,6 +2643,11 @@ async function currentSvgDocument(): Promise<string> {
 
 /**
  * load fallback tabs for the current viewer state.
+ *
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * loadFallbackTabs();
  */
 async function loadFallbackTabs(): Promise<boolean> {
     for (const extension of extensions) {
@@ -2180,6 +2659,12 @@ async function loadFallbackTabs(): Promise<boolean> {
 // command execution and global events
 /**
  * run action for the current viewer state.
+ *
+ * @param action - action input used by this operation (string).
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * runAction(action);
  */
 async function runAction(action: string): Promise<void> {
     logUi('action', action);

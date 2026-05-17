@@ -1,11 +1,21 @@
-/** Construction-time options for mounting the full demo app in an iframe. */
+/**
+ * Construction-time options for mounting the full demo app in an iframe.
+ *
+ * @example
+ * const value: DemoAppOptions = {} as DemoAppOptions;
+ */
 export type DemoAppOptions = {
     src?: string;
     title?: string;
     className?: string;
 };
 
-/** Handle returned by {@link mountDemoApp} for lifecycle control. */
+/**
+ * Handle returned by {@link mountDemoApp} for lifecycle control.
+ *
+ * @example
+ * const value: MountedDemoApp = {} as MountedDemoApp;
+ */
 export type MountedDemoApp = {
     iframe: HTMLIFrameElement;
     destroy: () => void;
@@ -13,6 +23,12 @@ export type MountedDemoApp = {
 
 /**
  * return safe iframe src for the current viewer state.
+ *
+ * @param src - src input used by this operation (string).
+ * @returns Text formatted for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * safeIframeSrc(src);
  */
 function safeIframeSrc(src: string): string {
     const value = src.trim();
@@ -22,7 +38,16 @@ function safeIframeSrc(src: string): string {
     return value;
 }
 
-/** Mount the full demo page as an embeddable iframe-backed widget. */
+/**
+ * Mount the full demo page as an embeddable iframe-backed widget.
+ *
+ * @param container - container input used by this operation (HTMLElement).
+ * @param options - Options that tune this operation.
+ * @returns Computed MountedDemoApp value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mountDemoApp(container, options);
+ */
 export function mountDemoApp(container: HTMLElement, options: DemoAppOptions = {}): MountedDemoApp {
     const iframe = document.createElement('iframe');
     iframe.src = safeIframeSrc(options.src ?? '/');

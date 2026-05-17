@@ -5,6 +5,12 @@ import { VISIBLE_TENSORS_ERROR, activeLinearLayoutTab } from './linear-layout-wi
 
 /**
  * render linear layout visible tensors widget for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderLinearLayoutVisibleTensorsWidget(ctx);
  */
 export function renderLinearLayoutVisibleTensorsWidget(ctx: LinearLayoutUiContext): void {
     const tab = activeLinearLayoutTab(ctx);

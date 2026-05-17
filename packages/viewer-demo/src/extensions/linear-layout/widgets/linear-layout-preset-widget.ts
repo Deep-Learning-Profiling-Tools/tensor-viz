@@ -17,6 +17,11 @@ let clearPresetOutsideClickHandler: (() => void) | null = null;
 
 /**
  * return linear layout preset help html for the current viewer state.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutPresetHelpHtml();
  */
 function linearLayoutPresetHelpHtml(): string {
     const instructions = composeLayoutPresetOptions(undefined).instruction.join(', ');
@@ -75,6 +80,16 @@ Operand: D</code>
 
 /**
  * return preset search field for the current viewer state.
+ *
+ * @param field - Preset field metadata used by this operation.
+ * @param value - Value supplied by the caller.
+ * @param validOptions - valid options input used by this operation (string[]).
+ * @param invalidOptions - invalid options input used by this operation (string[]).
+ * @param selection - Selection data used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetSearchField(field, value, validOptions, invalidOptions, selection);
  */
 function presetSearchField(
     field: ComposeLayoutPresetField,
@@ -98,6 +113,13 @@ function presetSearchField(
 
 /**
  * return filtered preset options for the current viewer state.
+ *
+ * @param options - Options that tune this operation.
+ * @param query - query input used by this operation (string).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * filteredPresetOptions(options, query);
  */
 function filteredPresetOptions(options: string[], query: string): string[] {
     const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -107,6 +129,13 @@ function filteredPresetOptions(options: string[], query: string): string[] {
 
 /**
  * return fuzzy preset match for the current viewer state.
+ *
+ * @param option - option input used by this operation (string).
+ * @param normalizedQuery - normalized query input used by this operation (string).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * fuzzyPresetMatch(option, normalizedQuery);
  */
 function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
     const normalizedOption = option.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -121,6 +150,14 @@ function fuzzyPresetMatch(option: string, normalizedQuery: string): boolean {
 
 /**
  * bind preset input for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param input - input input used by this operation (HTMLInputElement | null).
+ * @param field - Preset field metadata used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bindPresetInput(ctx, input, field);
  */
 function bindPresetInput(
     ctx: LinearLayoutUiContext,
@@ -158,6 +195,12 @@ function bindPresetInput(
 
 /**
  * bind preset options for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * bindPresetOptions(ctx);
  */
 function bindPresetOptions(ctx: LinearLayoutUiContext): void {
     ctx.linearLayoutPresetWidget.querySelectorAll<HTMLButtonElement>('[data-preset-input][data-preset-value]').forEach((button) => {
@@ -181,6 +224,13 @@ function bindPresetOptions(ctx: LinearLayoutUiContext): void {
 
 /**
  * sync preset controls for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param activeInputId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncPresetControls(ctx, activeInputId);
  */
 function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | null): void {
     const presetOptions = composeLayoutPresetOptions(ctx.state.linearLayoutState.presetSelection);
@@ -225,6 +275,14 @@ function syncPresetControls(ctx: LinearLayoutUiContext, activeInputId: string | 
 
 /**
  * return invalid preset option info for the current viewer state.
+ *
+ * @param field - Preset field metadata used by this operation.
+ * @param value - Value supplied by the caller.
+ * @param selection - Selection data used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * invalidPresetOptionInfo(field, value, selection);
  */
 function invalidPresetOptionInfo(field: string, value: string, selection: ComposeLayoutPresetSelection): string {
     const nextSelection = presetSelectionForOption(selection, field, value, true);
@@ -239,6 +297,16 @@ function invalidPresetOptionInfo(field: string, value: string, selection: Compos
 
 /**
  * return preset options html for the current viewer state.
+ *
+ * @param field - Preset field metadata used by this operation.
+ * @param inputId - Stable identifier used by this operation.
+ * @param validOptions - valid options input used by this operation (string[]).
+ * @param invalidOptions - invalid options input used by this operation (string[]).
+ * @param selection - Selection data used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetOptionsHtml(field, inputId, validOptions, invalidOptions, selection);
  */
 function presetOptionsHtml(
     field: string,
@@ -263,13 +331,31 @@ function presetOptionsHtml(
 
 /**
  * return invalid preset field options for the current viewer state.
+ *
+ * @param field - Preset field metadata used by this operation.
+ * @param validOptions - valid options input used by this operation (string[]).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * invalidPresetFieldOptions(field, validOptions);
  */
 function invalidPresetFieldOptions(field: string, validOptions: string[]): string[] {
     const allOptions = presetFieldOptions(composeLayoutPresetOptions(undefined), field);
     return allOptions.filter((option) => !validOptions.includes(option));
 }
 
-/** choose an option and keep as many compatible existing fields as possible. */
+/**
+ * choose an option and keep as many compatible existing fields as possible.
+ *
+ * @param selection - Selection data used by this operation.
+ * @param field - Preset field metadata used by this operation.
+ * @param value - Value supplied by the caller.
+ * @param invalid - invalid input used by this operation (boolean).
+ * @returns Computed value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetSelectionForOption(selection, field, value, invalid);
+ */
 function presetSelectionForOption(
     selection: ComposeLayoutPresetSelection,
     field: string,
@@ -306,6 +392,12 @@ function presetSelectionForOption(
 
 /**
  * return preset matches for the current viewer state.
+ *
+ * @param filters - filters input used by this operation (ComposeLayoutPresetSelection).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetMatches(filters);
  */
 function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
     return composeLayoutPresets().some((preset) => Object.keys(filters).every((key) => {
@@ -317,6 +409,13 @@ function presetMatches(filters: ComposeLayoutPresetSelection): boolean {
 
 /**
  * set preset dropdown visibility for the current viewer state.
+ *
+ * @param root - Root DOM element used by this operation.
+ * @param activeInputId - Stable identifier used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * setPresetDropdownVisibility(root, activeInputId);
  */
 function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | null): void {
     root.querySelectorAll<HTMLElement>('.preset-option-list').forEach((list) => {
@@ -326,6 +425,13 @@ function setPresetDropdownVisibility(root: HTMLElement, activeInputId: string | 
 
 /**
  * return preset field options for the current viewer state.
+ *
+ * @param options - Options that tune this operation.
+ * @param field - Preset field metadata used by this operation.
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * presetFieldOptions(options, field);
  */
 function presetFieldOptions(options: ComposeLayoutPresetOptions, field: string): string[] {
     return options[field] ?? [];
@@ -333,6 +439,13 @@ function presetFieldOptions(options: ComposeLayoutPresetOptions, field: string):
 
 /**
  * return visible preset fields for the current viewer state.
+ *
+ * @param selection - Selection data used by this operation.
+ * @param options - Options that tune this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * visiblePresetFields(selection, options);
  */
 function visiblePresetFields(
     selection: ComposeLayoutPresetSelection,
@@ -347,6 +460,12 @@ function visiblePresetFields(
 
 /**
  * return rendered preset field ids for the current viewer state.
+ *
+ * @param root - Root DOM element used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderedPresetFieldIds(root);
  */
 function renderedPresetFieldIds(root: HTMLElement): string {
     return Array.from(root.querySelectorAll<HTMLElement>('[data-preset-field]'))
@@ -356,6 +475,12 @@ function renderedPresetFieldIds(root: HTMLElement): string {
 
 /**
  * render linear layout preset widget for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderLinearLayoutPresetWidget(ctx);
  */
 export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void {
     clearPresetOutsideClickHandler?.();
@@ -391,7 +516,15 @@ export function renderLinearLayoutPresetWidget(ctx: LinearLayoutUiContext): void
         bindPresetInput(ctx, ctx.linearLayoutPresetWidget.querySelector<HTMLInputElement>(`#${field.id}`), field.key);
     });
     bindPresetOptions(ctx);
-    /** close open preset dropdowns when focus moves outside the widget. */
+    /**
+ * close open preset dropdowns when focus moves outside the widget.
+ *
+ * @param event - Browser event that triggered this handler.
+ * @returns Computed value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * outsideClickHandler(event);
+ */
     const outsideClickHandler = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Node)) return;

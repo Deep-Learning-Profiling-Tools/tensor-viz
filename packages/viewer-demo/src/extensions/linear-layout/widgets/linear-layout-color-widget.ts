@@ -16,6 +16,11 @@ import {
 
 /**
  * return linear layout color help html for the current viewer state.
+ *
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutColorHelpHtml();
  */
 function linearLayoutColorHelpHtml(): string {
     return `
@@ -38,6 +43,12 @@ function linearLayoutColorHelpHtml(): string {
 
 /**
  * return linear layout propagate outputs info for the current viewer state.
+ *
+ * @param injective - injective input used by this operation (boolean).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutPropagateOutputsInfo(injective);
  */
 export function linearLayoutPropagateOutputsInfo(injective: boolean): string {
     return injective
@@ -47,6 +58,12 @@ export function linearLayoutPropagateOutputsInfo(injective: boolean): string {
 
 /**
  * toggle linear layout propagate outputs for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * toggleLinearLayoutPropagateOutputs(ctx);
  */
 export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiContext): Promise<void> {
     ctx.state.linearLayoutState.propagateOutputs = !ctx.state.linearLayoutState.propagateOutputs;
@@ -71,6 +88,12 @@ export async function toggleLinearLayoutPropagateOutputs(ctx: LinearLayoutUiCont
 
 /**
  * render linear layout color widget for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderLinearLayoutColorWidget(ctx);
  */
 export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void {
     const activeElement = document.activeElement;
@@ -153,7 +176,14 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         if (checked === ctx.state.linearLayoutState.propagateOutputs) return;
         await toggleLinearLayoutPropagateOutputs(ctx);
     });
-    /** write checkbox state into tab-local cell-text settings and repaint labels. */
+    /**
+ * write checkbox state into tab-local cell-text settings and repaint labels.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncCellText();
+ */
     const syncCellText = (): void => {
         ctx.state.linearLayoutCellTextState = Object.fromEntries(labels.map((label) => [
             label,
@@ -169,13 +199,30 @@ export function renderLinearLayoutColorWidget(ctx: LinearLayoutUiContext): void 
         ctx.linearLayoutColorWidget.querySelector<HTMLInputElement>(`#cell-text-${CSS.escape(label)}`)?.addEventListener('change', syncCellText);
     });
 
-    /** store a drag payload under a private type plus text fallback for browsers. */
+    /**
+ * store a drag payload under a private type plus text fallback for browsers.
+ *
+ * @param event - Browser event that triggered this handler.
+ * @param payload - payload input used by this operation (Record<string, string>).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * writeDragPayload(event, payload);
+ */
     const writeDragPayload = (event: DragEvent, payload: Record<string, string>): void => {
         event.dataTransfer?.setData('application/x-linear-layout-mapping', JSON.stringify(payload));
         event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
     };
-    /** parse one color-channel drag payload, returning null for unrelated drags. */
+    /**
+ * parse one color-channel drag payload, returning null for unrelated drags.
+ *
+ * @param event - Browser event that triggered this handler.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * readDragPayload(event);
+ */
     const readDragPayload = (event: DragEvent): Record<string, string> | null => {
         const raw = event.dataTransfer?.getData('application/x-linear-layout-mapping') || event.dataTransfer?.getData('text/plain');
         if (!raw) return null;

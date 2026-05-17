@@ -19,6 +19,13 @@ const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);
 
 /**
  * create line for the current viewer state.
+ *
+ * @param points - points input used by this operation (Vector3[]).
+ * @param color - color input used by this operation (string).
+ * @returns Computed Line value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createLine(points, color);
  */
 export function createLine(points: Vector3[], color: string): Line {
     const geometry = new BufferGeometry().setFromPoints(points);
@@ -29,6 +36,12 @@ export function createLine(points: Vector3[], color: string): Line {
 
 /**
  * initialize vertex colors for the current viewer state.
+ *
+ * @param geometry - geometry input used by this operation (BufferGeometry).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * initializeVertexColors(geometry);
  */
 export function initializeVertexColors(geometry: BufferGeometry): void {
     const normals = geometry.attributes.normal;
@@ -47,6 +60,13 @@ export function initializeVertexColors(geometry: BufferGeometry): void {
 
 /**
  * create text label for the current viewer state.
+ *
+ * @param text - Text supplied by the caller.
+ * @param color - color input used by this operation (value).
+ * @returns Computed Group value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createTextLabel(text, color);
  */
 export function createTextLabel(text: string, color = '#334155'): Group {
     // use shape text instead of troika so brave/linux stays on the same path as the working line geometry.
@@ -70,6 +90,14 @@ export function createTextLabel(text: string, color = '#334155'): Group {
 
 /**
  * return axis family color for the current viewer state.
+ *
+ * @param worldKey - world key input used by this operation (0 | 1 | 2).
+ * @param familyIndex - Index used by this operation.
+ * @param familyCount - family count input used by this operation (number).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * axisFamilyColor(worldKey, familyIndex, familyCount);
  */
 export function axisFamilyColor(worldKey: 0 | 1 | 2, familyIndex: number, familyCount: number): string {
     const t = Math.max(1, familyIndex + 1) / Math.max(1, familyCount);

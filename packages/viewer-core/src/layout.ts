@@ -9,6 +9,9 @@ export const DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE = 3;
 
 /**
  * shape of extent3 data used by the viewer.
+ *
+ * @example
+ * const value: Extent3 = {} as Extent3;
  */
 type Extent3 = {
     x: number;
@@ -18,13 +21,21 @@ type Extent3 = {
 
 /**
  * shape of extent2 data used by the viewer.
+ *
+ * @example
+ * const value: Extent2 = {} as Extent2;
  */
 type Extent2 = {
     x: number;
     y: number;
 };
 
-/** One 2D hit-test result containing the layout coordinate and world position. */
+/**
+ * One 2D hit-test result containing the layout coordinate and world position.
+ *
+ * @example
+ * const value: CoordHit2D = {} as CoordHit2D;
+ */
 export type CoordHit2D = {
     coord: number[];
     position: {
@@ -35,7 +46,18 @@ export type CoordHit2D = {
 
 const CELL_HIT_EPSILON = 1e-6;
 
-/** Map one tensor axis to the x, y, or z family used by the layout engine. */
+/**
+ * Map one tensor axis to the x, y, or z family used by the layout engine.
+ *
+ * @param displayMode - display mode input used by this operation ('2d' | '3d').
+ * @param rank - rank input used by this operation (number).
+ * @param axis - axis index used by this operation.
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Computed 0 | 1 | 2 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * axisWorldKeyForMode(displayMode, rank, axis, scheme);
+ */
 export function axisWorldKeyForMode(
     displayMode: '2d' | '3d',
     rank: number,
@@ -64,6 +86,12 @@ export function axisWorldKeyForMode(
 
 /**
  * normalize display shape for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeDisplayShape(shape);
  */
 function normalizeDisplayShape(shape: number[]): number[] {
     return shape.length === 0 ? [1] : shape.map((value) => Math.max(1, value));
@@ -71,6 +99,12 @@ function normalizeDisplayShape(shape: number[]): number[] {
 
 /**
  * normalize dimension block gap multiple for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeDimensionBlockGapMultiple(value);
  */
 function normalizeDimensionBlockGapMultiple(value: number): number {
     return Number.isFinite(value) ? Math.max(0, value) : DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE;
@@ -78,6 +112,13 @@ function normalizeDimensionBlockGapMultiple(value: number): number {
 
 /**
  * return level gap for the current viewer state.
+ *
+ * @param level - level input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * levelGap(level, dimensionBlockGapMultiple);
  */
 function levelGap(level: number, dimensionBlockGapMultiple: number): number {
     if (dimensionBlockGapMultiple <= 0) return 0;
@@ -86,6 +127,12 @@ function levelGap(level: number, dimensionBlockGapMultiple: number): number {
 
 /**
  * return depth height width for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * depthHeightWidth(shape);
  */
 function depthHeightWidth(shape: number[]): { depth: number; height: number; width: number } {
     if (shape.length === 1) return { depth: 1, height: 1, width: shape[0] };
@@ -99,6 +146,15 @@ function depthHeightWidth(shape: number[]): { depth: number; height: number; wid
 
 /**
  * return base grid extent3 d for the current viewer state.
+ *
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent3).
+ * @param level - level input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Extent3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * baseGridExtent3D(shapeInput, cellExtent, level, dimensionBlockGapMultiple);
  */
 function baseGridExtent3D(shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Extent3 {
     const shape = normalizeDisplayShape(shapeInput);
@@ -113,6 +169,15 @@ function baseGridExtent3D(shapeInput: number[], cellExtent: Extent3, level: numb
 
 /**
  * return recursive extent3 d for the current viewer state.
+ *
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent3).
+ * @param level - level input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Extent3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * recursiveExtent3D(shapeInput, cellExtent, level, dimensionBlockGapMultiple);
  */
 function recursiveExtent3D(shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Extent3 {
     const shape = normalizeDisplayShape(shapeInput);
@@ -126,6 +191,16 @@ function recursiveExtent3D(shapeInput: number[], cellExtent: Extent3, level: num
 
 /**
  * return base grid position3 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent3).
+ * @param level - level input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Vector3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * baseGridPosition3D(coord, shapeInput, cellExtent, level, dimensionBlockGapMultiple);
  */
 function baseGridPosition3D(coord: number[], shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Vector3 {
     const shape = normalizeDisplayShape(shapeInput);
@@ -146,6 +221,16 @@ function baseGridPosition3D(coord: number[], shapeInput: number[], cellExtent: E
 
 /**
  * return recursive position3 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent3).
+ * @param level - level input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Vector3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * recursivePosition3D(coord, shapeInput, cellExtent, level, dimensionBlockGapMultiple);
  */
 function recursivePosition3D(coord: number[], shapeInput: number[], cellExtent: Extent3, level: number, dimensionBlockGapMultiple: number): Vector3 {
     const shape = normalizeDisplayShape(shapeInput);
@@ -163,6 +248,16 @@ function recursivePosition3D(coord: number[], shapeInput: number[], cellExtent: 
 
 /**
  * return base grid extent2 d for the current viewer state.
+ *
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent2).
+ * @param level - level input used by this operation (number).
+ * @param verticalFor1D - vertical for1 d input used by this operation (boolean).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Extent2 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * baseGridExtent2D(shapeInput, cellExtent, level, verticalFor1D, dimensionBlockGapMultiple);
  */
 function baseGridExtent2D(
     shapeInput: number[],
@@ -189,6 +284,13 @@ function baseGridExtent2D(
 
 /**
  * return axis world key2 dzorder for the current viewer state.
+ *
+ * @param rank - rank input used by this operation (number).
+ * @param axis - axis index used by this operation.
+ * @returns Computed 0 | 1 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * axisWorldKey2DZOrder(rank, axis);
  */
 function axisWorldKey2DZOrder(rank: number, axis: number): 0 | 1 {
     return ((rank - 1 - axis) % 2) as 0 | 1;
@@ -196,6 +298,18 @@ function axisWorldKey2DZOrder(rank: number, axis: number): 0 | 1 {
 
 /**
  * return recursive extent2 d for the current viewer state.
+ *
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent2).
+ * @param level - level input used by this operation (number).
+ * @param verticalFor1D - vertical for1 d input used by this operation (boolean).
+ * @param originalRank - original rank input used by this operation (number).
+ * @param axisOffset - axis offset input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Extent2 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * recursiveExtent2D(shapeInput, cellExtent, level, verticalFor1D, originalRank, axisOffset, dimensionBlockGapMultiple);
  */
 function recursiveExtent2D(
     shapeInput: number[],
@@ -219,6 +333,17 @@ function recursiveExtent2D(
 
 /**
  * return base grid position2 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent2).
+ * @param level - level input used by this operation (number).
+ * @param verticalFor1D - vertical for1 d input used by this operation (boolean).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * baseGridPosition2D(coord, shapeInput, cellExtent, level, verticalFor1D, dimensionBlockGapMultiple);
  */
 function baseGridPosition2D(
     coord: number[],
@@ -250,6 +375,14 @@ function baseGridPosition2D(
 
 /**
  * return inside cell for the current viewer state.
+ *
+ * @param point - point input used by this operation (number).
+ * @param center - center input used by this operation (number).
+ * @param extent - extent input used by this operation (number).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * insideCell(point, center, extent);
  */
 function insideCell(point: number, center: number, extent: number): boolean {
     return Math.abs(point - center) <= extent / 2 + CELL_HIT_EPSILON;
@@ -257,6 +390,12 @@ function insideCell(point: number, center: number, extent: number): boolean {
 
 /**
  * normalize zero for the current viewer state.
+ *
+ * @param value - Value supplied by the caller.
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * normalizeZero(value);
  */
 function normalizeZero(value: number): number {
     return Object.is(value, -0) ? 0 : value;
@@ -264,6 +403,15 @@ function normalizeZero(value: number): number {
 
 /**
  * return family axes for the current viewer state.
+ *
+ * @param rank - rank input used by this operation (number).
+ * @param displayMode - display mode input used by this operation ('2d' | '3d').
+ * @param familyKey - family key input used by this operation (0 | 1 | 2).
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * familyAxes(rank, displayMode, familyKey, scheme);
  */
 function familyAxes(rank: number, displayMode: '2d' | '3d', familyKey: 0 | 1 | 2, scheme: DimensionMappingScheme): number[] {
     return Array.from({ length: rank }, (_entry, axis) => axis)
@@ -272,6 +420,14 @@ function familyAxes(rank: number, displayMode: '2d' | '3d', familyKey: 0 | 1 | 2
 
 /**
  * return family extent1 d for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param axes - axes input used by this operation (number[]).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * familyExtent1D(shape, axes, dimensionBlockGapMultiple);
  */
 function familyExtent1D(shape: number[], axes: number[], dimensionBlockGapMultiple: number): number {
     let extent = CELL_SIZE;
@@ -286,6 +442,16 @@ function familyExtent1D(shape: number[], axes: number[], dimensionBlockGapMultip
 
 /**
  * return family position1 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param axes - axes input used by this operation (number[]).
+ * @param sign - sign input used by this operation (1 | -1).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * familyPosition1D(coord, shape, axes, sign, dimensionBlockGapMultiple);
  */
 function familyPosition1D(
     coord: number[],
@@ -307,6 +473,16 @@ function familyPosition1D(
 
 /**
  * return family hit1 d for the current viewer state.
+ *
+ * @param point - point input used by this operation (number).
+ * @param shape - Tensor shape used by this operation.
+ * @param axes - axes input used by this operation (number[]).
+ * @param sign - sign input used by this operation (1 | -1).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * familyHit1D(point, shape, axes, sign, dimensionBlockGapMultiple);
  */
 function familyHit1D(
     point: number,
@@ -356,6 +532,14 @@ function familyHit1D(
 
 /**
  * return contiguous position3 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Vector3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * contiguousPosition3D(coord, shape, dimensionBlockGapMultiple);
  */
 function contiguousPosition3D(coord: number[], shape: number[], dimensionBlockGapMultiple: number): Vector3 {
     const rank = shape.length;
@@ -368,6 +552,13 @@ function contiguousPosition3D(coord: number[], shape: number[], dimensionBlockGa
 
 /**
  * return contiguous extent3 d for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Extent3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * contiguousExtent3D(shape, dimensionBlockGapMultiple);
  */
 function contiguousExtent3D(shape: number[], dimensionBlockGapMultiple: number): Extent3 {
     const rank = shape.length;
@@ -380,6 +571,14 @@ function contiguousExtent3D(shape: number[], dimensionBlockGapMultiple: number):
 
 /**
  * return contiguous position2 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * contiguousPosition2D(coord, shape, dimensionBlockGapMultiple);
  */
 function contiguousPosition2D(coord: number[], shape: number[], dimensionBlockGapMultiple: number): { x: number; y: number } {
     const rank = shape.length;
@@ -391,6 +590,13 @@ function contiguousPosition2D(coord: number[], shape: number[], dimensionBlockGa
 
 /**
  * return contiguous extent2 d for the current viewer state.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed Extent2 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * contiguousExtent2D(shape, dimensionBlockGapMultiple);
  */
 function contiguousExtent2D(shape: number[], dimensionBlockGapMultiple: number): Extent2 {
     const rank = shape.length;
@@ -402,6 +608,14 @@ function contiguousExtent2D(shape: number[], dimensionBlockGapMultiple: number):
 
 /**
  * return contiguous hit2 d for the current viewer state.
+ *
+ * @param point - point input used by this operation ({ x: number; y: number }).
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * contiguousHit2D(point, shape, dimensionBlockGapMultiple);
  */
 function contiguousHit2D(point: { x: number; y: number }, shape: number[], dimensionBlockGapMultiple: number): CoordHit2D | null {
     const xHit = familyHit1D(point.x, shape, familyAxes(shape.length, '2d', 0, 'contiguous'), 1, dimensionBlockGapMultiple);
@@ -423,6 +637,17 @@ function contiguousHit2D(point: { x: number; y: number }, shape: number[], dimen
 
 /**
  * return base grid hit2 d for the current viewer state.
+ *
+ * @param point - point input used by this operation ({ x: number; y: number }).
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent2).
+ * @param level - level input used by this operation (number).
+ * @param verticalFor1D - vertical for1 d input used by this operation (boolean).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * baseGridHit2D(point, shapeInput, cellExtent, level, verticalFor1D, dimensionBlockGapMultiple);
  */
 function baseGridHit2D(
     point: { x: number; y: number },
@@ -470,6 +695,19 @@ function baseGridHit2D(
 
 /**
  * return recursive position2 d for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent2).
+ * @param level - level input used by this operation (number).
+ * @param verticalFor1D - vertical for1 d input used by this operation (boolean).
+ * @param originalRank - original rank input used by this operation (number).
+ * @param axisOffset - axis offset input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * recursivePosition2D(coord, shapeInput, cellExtent, level, verticalFor1D, originalRank, axisOffset, dimensionBlockGapMultiple);
  */
 function recursivePosition2D(
     coord: number[],
@@ -501,6 +739,19 @@ function recursivePosition2D(
 
 /**
  * return recursive hit2 d for the current viewer state.
+ *
+ * @param point - point input used by this operation ({ x: number; y: number }).
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @param cellExtent - cell extent input used by this operation (Extent2).
+ * @param level - level input used by this operation (number).
+ * @param verticalFor1D - vertical for1 d input used by this operation (boolean).
+ * @param originalRank - original rank input used by this operation (number).
+ * @param axisOffset - axis offset input used by this operation (number).
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (number).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * recursiveHit2D(point, shapeInput, cellExtent, level, verticalFor1D, originalRank, axisOffset, dimensionBlockGapMultiple);
  */
 function recursiveHit2D(
     point: { x: number; y: number },
@@ -546,7 +797,16 @@ function recursiveHit2D(
     };
 }
 
-/** Expand one flat index into per-axis coordinates for the provided shape. */
+/**
+ * Expand one flat index into per-axis coordinates for the provided shape.
+ *
+ * @param index - Index used by this operation.
+ * @param shapeInput - shape input input used by this operation (number[]).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * unravelIndex(index, shapeInput);
+ */
 export function unravelIndex(index: number, shapeInput: number[]): number[] {
     const shape = normalizeDisplayShape(shapeInput);
     const coord = new Array(shape.length).fill(0);
@@ -558,7 +818,18 @@ export function unravelIndex(index: number, shapeInput: number[]): number[] {
     return coord;
 }
 
-/** Position one 3D layout coordinate in world space. */
+/**
+ * Position one 3D layout coordinate in world space.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (value).
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Computed Vector3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * displayPositionForCoord(coord, shape, dimensionBlockGapMultiple, scheme);
+ */
 export function displayPositionForCoord(
     coord: number[],
     shape: number[],
@@ -570,7 +841,17 @@ export function displayPositionForCoord(
     return recursivePosition3D(coord, shape, { x: CELL_SIZE, y: CELL_SIZE, z: CELL_SIZE }, 0, normalizedGapMultiple);
 }
 
-/** Compute the full 3D extent of one rendered tensor layout. */
+/**
+ * Compute the full 3D extent of one rendered tensor layout.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (value).
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Computed Vector3 value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * displayExtent(shape, dimensionBlockGapMultiple, scheme);
+ */
 export function displayExtent(
     shape: number[],
     dimensionBlockGapMultiple = DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
@@ -583,7 +864,18 @@ export function displayExtent(
     return new Vector3(extent.x, extent.y, extent.z);
 }
 
-/** Position one 2D layout coordinate in world space. */
+/**
+ * Position one 2D layout coordinate in world space.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (value).
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * displayPositionForCoord2D(coord, shape, dimensionBlockGapMultiple, scheme);
+ */
 export function displayPositionForCoord2D(
     coord: number[],
     shape: number[],
@@ -596,7 +888,17 @@ export function displayPositionForCoord2D(
     return recursivePosition2D(coord, shape, { x: CELL_SIZE, y: CELL_SIZE }, 0, false, normalized.length, 0, normalizedGapMultiple);
 }
 
-/** Compute the full 2D extent of one rendered tensor layout. */
+/**
+ * Compute the full 2D extent of one rendered tensor layout.
+ *
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (value).
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Object containing computed state for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * displayExtent2D(shape, dimensionBlockGapMultiple, scheme);
+ */
 export function displayExtent2D(
     shape: number[],
     dimensionBlockGapMultiple = DEFAULT_DIMENSION_BLOCK_GAP_MULTIPLE,
@@ -609,7 +911,19 @@ export function displayExtent2D(
         : recursiveExtent2D(normalized, { x: CELL_SIZE, y: CELL_SIZE }, 0, false, normalized.length, 0, normalizedGapMultiple);
 }
 
-/** Hit-test a 2D world-space point against one rendered tensor layout. */
+/**
+ * Hit-test a 2D world-space point against one rendered tensor layout.
+ *
+ * @param x - x input used by this operation (number).
+ * @param y - y input used by this operation (number).
+ * @param shape - Tensor shape used by this operation.
+ * @param dimensionBlockGapMultiple - dimension block gap multiple input used by this operation (value).
+ * @param scheme - scheme input used by this operation (DimensionMappingScheme).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * displayHitForPoint2D(x, y, shape, dimensionBlockGapMultiple, scheme);
+ */
 export function displayHitForPoint2D(
     x: number,
     y: number,

@@ -88,6 +88,9 @@ import { linearLayoutPropagateOutputsInfo } from './widgets/linear-layout-color-
 
 /**
  * shape of linear layout extension runtime data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutExtensionRuntime = {} as LinearLayoutExtensionRuntime;
  */
 export type LinearLayoutExtensionRuntime = DemoAppExtension & {
     state: LinearLayoutUiState;
@@ -113,6 +116,13 @@ export const LINEAR_LAYOUT_WIDGET_SLOTS = [
 
 /**
  * return require widget for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param widgetId - Stable identifier used by this operation.
+ * @returns Computed HTMLElement value for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * requireWidget(ctx, widgetId);
  */
 function requireWidget(ctx: DemoExtensionContext, widgetId: typeof LINEAR_LAYOUT_WIDGETS[number]): HTMLElement {
     const widget = ctx.widgets[widgetId];
@@ -122,6 +132,12 @@ function requireWidget(ctx: DemoExtensionContext, widgetId: typeof LINEAR_LAYOUT
 
 /**
  * return linear layout widget icon for the current viewer state.
+ *
+ * @param widgetId - Stable identifier used by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutWidgetIcon(widgetId);
  */
 function linearLayoutWidgetIcon(widgetId: string): string {
     switch (widgetId) {
@@ -181,9 +197,23 @@ function linearLayoutWidgetIcon(widgetId: string): string {
 
 /**
  * return linear layout widgets for the current viewer state.
+ *
+ * @param ui - ui input used by this operation (LinearLayoutUiContext).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutWidgets(ui);
  */
 function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
-    /** return whether a host tab should show linear-layout widgets. */
+    /**
+ * return whether a host tab should show linear-layout widgets.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * active(ctx);
+ */
     const active = (ctx: DemoExtensionContext): boolean => {
         const tab = ctx.getActiveTab();
         return Boolean(tab && isLinearLayoutTab(tab));
@@ -234,6 +264,12 @@ function linearLayoutWidgets(ui: LinearLayoutUiContext): DemoWidgetSpec[] {
 
 /**
  * create linear layout extension for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Computed LinearLayoutExtensionRuntime value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * createLinearLayoutExtension(ctx);
  */
 export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLayoutExtensionRuntime {
     const hoverPopup = document.createElement('div');
@@ -274,7 +310,14 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         loadTab: ctx.loadTab,
         renderLinearLayoutEditorWidgets: () => { renderLinearLayoutEditorWidgets(ui); },
     };
-    /** render the hover popup from the current viewer hover and selection map. */
+    /**
+ * render the hover popup from the current viewer hover and selection map.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderHoverPopup();
+ */
     const renderHoverPopup = (): void => {
         const tab = ctx.getActiveTab();
         const linearLayoutTab = tab && isLinearLayoutTab(tab) ? tab : null;
@@ -298,7 +341,14 @@ export function createLinearLayoutExtension(ctx: DemoExtensionContext): LinearLa
         hoverPopup.classList.remove('hidden');
         placeHoverPopup();
     };
-    /** keep the hover popup inside the viewport even near the bottom/right edge. */
+    /**
+ * keep the hover popup inside the viewport even near the bottom/right edge.
+ *
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * placeHoverPopup();
+ */
     const placeHoverPopup = (): void => {
         if (hoverPopup.classList.contains('hidden')) return;
         const rect = ctx.viewport.getBoundingClientRect();

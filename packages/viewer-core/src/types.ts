@@ -1,33 +1,78 @@
-/** Supported dense tensor dtypes for viewer storage and manifests. */
+/**
+ * Supported dense tensor dtypes for viewer storage and manifests.
+ *
+ * @example
+ * const value: DType = {} as DType;
+ */
 export type DType = 'float64' | 'float32' | 'int32' | 'uint8';
 
-/** Strategy for assigning tensor axes to the x, y, and z layout families. */
+/**
+ * Strategy for assigning tensor axes to the x, y, and z layout families.
+ *
+ * @example
+ * const value: DimensionMappingScheme = {} as DimensionMappingScheme;
+ */
 export type DimensionMappingScheme = 'z-order' | 'contiguous';
 
-/** Backing typed-array payload accepted by the viewer and bundle loaders. */
+/**
+ * Backing typed-array payload accepted by the viewer and bundle loaders.
+ *
+ * @example
+ * const value: NumericArray = {} as NumericArray;
+ */
 export type NumericArray = Float64Array | Float32Array | Int32Array | Uint8Array;
 
-/** Fixed-length xyz tuple used for tensor offsets and camera values. */
+/**
+ * Fixed-length xyz tuple used for tensor offsets and camera values.
+ *
+ * @example
+ * const value: Vec3 = {} as Vec3;
+ */
 export type Vec3 = readonly [number, number, number];
 
-/** RGB color tuple using 0-255 channels. */
+/**
+ * RGB color tuple using 0-255 channels.
+ *
+ * @example
+ * const value: RGB = {} as RGB;
+ */
 export type RGB = readonly [number, number, number];
 
-/** Hue-saturation tuple used by the viewer's brightness-preserving color mode. */
+/**
+ * Hue-saturation tuple used by the viewer's brightness-preserving color mode.
+ *
+ * @example
+ * const value: HueSaturation = {} as HueSaturation;
+ */
 export type HueSaturation = readonly [number, number];
 
-/** One normalized custom color entry stored on a tensor cell. */
+/**
+ * One normalized custom color entry stored on a tensor cell.
+ *
+ * @example
+ * const value: CustomColor = {} as CustomColor;
+ */
 export type CustomColor =
     | { kind: 'rgb'; value: RGB }
     | { kind: 'hs'; value: HueSaturation };
 
-/** Serializable custom-color instructions persisted in bundle manifests. */
+/**
+ * Serializable custom-color instructions persisted in bundle manifests.
+ *
+ * @example
+ * const value: ColorInstruction = {} as ColorInstruction;
+ */
 export type ColorInstruction =
     | { mode: 'rgb' | 'hs'; kind: 'dense'; values: number[] }
     | { mode: 'rgb' | 'hs'; kind: 'coords'; coords: number[][]; color: number[] }
     | { mode: 'rgb' | 'hs'; kind: 'region'; base: number[]; shape: number[]; jumps: number[]; color: number[] };
 
-/** Lightweight metadata returned when a tensor is added to a viewer. */
+/**
+ * Lightweight metadata returned when a tensor is added to a viewer.
+ *
+ * @example
+ * const value: TensorHandle = {} as TensorHandle;
+ */
 export type TensorHandle = {
     id: string;
     name: string;
@@ -38,34 +83,64 @@ export type TensorHandle = {
     hasData: boolean;
 };
 
-/** Live tensor metadata together with current dense-data availability and value range. */
+/**
+ * Live tensor metadata together with current dense-data availability and value range.
+ *
+ * @example
+ * const value: TensorStatus = {} as TensorStatus;
+ */
 export type TensorStatus = TensorHandle & {
     valueRange: { min: number; max: number } | null;
 };
 
-/** Reason the viewer is asking the host to hydrate a metadata-only tensor. */
+/**
+ * Reason the viewer is asking the host to hydrate a metadata-only tensor.
+ *
+ * @example
+ * const value: TensorDataRequestReason = {} as TensorDataRequestReason;
+ */
 export type TensorDataRequestReason = 'explicit' | 'heatmap' | 'save';
 
-/** Persisted tensor-view state for one tensor. */
+/**
+ * Persisted tensor-view state for one tensor.
+ *
+ * @example
+ * const value: TensorViewSnapshot = {} as TensorViewSnapshot;
+ */
 export type TensorViewSnapshot = {
     editor: TensorViewEditor;
     hiddenIndices: number[];
 };
 
-/** One logical dimension in the staged tensor-view editor. */
+/**
+ * One logical dimension in the staged tensor-view editor.
+ *
+ * @example
+ * const value: TensorViewEditorDim = {} as TensorViewEditorDim;
+ */
 export type TensorViewEditorDim = {
     id: string;
     label: string;
     size: number;
 };
 
-/** One inserted singleton placeholder in the staged tensor-view editor. */
+/**
+ * One inserted singleton placeholder in the staged tensor-view editor.
+ *
+ * @example
+ * const value: TensorViewEditorSingleton = {} as TensorViewEditorSingleton;
+ */
 export type TensorViewEditorSingleton = {
     id: string;
     position: number;
 };
 
-/** Structured staged tensor-view editor state used by the demo UI. */
+/**
+ * Structured staged tensor-view editor state used by the demo UI.
+ *
+ * @example
+ * const value: TensorViewEditor = {} as TensorViewEditor;
+ */
 export type TensorViewEditor = {
     version: 2;
     viewTensorInput: string;
@@ -78,7 +153,12 @@ export type TensorViewEditor = {
     sliceValues: Record<string, number>;
 };
 
-/** Hover payload emitted for the currently pointed tensor cell. */
+/**
+ * Hover payload emitted for the currently pointed tensor cell.
+ *
+ * @example
+ * const value: HoverInfo = {} as HoverInfo;
+ */
 export type HoverInfo = {
     tensorId: string;
     tensorName: string;
@@ -89,17 +169,31 @@ export type HoverInfo = {
     colorSource: 'base' | 'heatmap' | 'custom';
 };
 
-/** Selected tensor coordinates grouped by tensor id. */
+/**
+ * Selected tensor coordinates grouped by tensor id.
+ *
+ * @example
+ * const value: SelectionCoords = {} as SelectionCoords;
+ */
 export type SelectionCoords = Map<string, number[][]>;
 
-/** Primary left-drag interaction used by the viewer. */
+/**
+ * Primary left-drag interaction used by the viewer.
+ *
+ * @example
+ * const value: InteractionMode = {} as InteractionMode;
+ */
 export type InteractionMode = 'pan' | 'select' | 'rotate';
 
-/** Serializable viewer state for one loaded document.
+/**
+ * Serializable viewer state for one loaded document.
  *
  * This captures how the viewer should look after tensors are present:
  * display mode, camera, panel toggles, the active tensor, and each tensor's
  * current offset and tensor-view state.
+ *
+ * @example
+ * const value: ViewerSnapshot = {} as ViewerSnapshot;
  */
 export type ViewerSnapshot = {
     version: 1;
@@ -132,13 +226,23 @@ export type ViewerSnapshot = {
     activeTensorId: string | null;
 };
 
-/** Minimal inspector entry used to populate the active-tensor selector. */
+/**
+ * Minimal inspector entry used to populate the active-tensor selector.
+ *
+ * @example
+ * const value: InspectorTensorOption = {} as InspectorTensorOption;
+ */
 export type InspectorTensorOption = {
     id: string;
     name: string;
 };
 
-/** Parsed hidden-axis token together with its current slice value. */
+/**
+ * Parsed hidden-axis token together with its current slice value.
+ *
+ * @example
+ * const value: SliceToken = {} as SliceToken;
+ */
 export type SliceToken = {
     token: string;
     key: string;
@@ -147,7 +251,12 @@ export type SliceToken = {
     value: number;
 };
 
-/** One parsed token from a tensor-view string, either visible or sliced away. */
+/**
+ * One parsed token from a tensor-view string, either visible or sliced away.
+ *
+ * @example
+ * const value: ViewToken = {} as ViewToken;
+ */
 export type ViewToken = {
     kind: 'axis_group' | 'singleton';
     key: string;
@@ -157,7 +266,12 @@ export type ViewToken = {
     size: number;
 };
 
-/** Fully parsed tensor-view specification derived from one view string. */
+/**
+ * Fully parsed tensor-view specification derived from one view string.
+ *
+ * @example
+ * const value: TensorViewSpec = {} as TensorViewSpec;
+ */
 export type TensorViewSpec = {
     input: string;
     canonical: string;
@@ -178,7 +292,12 @@ export type TensorViewSpec = {
     editor: TensorViewEditor;
 };
 
-/** Result of parsing a tensor-view string against one tensor shape. */
+/**
+ * Result of parsing a tensor-view string against one tensor shape.
+ *
+ * @example
+ * const value: ViewParseResult = {} as ViewParseResult;
+ */
 export type ViewParseResult =
     | {
         ok: true;
@@ -189,11 +308,15 @@ export type ViewParseResult =
         errors: string[];
     };
 
-/** One complete viewer document, typically one tab.
+/**
+ * One complete viewer document, typically one tab.
  *
  * A bundle manifest combines one viewer snapshot with one or more tensor
  * declarations. Each tensor entry describes the tensor's metadata plus where
  * its bytes live, whether it is metadata-only, and any manifest-driven colors.
+ *
+ * @example
+ * const value: BundleManifest = {} as BundleManifest;
  */
 export type BundleManifest = {
     version: 1;
@@ -214,10 +337,14 @@ export type BundleManifest = {
     }>;
 };
 
-/** Multi-tab session document loaded by the demo app or Python server.
+/**
+ * Multi-tab session document loaded by the demo app or Python server.
  *
  * Each tab embeds the same `viewer` plus `tensors` pair used by a bundle
  * manifest, with an added tab id and title.
+ *
+ * @example
+ * const value: SessionBundleManifest = {} as SessionBundleManifest;
  */
 export type SessionBundleManifest = {
     version: 1;
@@ -229,7 +356,12 @@ export type SessionBundleManifest = {
     }>;
 };
 
-/** One loaded tab together with decoded tensor buffers. */
+/**
+ * One loaded tab together with decoded tensor buffers.
+ *
+ * @example
+ * const value: LoadedBundleDocument = {} as LoadedBundleDocument;
+ */
 export type LoadedBundleDocument = {
     id: string;
     title: string;
@@ -237,7 +369,12 @@ export type LoadedBundleDocument = {
     tensors: Map<string, NumericArray>;
 };
 
-/** Internal tensor record tracked by the live viewer scene. */
+/**
+ * Internal tensor record tracked by the live viewer scene.
+ *
+ * @example
+ * const value: TensorRecord = {} as TensorRecord;
+ */
 export type TensorRecord = {
     id: string;
     name: string;
@@ -263,7 +400,12 @@ export type TensorRecord = {
     autoOffset: boolean;
 };
 
-/** Internal mutable viewer state mirrored into public snapshots. */
+/**
+ * Internal mutable viewer state mirrored into public snapshots.
+ *
+ * @example
+ * const value: ViewerState = {} as ViewerState;
+ */
 export type ViewerState = {
     displayMode: '2d' | '3d';
     interactionMode: InteractionMode;

@@ -1,4 +1,9 @@
-/** declarative action rendered as one button in the vertical control dock. */
+/**
+ * declarative action rendered as one button in the vertical control dock.
+ *
+ * @example
+ * const value: ControlSpec = {} as ControlSpec;
+ */
 export type ControlSpec = {
     id: string;
     label: string;
@@ -79,7 +84,16 @@ export const controlIcons = {
     `,
 } as const;
 
-/** render controls from data so new controls do not need to edit DOM assembly. */
+/**
+ * render controls from data so new controls do not need to edit DOM assembly.
+ *
+ * @param controlDock - control dock input used by this operation (HTMLElement).
+ * @param controls - controls input used by this operation (ControlSpec[]).
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * renderControlDockControls(controlDock, controls);
+ */
 export function renderControlDockControls(controlDock: HTMLElement, controls: ControlSpec[]): void {
     controlDock.replaceChildren(...controls.map((control) => {
         const button = controlButton(control);
@@ -94,6 +108,12 @@ export function renderControlDockControls(controlDock: HTMLElement, controls: Co
 
 /**
  * return control button for the current viewer state.
+ *
+ * @param control - control input used by this operation (ControlSpec).
+ * @returns Computed HTMLButtonElement value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * controlButton(control);
  */
 function controlButton(control: ControlSpec): HTMLButtonElement {
     const button = document.createElement('button');

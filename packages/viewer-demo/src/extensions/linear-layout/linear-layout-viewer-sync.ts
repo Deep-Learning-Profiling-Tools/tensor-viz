@@ -26,6 +26,9 @@ import { rootColorsForLayoutState } from './linear-layout.js';
 
 /**
  * shape of linear layout hover popup entry data used by the viewer.
+ *
+ * @example
+ * const value: LinearLayoutHoverPopupEntry = {} as LinearLayoutHoverPopupEntry;
  */
 export type LinearLayoutHoverPopupEntry = {
     color: string;
@@ -34,6 +37,13 @@ export type LinearLayoutHoverPopupEntry = {
 
 /**
  * return preserved linear layout tensor views for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tabId - Stable identifier used by this operation.
+ * @returns Computed LinearLayoutTensorViewsState value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * preservedLinearLayoutTensorViews(ctx, tabId);
  */
 export function preservedLinearLayoutTensorViews(
     ctx: LinearLayoutUiContext,
@@ -48,6 +58,13 @@ export function preservedLinearLayoutTensorViews(
 
 /**
  * return linear layout selection map for tab for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tab - Session tab used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutSelectionMapForTab(ctx, tab);
  */
 export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: LoadedBundleDocument): LinearLayoutSelectionMap | null {
     const cached = ctx.state.linearLayoutSelectionMaps.get(tab.id);
@@ -62,6 +79,15 @@ export function linearLayoutSelectionMapForTab(ctx: LinearLayoutUiContext, tab: 
 
 /**
  * return inspector coord entries for the current viewer state.
+ *
+ * @param _ctx - Context object that supplies viewer state and DOM references.
+ * @param hover - hover input used by this operation (ReturnType<TensorViewer['getHover']>).
+ * @param hoveredStatus - hovered status input used by this operation (ReturnType<TensorViewer['getTensorStatus']> | null).
+ * @param linearLayout - linear layout input used by this operation (LinearLayoutSelectionMap | null).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * inspectorCoordEntries(_ctx, hover, hoveredStatus, linearLayout);
  */
 export function inspectorCoordEntries(
     _ctx: LinearLayoutUiContext,
@@ -96,6 +122,12 @@ export function inspectorCoordEntries(
 
 /**
  * apply linear layout cell text for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyLinearLayoutCellText(ctx);
  */
 export function applyLinearLayoutCellText(ctx: LinearLayoutUiContext): void {
     const tab = activeLinearLayoutTab(ctx);
@@ -116,6 +148,14 @@ export function applyLinearLayoutCellText(ctx: LinearLayoutUiContext): void {
 
 /**
  * return linear layout hover popup entries for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param hover - hover input used by this operation (ReturnType<TensorViewer['getHover']>).
+ * @param linearLayout - linear layout input used by this operation (LinearLayoutSelectionMap | null).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutHoverPopupEntries(ctx, hover, linearLayout);
  */
 export function linearLayoutHoverPopupEntries(
     ctx: LinearLayoutUiContext,
@@ -155,6 +195,12 @@ export function linearLayoutHoverPopupEntries(
 
 /**
  * sync linear layout view filters for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncLinearLayoutViewFilters(ctx);
  */
 export function syncLinearLayoutViewFilters(ctx: LinearLayoutUiContext): void {
     const tab = ctx.getActiveTab();
@@ -167,6 +213,13 @@ export function syncLinearLayoutViewFilters(ctx: LinearLayoutUiContext): void {
 
 /**
  * sync linear layout selection for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param selection - Selection data used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncLinearLayoutSelection(ctx, selection);
  */
 export function syncLinearLayoutSelection(ctx: LinearLayoutUiContext, selection: SelectionCoords): void {
     if (ctx.state.syncingLinearLayoutSelection) return;
@@ -185,6 +238,13 @@ export function syncLinearLayoutSelection(ctx: LinearLayoutUiContext, selection:
 
 /**
  * sync linear layout selection preview for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param selection - Selection data used by this operation.
+ * @returns Nothing; the function updates state in place.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * syncLinearLayoutSelectionPreview(ctx, selection);
  */
 export function syncLinearLayoutSelectionPreview(ctx: LinearLayoutUiContext, selection: SelectionCoords): void {
     const tab = ctx.getActiveTab();
@@ -198,6 +258,12 @@ export function syncLinearLayoutSelectionPreview(ctx: LinearLayoutUiContext, sel
 
 /**
  * return active linear layout tab for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * activeLinearLayoutTab(ctx);
  */
 function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleDocument | null {
     const tab = ctx.getActiveTab();
@@ -206,6 +272,13 @@ function activeLinearLayoutTab(ctx: LinearLayoutUiContext): LoadedBundleDocument
 
 /**
  * return selections match for the current viewer state.
+ *
+ * @param left - left input used by this operation (SelectionCoords).
+ * @param right - right input used by this operation (Map<string, number[][]>).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionsMatch(left, right);
  */
 function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>): boolean {
     if (left.size !== right.size) return false;
@@ -224,6 +297,14 @@ function selectionsMatch(left: SelectionCoords, right: Map<string, number[][]>):
 
 /**
  * return selection source tensor id for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param selection - Selection data used by this operation.
+ * @param mapping - Mapping data used by this operation.
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * selectionSourceTensorId(ctx, selection, mapping);
  */
 function selectionSourceTensorId(ctx: LinearLayoutUiContext, selection: SelectionCoords, mapping: LinearLayoutSelectionMap): string | null {
     const nonEmpty = mapping.orderedTensorIds.filter((tensorId) => (selection.get(tensorId)?.length ?? 0) > 0);
@@ -235,6 +316,14 @@ function selectionSourceTensorId(ctx: LinearLayoutUiContext, selection: Selectio
 
 /**
  * return mapped selection from source for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param selection - Selection data used by this operation.
+ * @param mapping - Mapping data used by this operation.
+ * @returns Computed SelectionCoords value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * mappedSelectionFromSource(ctx, selection, mapping);
  */
 function mappedSelectionFromSource(
     ctx: LinearLayoutUiContext,
@@ -257,6 +346,14 @@ function mappedSelectionFromSource(
 
 /**
  * return linear layout cell text for coord for the current viewer state.
+ *
+ * @param coord - Coordinate used by this operation.
+ * @param labels - labels input used by this operation (string[]).
+ * @param state - State object read or updated by this operation.
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutCellTextForCoord(coord, labels, state);
  */
 function linearLayoutCellTextForCoord(coord: number[], labels: string[], state: LinearLayoutCellTextState): string {
     return labels
@@ -266,6 +363,14 @@ function linearLayoutCellTextForCoord(coord: number[], labels: string[], state: 
 
 /**
  * return linear layout cell labels for tab for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param tab - Session tab used by this operation.
+ * @param state - State object read or updated by this operation.
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * linearLayoutCellLabelsForTab(ctx, tab, state);
  */
 function linearLayoutCellLabelsForTab(
     ctx: LinearLayoutUiContext,
@@ -296,6 +401,14 @@ function linearLayoutCellLabelsForTab(
 
 /**
  * return propagated coord for root for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param rootIndex - Index used by this operation.
+ * @param propagateOutputs - propagate outputs input used by this operation (boolean).
+ * @returns Array of computed entries for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * propagatedCoordForRoot(mapping, rootIndex, propagateOutputs);
  */
 function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number[] {
     const key = propagateOutputs ? mapping.rootToFinalKeys[rootIndex] : mapping.rootKeys[rootIndex];
@@ -304,6 +417,14 @@ function propagatedCoordForRoot(mapping: LinearLayoutSelectionMap, rootIndex: nu
 
 /**
  * return propagated index for root for the current viewer state.
+ *
+ * @param mapping - Mapping data used by this operation.
+ * @param rootIndex - Index used by this operation.
+ * @param propagateOutputs - propagate outputs input used by this operation (boolean).
+ * @returns Numeric result computed from the inputs.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * propagatedIndexForRoot(mapping, rootIndex, propagateOutputs);
  */
 function propagatedIndexForRoot(mapping: LinearLayoutSelectionMap, rootIndex: number, propagateOutputs: boolean): number {
     const coord = propagatedCoordForRoot(mapping, rootIndex, propagateOutputs);

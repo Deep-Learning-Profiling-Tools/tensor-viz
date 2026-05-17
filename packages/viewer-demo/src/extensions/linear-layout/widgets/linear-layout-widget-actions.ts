@@ -22,6 +22,13 @@ import {
 
 /**
  * apply linear layout spec for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param options - Options that tune this operation.
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * applyLinearLayoutSpec(ctx, options);
  */
 export async function applyLinearLayoutSpec(
     ctx: LinearLayoutUiContext,
@@ -72,6 +79,14 @@ export async function applyLinearLayoutSpec(
 
 /**
  * upsert linear layout tab for the current viewer state.
+ *
+ * @param ctx - Context object that supplies viewer state and DOM references.
+ * @param document - document input used by this operation (ReturnType<typeof createComposeLayoutDocument>).
+ * @param replaceTabs - replace tabs input used by this operation (value).
+ * @returns Promise that resolves to the computed value.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * upsertLinearLayoutTab(ctx, document, replaceTabs);
  */
 async function upsertLinearLayoutTab(
     ctx: LinearLayoutUiContext,

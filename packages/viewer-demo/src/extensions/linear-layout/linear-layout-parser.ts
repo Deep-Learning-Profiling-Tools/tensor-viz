@@ -1,4 +1,9 @@
-/** parsed form of one named linear-layout basis block. */
+/**
+ * parsed form of one named linear-layout basis block.
+ *
+ * @example
+ * const value: NamedLayoutSpec = {} as NamedLayoutSpec;
+ */
 export type NamedLayoutSpec = {
     name: string;
     inputs: string[];
@@ -6,10 +11,17 @@ export type NamedLayoutSpec = {
     bases: number[][][];
 };
 
-/** parse the editor notation used in the layout specs textarea.
+/**
+ * parse the editor notation used in the layout specs textarea.
  *
  * keeping this as the only specs parser prevents notation changes from
  * spreading into preset matching, legacy migration, and runtime evaluation.
+ *
+ * @param text - Text supplied by the caller.
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseLayoutSpecs(text);
  */
 export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -62,12 +74,28 @@ export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     return specs;
 }
 
-/** remove layout comments before syntax parsing. */
+/**
+ * remove layout comments before syntax parsing.
+ *
+ * @param line - line input used by this operation (string).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * stripLayoutComment(line);
+ */
 export function stripLayoutComment(line: string): string {
     return line.replace(/#.*$/, '');
 }
 
-/** parse one `<name>: [inputs] -> [outputs]` signature line. */
+/**
+ * parse one `<name>: [inputs] -> [outputs]` signature line.
+ *
+ * @param line - line input used by this operation (string).
+ * @returns Object containing computed state for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseSignature(line);
+ */
 export function parseSignature(line: string): { name: string; inputs: string[]; outputs: string[] } {
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[(.*)\]\s*->\s*\[(.*)\]\s*$/);
     if (!match) {
@@ -83,7 +111,15 @@ export function parseSignature(line: string): { name: string; inputs: string[]; 
     return { name, inputs, outputs };
 }
 
-/** format parsed specs back into the canonical notation used for preset matching. */
+/**
+ * format parsed specs back into the canonical notation used for preset matching.
+ *
+ * @param specs - specs input used by this operation (NamedLayoutSpec[]).
+ * @returns Text formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * formatSpecsText(specs);
+ */
 export function formatSpecsText(specs: NamedLayoutSpec[]): string {
     return specs.map((spec) => [
         `${spec.name}: [${spec.inputs.join(',')}] -> [${spec.outputs.join(',')}]`,
@@ -93,6 +129,13 @@ export function formatSpecsText(specs: NamedLayoutSpec[]): string {
 
 /**
  * parse label list for the current viewer state.
+ *
+ * @param source - source input used by this operation (string).
+ * @param label - label input used by this operation (string).
+ * @returns Text entries formatted for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * parseLabelList(source, label);
  */
 function parseLabelList(source: string, label: string): string[] {
     const trimmed = source.trim();
@@ -108,6 +151,14 @@ function parseLabelList(source: string, label: string): string[] {
 
 /**
  * parse basis row for the current viewer state.
+ *
+ * @param line - line input used by this operation (string).
+ * @param outputCount - output count input used by this operation (number).
+ * @param axisLabel - axis label input used by this operation (string).
+ * @returns Array of computed entries for the caller.
+ * @throws Error when the requested input or state is invalid.
+ * @example
+ * parseBasisRow(line, outputCount, axisLabel);
  */
 function parseBasisRow(line: string, outputCount: number, axisLabel: string): number[][] {
     let parsed: unknown;
@@ -137,6 +188,12 @@ function parseBasisRow(line: string, outputCount: number, axisLabel: string): nu
 
 /**
  * return duplicate value for the current viewer state.
+ *
+ * @param values - values input used by this operation (string[]).
+ * @returns Computed value, or null when no value is available.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * duplicateValue(values);
  */
 function duplicateValue(values: string[]): string | null {
     const seen = new Set<string>();

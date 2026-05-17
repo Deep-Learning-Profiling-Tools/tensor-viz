@@ -35,10 +35,14 @@ import type { TensorRecord, TensorViewSpec, ViewerState, Vec3 } from './types.js
 
 const MULTI_INPUT_Z_STEP = 1.15;
 
-/** narrow rendering interface supplied by TensorViewer.
+/**
+ * narrow rendering interface supplied by TensorViewer.
  *
  * keeping this context explicit makes mesh-building testable without creating
  * a WebGL renderer, and it marks the boundary between scene state and geometry.
+ *
+ * @example
+ * const value: MeshViewerContext = {} as MeshViewerContext;
  */
 type MeshViewerContext = {
     cubeGeometry: BoxGeometry;
@@ -74,6 +78,16 @@ type MeshViewerContext = {
 
 /**
  * populate fast mesh2 d for the current viewer state.
+ *
+ * @param viewer - viewer input used by this operation (MeshViewerContext).
+ * @param tensor - Tensor record used by this operation.
+ * @param mesh - mesh input used by this operation (InstancedMesh).
+ * @param instanceShape - Tensor shape used by this operation.
+ * @param heatmapRange - heatmap range input used by this operation ({ min: number; max: number } | null).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * populateFastMesh2D(viewer, tensor, mesh, instanceShape, heatmapRange);
  */
 function populateFastMesh2D(
     viewer: MeshViewerContext,
@@ -163,6 +177,13 @@ function populateFastMesh2D(
 
 /**
  * build outline for the current viewer state.
+ *
+ * @param extent - extent input used by this operation (Vector3).
+ * @param offset - offset input used by this operation (Vec3).
+ * @returns Computed LineSegments value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildOutline(extent, offset);
  */
 function buildOutline(extent: Vector3, offset: Vec3): LineSegments {
     // 3d outlines use box edges so depth sorting and camera rotation stay
@@ -177,6 +198,13 @@ function buildOutline(extent: Vector3, offset: Vec3): LineSegments {
 
 /**
  * build outline2 d for the current viewer state.
+ *
+ * @param extent - extent input used by this operation ({ x: number; y: number }).
+ * @param offset - offset input used by this operation (Vec3).
+ * @returns Computed Line value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildOutline2D(extent, offset);
  */
 function buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
     // 2d outlines are lines instead of box edges because SVG export mirrors this
@@ -196,6 +224,19 @@ function buildOutline2D(extent: { x: number; y: number }, offset: Vec3): Line {
 
 /**
  * build dimension guides2 d for the current viewer state.
+ *
+ * @param viewer - viewer input used by this operation (MeshViewerContext).
+ * @param shape - Tensor shape used by this operation.
+ * @param offset - offset input used by this operation (Vec3).
+ * @param labels - labels input used by this operation (string[]).
+ * @param guideOffset - guide offset input used by this operation (number).
+ * @param linearStep - linear step input used by this operation (number).
+ * @param labelOffset - label offset input used by this operation (number).
+ * @param labelScale - label scale input used by this operation (number).
+ * @returns Computed Group value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildDimensionGuides2D(viewer, shape, offset, labels, guideOffset, linearStep, labelOffset, labelScale);
  */
 function buildDimensionGuides2D(
     viewer: MeshViewerContext,
@@ -256,6 +297,16 @@ function buildDimensionGuides2D(
 
 /**
  * build dimension guides for the current viewer state.
+ *
+ * @param viewer - viewer input used by this operation (MeshViewerContext).
+ * @param extent - extent input used by this operation (Vector3).
+ * @param shape - Tensor shape used by this operation.
+ * @param offset - offset input used by this operation (Vec3).
+ * @param labels - labels input used by this operation (string[]).
+ * @returns Computed Group value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildDimensionGuides(viewer, extent, shape, offset, labels);
  */
 function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape: number[], offset: Vec3, labels: string[]): Group {
     const group = new Group();
@@ -338,10 +389,18 @@ function buildDimensionGuides(viewer: MeshViewerContext, extent: Vector3, shape:
     return group;
 }
 
-/** build the three.js group for one tensor record.
+/**
+ * build the three.js group for one tensor record.
  *
  * rendering changes should start here when they affect per-cell geometry,
  * labels, outlines, or guides; viewer.ts owns orchestration and event state.
+ *
+ * @param viewer - viewer input used by this operation (MeshViewerContext).
+ * @param tensor - Tensor record used by this operation.
+ * @returns Computed Group value for the caller.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * buildTensorGroup(viewer, tensor);
  */
 export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord): Group {
     const group = new Group();
@@ -512,7 +571,17 @@ export function buildTensorGroup(viewer: MeshViewerContext, tensor: TensorRecord
     return group;
 }
 
-/** update only colors/positions when a slice value changes without changing shape. */
+/**
+ * update only colors/positions when a slice value changes without changing shape.
+ *
+ * @param viewer - viewer input used by this operation (MeshViewerContext).
+ * @param tensor - Tensor record used by this operation.
+ * @param previousView - previous view input used by this operation (TensorViewSpec).
+ * @returns Whether the requested condition holds.
+ * @noThrows This function has no direct throw path.
+ * @example
+ * updateSliceMesh(viewer, tensor, previousView);
+ */
 export function updateSliceMesh(viewer: MeshViewerContext, tensor: TensorRecord, previousView: TensorViewSpec): boolean {
     if (previousView.canonical !== tensor.view.canonical) return false;
     if (!previousView.hiddenIndices.some((value, index) => value !== tensor.view.hiddenIndices[index])) return false;
