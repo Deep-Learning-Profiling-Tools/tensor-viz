@@ -12,16 +12,43 @@ export type NamedLayoutSpec = {
 };
 
 /**
- * parse the editor notation used in the layout specs textarea.
+ * Parses the layout-spec editor text into named linear-layout definitions.
  *
- * keeping this as the only specs parser prevents notation changes from
- * spreading into preset matching, legacy migration, and runtime evaluation.
+ * Blank lines and `#` comments are ignored. Each definition starts with a
+ * `<name>: [inputs] -> [outputs]` signature followed by one JSON basis row for
+ * each input label; rows may appear in any order and are reordered to match the
+ * signature.
  *
- * @param text - Text supplied by the caller.
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param text - Contents of the layout specs textarea, including optional blank lines and `#` comments.
+ * @returns Parsed layout specs with unique names, input/output labels, and basis rows ordered by the signature input labels.
+ * @throws Error when a signature is malformed, a basis row is missing, a row uses an unknown or duplicate input label, a basis vector is invalid JSON or has the wrong output length, or two layouts use the same name.
  * @example
- * parseLayoutSpecs(text);
+ * const specs = parseLayoutSpecs(`
+ * swizzle: [m, n] -> [row, col]
+ * m: [[1, 0], [0, 1]]
+ * n: [[0, 1]] # comment text is ignored
+ * `);
+ *
+ * expect(specs).toEqual([
+ *   {
+ *     name: 'swizzle',
+ *     inputs: ['m', 'n'],
+ *     outputs: ['row', 'col'],
+ *     bases: [
+ *       [[1, 0], [0, 1]],
+ *       [[0, 1]],
+ *     ],
+ *   },
+ * ]);
+ * @example
+ * expect(() =>
+ *   parseLayoutSpecs(`
+ * dup: [m] -> [row]
+ * m: [[1]]
+ * dup: [n] -> [col]
+ * n: [[1]]
+ * `),
+ * ).toThrow('Layout names must be unique; received duplicate dup.');
  */
 export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
     const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -75,26 +102,34 @@ export function parseLayoutSpecs(text: string): NamedLayoutSpec[] {
 }
 
 /**
- * remove layout comments before syntax parsing.
+ * Removes the inline `#` comment portion from one layout-spec line before parsing.
  *
- * @param line - line input used by this operation (string).
- * @returns Text formatted for the caller.
- * @noThrows This function has no direct throw path.
+ * @param line - A single raw line from the layout specs textarea.
+ * @returns The same line truncated before the first `#`, preserving any whitespace before the comment marker.
+ * @noThrows Uses only `String.prototype.replace` with a fixed regular expression on the supplied string, with no parsing or validation branch.
  * @example
- * stripLayoutComment(line);
+ * expect(stripLayoutComment('m: [[1, 0]] # row contribution')).toBe('m: [[1, 0]] ');
  */
 export function stripLayoutComment(line: string): string {
     return line.replace(/#.*$/, '');
 }
 
 /**
- * parse one `<name>: [inputs] -> [outputs]` signature line.
+ * Parses a layout signature line into its layout name and axis label lists.
  *
- * @param line - line input used by this operation (string).
- * @returns Object containing computed state for the caller.
- * @throws Error when the requested input or state is invalid.
+ * @param line - Trimmed signature text in `<name>: [inputLabels] -> [outputLabels]` form.
+ * @returns The parsed layout name plus ordered input and output labels for later basis-row validation.
+ * @throws Error when the line does not match the signature syntax, a label list contains an invalid label token, or an input or output label is repeated.
  * @example
- * parseSignature(line);
+ * expect(parseSignature('wmma: [m, n] -> [row, col]')).toEqual({
+ *   name: 'wmma',
+ *   inputs: ['m', 'n'],
+ *   outputs: ['row', 'col'],
+ * });
+ * @example
+ * expect(() => parseSignature('wmma: [m, m] -> [row]')).toThrow(
+ *   'Layout wmma has duplicate input label m.',
+ * );
  */
 export function parseSignature(line: string): { name: string; inputs: string[]; outputs: string[] } {
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[(.*)\]\s*->\s*\[(.*)\]\s*$/);
@@ -150,15 +185,26 @@ function parseLabelList(source: string, label: string): string[] {
 }
 
 /**
- * parse basis row for the current viewer state.
+ * Parses the JSON basis-vector list for one input axis of a layout spec.
  *
- * @param line - line input used by this operation (string).
- * @param outputCount - output count input used by this operation (number).
- * @param axisLabel - axis label input used by this operation (string).
- * @returns Array of computed entries for the caller.
- * @throws Error when the requested input or state is invalid.
+ * Each nested vector describes the non-negative integer contribution of that
+ * input axis to every output axis, so every vector must have exactly one entry
+ * per output label.
+ *
+ * @param line - JSON text that appears after `<axisLabel>:` in a basis row.
+ * @param outputCount - Number of output labels in the layout signature; each basis vector must have this length.
+ * @param axisLabel - Input-axis label used to identify the row in validation errors.
+ * @returns Basis vectors for the input axis as arrays of non-negative integers, ready for GF(2) matrix conversion.
+ * @throws Error when the row is not valid JSON, the parsed value or a basis entry is not an array, a basis vector length differs from `outputCount`, or a vector entry is negative or fractional.
  * @example
- * parseBasisRow(line, outputCount, axisLabel);
+ * expect(parseBasisRow('[[1, 0], [0, 1]]', 2, 'm')).toEqual([
+ *   [1, 0],
+ *   [0, 1],
+ * ]);
+ * @example
+ * expect(() => parseBasisRow('[[1, -1]]', 2, 'm')).toThrow(
+ *   'm basis 1[2] must be a non-negative integer.',
+ * );
  */
 function parseBasisRow(line: string, outputCount: number, axisLabel: string): number[][] {
     let parsed: unknown;
@@ -187,13 +233,14 @@ function parseBasisRow(line: string, outputCount: number, axisLabel: string): nu
 }
 
 /**
- * return duplicate value for the current viewer state.
+ * Finds the first string that appears more than once while scanning a label list.
  *
- * @param values - values input used by this operation (string[]).
- * @returns Computed value, or null when no value is available.
- * @noThrows This function has no direct throw path.
+ * @param values - Ordered layout names or axis labels to check for repeated entries.
+ * @returns The first repeated string encountered during the left-to-right scan, or `null` when every value is unique.
+ * @noThrows Only records strings in an in-memory `Set` and performs no parsing, validation, or user-code callbacks.
  * @example
- * duplicateValue(values);
+ * expect(duplicateValue(['m', 'n', 'm'])).toBe('m');
+ * expect(duplicateValue(['m', 'n', 'k'])).toBeNull();
  */
 function duplicateValue(values: string[]): string | null {
     const seen = new Set<string>();
