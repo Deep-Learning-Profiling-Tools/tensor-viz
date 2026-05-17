@@ -12,6 +12,8 @@ import { normalizeTensorViewEditor, VIEWER_LIMITS } from './validation.js';
 const TENSOR_VIEW_EDITOR_PREFIX = 'tv2:';
 
 function axisLabel(index: number): string {
+    // labels must stay deterministic because saved tensor-view strings refer to
+    // them when a session is restored without explicit axis names.
     if (index < 26) return String.fromCharCode(65 + index);
     const suffix = Math.floor((index - 26) / 26);
     return `${String.fromCharCode(65 + ((index - 26) % 26))}${suffix}`;
@@ -138,6 +140,8 @@ function parseExplicitViewInput(
         const match = part.match(/^(?:\*A|\*|_)(\d+)(?:\s*=.*)?$/);
         return match ? Math.max(maxIndex, Number(match[1]) + 1) : maxIndex;
     }, 0);
+    // anonymous labels are real labels after parse; choosing fresh suffixes here
+    // prevents `[2, *A0=3]` from generating two dimensions with the same name.
     const dims = parts.map((part, index) => {
         if (/^-?\d+$/.test(part)) {
             const size = Number(part);
@@ -218,6 +222,8 @@ function buildEditorSpec(
     const explicitFinalView = editor.finalViewInput?.trim();
     let tokens: ViewToken[] = [];
     if (explicitFinalView) {
+        // final-view input is a reshape of the permuted base tensor, so tokens
+        // deliberately have no source axes and map through linear indices later.
         const parsedFinal = parseExplicitViewInput(explicitFinalView, product(permutedBaseShape));
         if (!parsedFinal.ok) throw new Error(parsedFinal.errors.join(' '));
         tokens = parsedFinal.dims.map((dim, index) => ({
@@ -282,6 +288,8 @@ function buildEditorSpec(
         .map((token) => {
             const value = Math.max(0, Math.min(token.size - 1, Math.floor(editor.sliceValues[token.key] ?? 0)));
             if (!explicitFinalView && token.kind === 'axis_group') {
+                // sliced grouped axes need to write every original hidden axis;
+                // otherwise value lookup would keep using stale zero indices.
                 const expanded = expandGroupedIndex(token.axes, value, baseShape);
                 token.axes.forEach((axis, axisIndex) => {
                     hiddenIndices[axis] = expanded[axisIndex] ?? 0;
@@ -414,6 +422,8 @@ function normalizeEditor(
     const permutedDimIds = editor.permutedDimIds.filter((dimId) => baseDimIds.has(dimId));
     const droppedPermutedDimIds = editor.permutedDimIds.filter((dimId) => !baseDimIds.has(dimId));
     const baseDimIdChanged = baseDims.some((dim, index) => dim.id !== parsed.baseDims[index]?.id);
+    // keep every valid prior permutation entry, then append new dims. this makes
+    // view-tensor edits preserve user ordering whenever the old ids still exist.
     baseDims.forEach((dim) => {
         if (!permutedDimIds.includes(dim.id)) permutedDimIds.push(dim.id);
     });
@@ -498,12 +508,16 @@ export function clearTensorViewSlices(editor: TensorViewEditor): TensorViewEdito
 }
 
 export function serializeTensorViewEditor(editor: TensorViewEditor): string {
+    // the prefix distinguishes structured editor snapshots from legacy ad-hoc
+    // view strings while still fitting into the existing string API.
     return `${TENSOR_VIEW_EDITOR_PREFIX}${encodeURIComponent(JSON.stringify(normalizeTensorViewEditor(editor)))}`;
 }
 
 /** Map one visible view coordinate into the original dense tensor coordinate. */
 export function mapViewCoordToTensorCoord(viewCoord: number[], spec: TensorViewSpec): number[] {
     if (spec.editor.finalViewInput?.trim()) {
+        // explicit final views reshape after permutation, so coordinate mapping has
+        // to go view -> layout -> linear -> permuted base -> original tensor.
         const layoutCoord = mapViewCoordToLayoutCoord(viewCoord, spec);
         const linearIndex = flattenAxesIndex(
             Array.from({ length: spec.layoutShape.length }, (_entry, index) => index),

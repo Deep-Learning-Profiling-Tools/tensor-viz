@@ -37,8 +37,12 @@ export function axisWorldKeyForMode(
     scheme: DimensionMappingScheme = 'z-order',
 ): 0 | 1 | 2 {
     if (scheme === 'z-order') {
+        // z-order keeps adjacent high-rank axes alternating across screen/world
+        // directions, which makes nested tensor blocks visually separate.
         return (displayMode === '2d' ? (rank - 1 - axis) % 2 : (rank - 1 - axis) % 3) as 0 | 1 | 2;
     }
+    // contiguous mode groups leading axes together so box selection can use
+    // monotonic row/column ranges instead of scanning every rendered cell.
     if (displayMode === '2d') {
         return (axis < Math.floor(rank / 2) ? 1 : 0) as 0 | 1 | 2;
     }
@@ -91,6 +95,8 @@ function recursiveExtent3D(shapeInput: number[], cellExtent: Extent3, level: num
     if (shape.length <= 3) return baseGridExtent3D(shape, cellExtent, level, dimensionBlockGapMultiple);
     const split = shape.length - 3;
     const innerExtent = recursiveExtent3D(shape.slice(split), cellExtent, level, dimensionBlockGapMultiple);
+    // outer axes arrange whole inner blocks, so the inner block extent becomes
+    // the next recursion's effective cell size.
     return recursiveExtent3D(shape.slice(0, split), innerExtent, level + 1, dimensionBlockGapMultiple);
 }
 
@@ -120,6 +126,8 @@ function recursivePosition3D(coord: number[], shapeInput: number[], cellExtent: 
     const innerExtent = recursiveExtent3D(innerShape, cellExtent, level, dimensionBlockGapMultiple);
     const outerPosition = recursivePosition3D(coord.slice(0, split), outerShape, innerExtent, level + 1, dimensionBlockGapMultiple);
     const innerPosition = recursivePosition3D(coord.slice(split), innerShape, cellExtent, level, dimensionBlockGapMultiple);
+    // rendered coordinates are block origin plus in-block offset; keeping the two
+    // parts separate makes extent, position, and hit testing share the same model.
     return outerPosition.add(innerPosition);
 }
 
@@ -216,6 +224,7 @@ function familyExtent1D(shape: number[], axes: number[], dimensionBlockGapMultip
     for (let index = axes.length - 1, level = 0; index >= 0; index -= 1, level += 1) {
         const axis = axes[index];
         const step = extent + levelGap(level, dimensionBlockGapMultiple);
+        // each outer contiguous axis repeats the complete inner extent.
         extent = (shape[axis] - 1) * step + extent;
     }
     return extent;
@@ -252,6 +261,8 @@ function familyHit1D(
     const innerExtents = new Map<number, number>();
     const levels = new Map<number, number>();
     let extent = CELL_SIZE;
+    // hit testing walks outer-to-inner, but it first needs the inner extent for
+    // each axis so rounded candidate indices can be verified against cell bounds.
     for (let index = axes.length - 1, level = 0; index >= 0; index -= 1, level += 1) {
         const axis = axes[index];
         innerExtents.set(axis, extent);
@@ -429,6 +440,8 @@ function recursiveHit2D(
     const outerVertical = axisWorldKey2DZOrder(originalRank, axisOffset + split - 1) === 1;
     const outerHit = recursiveHit2D(point, outerShape, innerExtent, level + 1, outerVertical, originalRank, axisOffset, dimensionBlockGapMultiple);
     if (!outerHit) return null;
+    // subtract the outer block center before recursing into the inner grid; using
+    // absolute coordinates here would make nested blocks impossible to pick.
     const innerHit = recursiveHit2D(
         { x: point.x - outerHit.position.x, y: point.y - outerHit.position.y },
         innerShape,
