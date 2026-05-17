@@ -9,16 +9,15 @@ const SOURCE_ROOTS = [
     'packages/viewer-demo/src',
 ];
 const DEFAULT_MIN_COMMENT_RATIO = 0.1;
-const DEFAULT_MIN_CHANGED_LINES_FOR_RATIO = 10;
 const HELPER_MIN_REFERENCES = 3;
 const INTERFACE_BOUNDARY_PATTERN = /@(interfaceBoundary|boundary|publicApi)\b|interface boundary/i;
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs.filter((arg) => arg.startsWith('--')));
+const pathArgs = rawArgs.filter((arg) => !arg.startsWith('--'));
 const stagedOnly = args.has('--staged');
 const strictJsdoc = args.has('--strict-jsdoc');
 const minCommentRatio = optionNumber('--min-comment-ratio', DEFAULT_MIN_COMMENT_RATIO);
-const minChangedLinesForRatio = optionNumber('--min-changed-lines-for-ratio', DEFAULT_MIN_CHANGED_LINES_FOR_RATIO);
-const changedLinesByFile = stagedOnly ? stagedChangedLines() : new Map();
 
 /** return one numeric CLI option, or the fallback when the option is omitted. */
 function optionNumber(name, fallback) {
@@ -59,57 +58,26 @@ function stagedFiles() {
         .filter(isSourceFile);
 }
 
-/** return new-file line numbers touched by the staged diff for each source file. */
-function stagedChangedLines() {
-    const output = execFileSync(
-        'git',
-        ['diff', '--cached', '--unified=0', '--diff-filter=ACMR'],
-        { cwd: ROOT, encoding: 'utf8' },
-    );
-    const linesByFile = new Map();
-    let currentPath = null;
-    output.split('\n').forEach((line) => {
-        const fileMatch = line.match(/^diff --git a\/(.+) b\/(.+)$/);
-        if (fileMatch) {
-            const path = resolve(ROOT, fileMatch[2]);
-            currentPath = isSourceFile(path) ? path : null;
-            if (currentPath && !linesByFile.has(currentPath)) linesByFile.set(currentPath, new Set());
-            return;
-        }
-        if (!currentPath) return;
-        const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-        if (!hunkMatch) return;
-        const start = Number(hunkMatch[1]);
-        const count = hunkMatch[2] === undefined ? 1 : Number(hunkMatch[2]);
-        for (let lineNumber = start; lineNumber < start + count; lineNumber += 1) {
-            linesByFile.get(currentPath).add(lineNumber);
-        }
+/** return audited source files from explicit file or directory arguments. */
+function explicitFiles() {
+    return pathArgs.flatMap((arg) => {
+        const path = resolve(ROOT, arg);
+        if (statSync(path).isDirectory()) return walk(path);
+        return isSourceFile(path) ? [path] : [];
     });
-    return linesByFile;
 }
 
 /** return the files that should be audited for this invocation. */
 function sourceFiles() {
-    return stagedOnly
-        ? stagedFiles()
-        : SOURCE_ROOTS.flatMap((root) => walk(resolve(ROOT, root)));
+    if (pathArgs.length > 0) return explicitFiles();
+    if (stagedOnly) return stagedFiles();
+    return SOURCE_ROOTS.flatMap((root) => walk(resolve(ROOT, root)));
 }
 
 /** return a stable file:line:column string for diagnostics. */
 function lineAndColumn(sourceFile, position) {
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(position);
     return `${relative(ROOT, sourceFile.fileName)}:${line + 1}:${character + 1}`;
-}
-
-/** return the one-indexed declaration start line for staged-diff filtering. */
-function nodeLine(sourceFile, node) {
-    return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-}
-
-/** return whether one declaration should be checked under staged/full mode. */
-function shouldAuditNode(sourceFile, node) {
-    if (!stagedOnly) return true;
-    return changedLinesByFile.get(sourceFile.fileName)?.has(nodeLine(sourceFile, node)) ?? false;
 }
 
 /** return whether a declaration has an adjacent JSDoc block immediately above it. */
@@ -228,7 +196,7 @@ function strictJsdocErrors(node, sourceFile) {
 function docstringFailures(sourceFile) {
     const failures = [];
     const visit = (node) => {
-        if (shouldCheckNode(node) && shouldAuditNode(sourceFile, node)) {
+        if (shouldCheckNode(node)) {
             if (!hasJsdoc(node, sourceFile)) {
                 failures.push(`${lineAndColumn(sourceFile, node.getStart(sourceFile))} ${declarationLabel(node)} lacks a JSDoc block`);
             } else {
@@ -290,7 +258,6 @@ function referenceCount(sourceFile, name, nameNode) {
 /** return helper-use-count failures in one parsed source file. */
 function helperUsageFailures(sourceFile) {
     return helperCandidates(sourceFile)
-        .filter(({ node }) => shouldAuditNode(sourceFile, node))
         .map(({ name, nameNode, node }) => ({
             name,
             references: referenceCount(sourceFile, name, nameNode),
@@ -320,26 +287,18 @@ function commentLines(text) {
     return lines;
 }
 
-/** return whether one line number is in the active audit scope. */
-function lineIsInScope(lineNumber, changedLines) {
-    return !stagedOnly || changedLines?.has(lineNumber);
-}
-
 /** return comment-ratio failures for one source file. */
 function commentRatioFailure(path) {
     const text = readFileSync(path, 'utf8');
-    const changedLines = changedLinesByFile.get(path);
     const comments = commentLines(text);
     const scopedLines = text
         .split('\n')
         .map((line, index) => ({ text: line, number: index + 1 }))
-        .filter((line) => line.text.trim() && lineIsInScope(line.number, changedLines));
-    if (stagedOnly && scopedLines.length < minChangedLinesForRatio) return null;
+        .filter((line) => line.text.trim());
     if (scopedLines.length === 0) return null;
     const ratio = scopedLines.filter((line) => comments.has(line.number)).length / scopedLines.length;
     if (ratio >= minCommentRatio) return null;
-    const scope = stagedOnly ? 'changed-line' : 'file';
-    return `${relative(ROOT, path)} ${scope} comment ratio ${(ratio * 100).toFixed(1)}% is below ${(minCommentRatio * 100).toFixed(1)}%`;
+    return `${relative(ROOT, path)} file comment ratio ${(ratio * 100).toFixed(1)}% is below ${(minCommentRatio * 100).toFixed(1)}%`;
 }
 
 /** parse one source file with full AST nodes for declaration audits. */
@@ -354,7 +313,7 @@ function parseSourceFile(path) {
 
 const files = sourceFiles();
 if (files.length === 0) {
-    console.log(stagedOnly ? 'No staged TypeScript source files to check.' : 'No TypeScript source files to check.');
+    console.log(stagedOnly ? 'No staged TypeScript source files to check.' : 'No TypeScript source files matched.');
     process.exit(0);
 }
 
