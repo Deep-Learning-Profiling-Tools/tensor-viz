@@ -7,8 +7,8 @@ const result = spawnSync(
     process.execPath,
     [
         scriptPath,
-        '--file=packages/viewer-demo/src/extensions/linear-layout/linear-layout-parser.ts',
-        '--symbol=parseLayoutSpecs',
+        '--file=packages/viewer-core/src/view.ts',
+        '--symbol=parseTensorView',
         '--include-direct-helpers',
         '--batch-size=8',
         ...process.argv.slice(2),

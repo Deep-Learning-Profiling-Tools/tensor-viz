@@ -26,16 +26,47 @@ import {
     labelWithInfo,
     selectionEnabled,
 } from './app-format.js';
-import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoTensorViewContribution, DemoWidgetSpec } from './app-extension.js';
+import type { CommandAction, DemoAppExtension, DemoExtensionContext, DemoExtensionFactory, DemoTensorViewContribution, DemoWidgetSpec } from './app-extension.js';
 import { getAppRoot, mountAppShell, renderWebglUnavailable, supportsWebGL, type AppShellWidgetSlot } from './app-shell.js';
 import { controlIcons, renderControlDockControls, type ControlSpec } from './control-dock.js';
-import { DEMO_EXTENSION_FACTORIES } from './registered-extensions.js';
 import './styles.css';
 
 // this file owns the generic demo shell: tabs, widgets, command routing, and
 // session loading. feature-specific behavior should enter through DemoAppExtension
 // hooks so adding a preset family or widget does not require new shell branches.
-const app = getAppRoot();
+/**
+ * Runtime options for mounting the generic tensor-viz demo shell.
+ *
+ * @param root - Optional existing application root. When omitted, the shell uses the standard `#app` lookup and creates it if needed.
+ * @param extensionFactories - Extension factories supplied by the host package. LL-viz passes its linear-layout factory here while standalone tensor-viz starts with an empty extension list.
+ * @example
+ * startDemoApp({
+ *   root: document.querySelector<HTMLElement>('#app')!,
+ *   extensionFactories: [linearLayoutExtensionFactory],
+ * });
+ */
+export type DemoAppRuntimeOptions = {
+    root?: HTMLDivElement;
+    extensionFactories?: readonly DemoExtensionFactory[];
+};
+
+/**
+ * Mount the generic tensor-viz demo shell into the document and wire any host-supplied extensions.
+ *
+ * @param options - Optional root element and extension factories supplied by the embedding package.
+ * @returns Nothing. The call mutates the chosen DOM root by inserting the viewer shell and starts async session/fallback loading.
+ * @noThrows Startup itself handles WebGL fallback rendering and catches asynchronous session-loading failures by seeding demo tensors; synchronous DOM failures still indicate an invalid host document.
+ * @example
+ * startDemoApp();
+ * // The standalone tensor-viz app starts with no workflow-specific extension widgets.
+ *
+ * @example
+ * startDemoApp({ extensionFactories: [linearLayoutExtensionFactory] });
+ * // LL-viz receives the same shell plus its linear-layout widgets, controls, and tab hooks.
+ */
+export function startDemoApp(options: DemoAppRuntimeOptions = {}): void {
+const app = options.root ?? getAppRoot();
+const extensionFactories = [...(options.extensionFactories ?? [])];
 
 if (!supportsWebGL()) {
     renderWebglUnavailable(app);
@@ -47,7 +78,7 @@ const CORE_WIDGET_SLOTS = [
     { id: 'selection' },
     { id: 'advanced-settings' },
 ] satisfies AppShellWidgetSlot[];
-const EXTENSION_WIDGET_SLOTS = DEMO_EXTENSION_FACTORIES.flatMap((factory) => factory.widgetSlots);
+const EXTENSION_WIDGET_SLOTS = extensionFactories.flatMap((factory) => factory.widgetSlots);
 const {
     viewport,
     tabStrip,
@@ -238,7 +269,7 @@ const coreWidgetSpecs: DemoWidgetSpec[] = [
     },
 ];
 
-const extensions: DemoAppExtension[] = DEMO_EXTENSION_FACTORIES.map((factory) => factory.create(extensionContext));
+const extensions: DemoAppExtension[] = extensionFactories.map((factory) => factory.create(extensionContext));
 const widgetSpecs = [...extensions.flatMap((extension) => extension.widgets), ...coreWidgetSpecs];
 const widgetSpecById = new Map(widgetSpecs.map((spec) => [spec.id, spec]));
 // widgets are looked up once from shell slots, then driven by DemoWidgetSpec.
@@ -3584,4 +3615,5 @@ tryLoadSession().then(async (loaded) => {
     if (await loadFallbackTabs()) return;
     seedDemoTensor();
 });
+}
 }

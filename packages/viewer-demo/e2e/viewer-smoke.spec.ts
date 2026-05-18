@@ -28,14 +28,10 @@ test('viewer demo boots, paints tensors, and exposes core controls', async ({ pa
     // startup
     await expect(page.locator('.ribbon')).toBeVisible();
     await expect(page.locator('#viewport')).toBeVisible();
-    expect(await page.locator('.tab-button').count()).toBeGreaterThan(0);
 
-    // extension widgets
-    await expect(page.locator('#linear-layout-preset-widget')).toBeVisible();
-    await expect(page.locator('#linear-layout-widget')).toBeVisible();
+    // core widgets
     await expect(page.locator('#tensor-view-widget')).toBeVisible();
-    await expect(page.getByText('Preset', { exact: true })).toBeVisible();
-    await expect(page.getByText('Layout Specs', { exact: true })).toBeVisible();
+    await expect(page.locator('#inspector-widget')).toBeVisible();
 
     // viewport paint
     await page.waitForFunction(() => (
