@@ -12,7 +12,7 @@ import {
     Vector3,
 } from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
-import helvetikerBoldFont from 'three/examples/fonts/helvetiker_bold.typeface.json';
+import helvetikerBoldFont from 'three/examples/fonts/helvetiker_bold.typeface.json' with { type: 'json' };
 import { VIEWER_LIMITS } from './validation.js';
 
 const LABEL_FONT = new FontLoader().parse(helvetikerBoldFont as never);

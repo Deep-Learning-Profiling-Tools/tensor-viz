@@ -2,7 +2,7 @@ The `tensor-viz/` repository is a small monorepo because the project has three j
 
 First, `packages/viewer-core/` is the reusable viewer engine. It knows how to store tensors, parse tensor-view expressions, compute visible coordinates, and render the result. If a behavior should work in any host application, it belongs in core.
 
-Second, `packages/viewer-demo/` is the browser application. It turns the core viewer into a complete UI with tabs, menus, widgets, a command palette, and optional extensions. The demo can add workflows such as linear-layout presets without teaching core about GPU instruction families.
+Second, `packages/viewer-demo/` is the browser application and shell package. It turns the core viewer into a complete UI with tabs, menus, widgets, a command palette, and optional extension hooks. The stock tensor-viz app registers no domain-specific extensions; downstream packages such as LL-viz pass extension factories into the shell at startup.
 
 Third, `python/src/tensor_viz/` is the Python transport layer. It converts Python arrays or metadata into the same manifest format that the TypeScript viewer loads, then serves the built frontend and tensor bytes locally.
 

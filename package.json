@@ -16,7 +16,6 @@
     "check:ts-docs:llm": "node tools/check-ts-docs-llm.mjs",
     "check:ts-docs:llm-example": "node tools/llm-doc-audit-example.mjs",
     "check:ts-docs:staged": "node tools/check-ts-docs.mjs --staged",
-    "sync:linear-layout-examples": "python tools/sync-linear-layout-examples.py",
     "test": "npm run test:unit && npm run test:e2e",
     "test:e2e": "playwright test",
     "test:unit": "npm run test --workspace @tensor-viz/viewer-core && npm run test --workspace @tensor-viz/viewer-demo && PYTHONPATH=python/src python -m unittest discover -s python/tests -p 'test_*.py'",

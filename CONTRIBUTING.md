@@ -62,8 +62,7 @@ npm run check:ts-docs
 npm run check:ts-docs:staged
 ```
 
-The pre-commit hook runs `npm run check:ts-docs:staged` and
-`npm run sync:linear-layout-examples`. Enable it with:
+The pre-commit hook runs `npm run check:ts-docs:staged`. Enable it with:
 
 ```bash
 git config core.hooksPath .githooks
@@ -74,7 +73,7 @@ useful. It requires `OPENAI_API_KEY` unless you pass `--print-prompt`.
 
 | Goal | Command |
 | --- | --- |
-| Test the linear-layout parser example | `npm run check:ts-docs:llm-example` |
+| Test the tensor-view parser example | `npm run check:ts-docs:llm-example` |
 | Test the example and auto-apply suggested JSDoc replacements | `npm run check:ts-docs:llm-example -- --apply` |
 | Audit staged TypeScript files that have no extra unstaged edits | `npm run check:ts-docs:llm` |
 | Audit all staged TypeScript blobs from the git index | `npm run check:ts-docs:llm -- --staged` |
@@ -102,8 +101,8 @@ reads git-index blobs that may not match the working tree.
 Other useful LLM audit options:
 
 ```bash
---file=packages/viewer-demo/src/extensions/linear-layout/linear-layout-parser.ts
---symbol=parseLayoutSpecs
+--file=packages/viewer-core/src/view.ts
+--symbol=parseTensorView
 --include-direct-helpers
 --limit=10
 --batch-size=4
@@ -115,9 +114,7 @@ Other useful LLM audit options:
 - `packages/viewer-core/src/`: reusable viewer engine, layout math, session
   model, rendering, and core tests.
 - `packages/viewer-demo/src/`: browser demo shell, command palette, widget
-  lifecycle, extension registry, and app tests.
-- `packages/viewer-demo/src/extensions/linear-layout/`: linear-layout extension,
-  parser/model code, preset catalog, widgets, and tests.
+  lifecycle, extension registry, extension API exports, and app tests.
 - `python/src/tensor_viz/`: Python package, session builder, local server, and
   built frontend assets.
 - `python/tests/`: Python API and documentation-example tests.
@@ -131,9 +128,6 @@ Architecture docs live next to the code they describe. Start with:
 - [Repository architecture](./ARCHITECTURE.md)
 - [Viewer core](./packages/viewer-core/src/ARCHITECTURE.md)
 - [Demo app shell](./packages/viewer-demo/src/ARCHITECTURE.md)
-- [Linear layout extension](./packages/viewer-demo/src/extensions/linear-layout/ARCHITECTURE.md)
-- [Linear layout presets](./packages/viewer-demo/src/extensions/linear-layout/presets/ARCHITECTURE.md)
-- [Linear layout widgets](./packages/viewer-demo/src/extensions/linear-layout/widgets/ARCHITECTURE.md)
 - [Python package](./python/src/tensor_viz/ARCHITECTURE.md)
 - [Maintenance tools](./tools/ARCHITECTURE.md)
 - [Browser e2e tests](./packages/viewer-demo/e2e/ARCHITECTURE.md)

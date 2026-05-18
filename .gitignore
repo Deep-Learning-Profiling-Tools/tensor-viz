@@ -3,6 +3,7 @@ node_modules/
 python/src/*.egg-info/
 python/src/tensor_viz/static/
 packages/*/dist/
+packages/*/lib/
 packages/*/node_modules/
 docs/_build/
 docs/_extra/
